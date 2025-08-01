@@ -8,13 +8,18 @@
 
 /* Begin PBXBuildFile section */
 		213F69B22A128836000BE6B0 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 213F69B02A128836000BE6B0 /* LaunchScreen.storyboard */; };
+		6A86B87C45BB4693B26BC16C /* RoomAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA98238F745C469C8D0DFFF1 /* RoomAnalyzer.swift */; };
 		71B6638528D0CABC00635A15 /* UnsupportedDevice.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 71B6638328D0CABC00635A15 /* UnsupportedDevice.storyboard */; };
+		9E8FD46BC00C4C19981BCB71 /* WiFiReportGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872C4060B5C54006A6D91234 /* WiFiReportGenerator.swift */; };
+		A4598A02FC9E4F74BB953215 /* FloorPlanViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD2AAACF95EE43A4AA8220E6 /* FloorPlanViewController.swift */; };
 		ACEF94B12820AD2300776A9D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACEF94B02820AD2300776A9D /* AppDelegate.swift */; };
 		ACEF94B32820AD2300776A9D /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACEF94B22820AD2300776A9D /* SceneDelegate.swift */; };
 		ACEF94B52820AD2300776A9D /* RoomCaptureViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACEF94B42820AD2300776A9D /* RoomCaptureViewController.swift */; };
 		ACEF94B82820AD2300776A9D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = ACEF94B62820AD2300776A9D /* Main.storyboard */; };
 		ACEF94BA2820AD2400776A9D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ACEF94B92820AD2400776A9D /* Assets.xcassets */; };
 		ACEF94C62820AF6600776A9D /* OnboardingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACEF94C52820AF6600776A9D /* OnboardingViewController.swift */; };
+		B60C4857AAB4429B919CBF85 /* WiFiSurveyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88DBB66906604175836B05AF /* WiFiSurveyManager.swift */; };
+		C33000D823094C028CE2DDDF /* ARVisualizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E7EF368BF7C416A8F777AE1 /* ARVisualizationManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +27,9 @@
 		213F69B12A128836000BE6B0 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		35A95C3C90A8D7FA01AA694A /* SampleCode.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = SampleCode.xcconfig; path = Configuration/SampleCode.xcconfig; sourceTree = "<group>"; };
 		71B6638428D0CABC00635A15 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/UnsupportedDevice.storyboard; sourceTree = "<group>"; };
+		7E7EF368BF7C416A8F777AE1 /* ARVisualizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARVisualizationManager.swift; sourceTree = "<group>"; };
+		872C4060B5C54006A6D91234 /* WiFiReportGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiReportGenerator.swift; sourceTree = "<group>"; };
+		88DBB66906604175836B05AF /* WiFiSurveyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiSurveyManager.swift; sourceTree = "<group>"; };
 		ACEF94AD2820AD2300776A9D /* RoomPlanSimple.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RoomPlanSimple.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		ACEF94B02820AD2300776A9D /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		ACEF94B22820AD2300776A9D /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
@@ -30,7 +38,9 @@
 		ACEF94B92820AD2400776A9D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		ACEF94BE2820AD2400776A9D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		ACEF94C52820AF6600776A9D /* OnboardingViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = OnboardingViewController.swift; sourceTree = "<group>"; };
+		BD2AAACF95EE43A4AA8220E6 /* FloorPlanViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloorPlanViewController.swift; sourceTree = "<group>"; };
 		CD4891E2C9F3F7012DE25B49 /* LICENSE.txt */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = LICENSE.txt; sourceTree = "<group>"; };
+		FA98238F745C469C8D0DFFF1 /* RoomAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomAnalyzer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -83,6 +93,11 @@
 				ACEF94B92820AD2400776A9D /* Assets.xcassets */,
 				213F69B02A128836000BE6B0 /* LaunchScreen.storyboard */,
 				ACEF94BE2820AD2400776A9D /* Info.plist */,
+				7E7EF368BF7C416A8F777AE1 /* ARVisualizationManager.swift */,
+				BD2AAACF95EE43A4AA8220E6 /* FloorPlanViewController.swift */,
+				FA98238F745C469C8D0DFFF1 /* RoomAnalyzer.swift */,
+				872C4060B5C54006A6D91234 /* WiFiReportGenerator.swift */,
+				88DBB66906604175836B05AF /* WiFiSurveyManager.swift */,
 			);
 			path = RoomPlanSimple;
 			sourceTree = "<group>";
@@ -172,6 +187,11 @@
 				ACEF94B12820AD2300776A9D /* AppDelegate.swift in Sources */,
 				ACEF94B32820AD2300776A9D /* SceneDelegate.swift in Sources */,
 				ACEF94C62820AF6600776A9D /* OnboardingViewController.swift in Sources */,
+				C33000D823094C028CE2DDDF /* ARVisualizationManager.swift in Sources */,
+				A4598A02FC9E4F74BB953215 /* FloorPlanViewController.swift in Sources */,
+				6A86B87C45BB4693B26BC16C /* RoomAnalyzer.swift in Sources */,
+				9E8FD46BC00C4C19981BCB71 /* WiFiReportGenerator.swift in Sources */,
+				B60C4857AAB4429B919CBF85 /* WiFiSurveyManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -329,11 +349,13 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = U4GT5CZ7J7;
+				DEVELOPMENT_TEAM = M7Z4VLP3A9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RoomPlanSimple/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_NSCameraUsageDescription = "RoomCaptureView Requires Camera Access";
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app requires access to your camera to use the LiDAR scanner. This is used to create a model of your room for planning purposes. Your camera images and LiDAR data are only used for this purpose and are not stored or shared.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Network access is required to analyze WiFi performance and conduct speed tests for coverage optimization.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Location access is used to enhance WiFi network analysis and provide more accurate coverage mapping.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -343,7 +365,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = trahe.eu.RoomPlanSimple;
+				PRODUCT_BUNDLE_IDENTIFIER = interspectrum.erdman.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
@@ -361,11 +383,13 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = U4GT5CZ7J7;
+				DEVELOPMENT_TEAM = M7Z4VLP3A9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RoomPlanSimple/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_NSCameraUsageDescription = "RoomCaptureView Requires Camera Access";
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app requires access to your camera to use the LiDAR scanner. This is used to create a model of your room for planning purposes. Your camera images and LiDAR data are only used for this purpose and are not stored or shared.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Network access is required to analyze WiFi performance and conduct speed tests for coverage optimization.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Location access is used to enhance WiFi network analysis and provide more accurate coverage mapping.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -375,7 +399,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = trahe.eu.RoomPlanSimple;
+				PRODUCT_BUNDLE_IDENTIFIER = interspectrum.erdman.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
