@@ -33,32 +33,37 @@ class WiFiReportGenerator {
         <!DOCTYPE html>
         <html>
         <head>
-            <title>WiFi Coverage Analysis Report</title>
+            <title>Spectrum WiFi Coverage Analysis Report</title>
             <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 40px; }
-                .header { text-align: center; margin-bottom: 40px; }
-                .section { margin-bottom: 30px; }
-                .room-analysis { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 10px 0; }
+                body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 40px; background-color: #f8f9fa; }
+                .header { text-align: center; margin-bottom: 40px; background: linear-gradient(135deg, #001F3F, #003366); color: white; padding: 30px; border-radius: 12px; }
+                .spectrum-logo { font-size: 2.5em; font-weight: bold; margin-bottom: 10px; }
+                .section { margin-bottom: 30px; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+                .room-analysis { background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #001F3F; }
                 .measurement-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; }
-                .measurement-card { background: white; padding: 15px; border-radius: 8px; border-left: 4px solid; }
-                .excellent { border-left-color: #28a745; }
-                .good { border-left-color: #ffc107; }
-                .fair { border-left-color: #fd7e14; }
-                .poor { border-left-color: #dc3545; }
-                .recommendations { background: #e3f2fd; padding: 20px; border-radius: 8px; }
-                .router-placement { background: #f0f8e7; padding: 15px; border-radius: 8px; margin: 10px 0; }
+                .measurement-card { background: white; padding: 15px; border-radius: 8px; border-left: 4px solid; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                .excellent { border-left-color: #22C55E; }
+                .good { border-left-color: #FFC107; }
+                .fair { border-left-color: #FF9800; }
+                .poor { border-left-color: #DC143C; }
+                .recommendations { background: linear-gradient(135deg, #e3f2fd, #bbdefb); padding: 20px; border-radius: 12px; border: 1px solid #001F3F; }
+                .router-placement { background: #e8f5e8; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 3px solid #22C55E; }
                 table { width: 100%; border-collapse: collapse; margin: 20px 0; }
                 th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-                th { background-color: #f8f9fa; }
+                th { background: linear-gradient(135deg, #001F3F, #003366); color: white; }
                 .summary-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0; }
-                .stat-card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
-                .stat-number { font-size: 2em; font-weight: bold; color: #007bff; }
+                .stat-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); text-align: center; border-top: 4px solid #001F3F; }
+                .stat-number { font-size: 2em; font-weight: bold; color: #001F3F; }
+                .spectrum-red { color: #DC143C; }
+                .spectrum-blue { color: #001F3F; }
+                h1, h2, h3 { color: #001F3F; }
             </style>
         </head>
         <body>
             <div class="header">
+                <div class="spectrum-logo">SPECTRUM</div>
                 <h1>📶 WiFi Coverage Analysis Report</h1>
-                <p>Generated on \(DateFormatter.reportDisplayFormatter.string(from: report.generatedAt))</p>
+                <p>Professional Network Assessment | Generated on \(DateFormatter.reportDisplayFormatter.string(from: report.generatedAt))</p>
             </div>
             
             \(generateExecutiveSummary(report))

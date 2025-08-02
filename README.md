@@ -1,11 +1,817 @@
-# Create a 3D model of an interior room by guiding the user through an AR experience
+# Spectrum WiFi Analyzer App
 
-Highlight physical structures and display text that guides a user to scan the shape of their physical environment using a framework-provided view.
+A professional WiFi analysis application for Spectrum that combines Apple's ARKit and RoomPlan technologies to create comprehensive WiFi coverage maps and professional reports.
 
-## Overview
+## 🌟 Features
 
-- Note: This sample code project is associated with WWDC22 session [10127: Create parametric 3D room scans with RoomPlan](https://developer.apple.com/wwdc22/10127).
+### Core Functionality
+- **Room Scanning**: Uses Apple RoomPlan to capture and analyze 3D room layouts
+- **WiFi Analysis**: Real-time WiFi speed testing and signal strength measurement  
+- **AR Visualization**: Augmented reality overlay showing WiFi measurements in 3D space
+- **Professional Reports**: Generate detailed WiFi analysis reports with floor plans
+- **Architectural Floor Plans**: Professional-style floor plans with proper symbols
 
-## Configure the sample code project
+### Key Capabilities
+- **Smart Room Detection**: Automatically identifies room types (kitchen, bedroom, bathroom, etc.)
+- **Furniture Recognition**: Detects and maps appliances, furniture, and fixtures
+- **WiFi Heatmaps**: Visual representations of signal strength and coverage
+- **Router Placement Recommendations**: Suggests optimal router locations
+- **Distance-Based Measurements**: Records WiFi data every foot of movement
+- **Speed Test Progress**: Visual progress indicators during network testing
 
-Set the run destination to an iOS 16 device with a LiDAR Scanner. This sample app requires augmented reality, so it doesn't support Simulator.
+## 🎯 User Experience
+
+### Streamlined Workflow
+1. **Start Room Scan** → User-controlled scanning with real-time feedback
+2. **Stop When Satisfied** → Manual control over scan completion
+3. **Automatic Analysis** → AI identifies rooms and furniture automatically  
+4. **WiFi Survey** → AR-guided WiFi measurement collection
+5. **Professional Results** → Architectural-style floor plans and reports
+
+### Visual Design
+- **Spectrum Branding**: Corporate colors, fonts, and styling throughout
+- **Color-Coded Status**: Blue (scanning), Green (complete), Orange (measuring)
+- **Architectural Symbols**: Professional floor plan symbols matching industry standards
+- **Context Preservation**: Room outlines remain visible in AR mode
+
+## 🏗️ Architecture
+
+### Core Components
+
+#### `RoomCaptureViewController`
+- Main interface controller managing scanning workflow
+- Handles user interactions and state transitions
+- Coordinates between RoomPlan capture and WiFi analysis
+- **Key Features:**
+  - User-controlled start/stop scanning
+  - Real-time status updates with visual feedback
+  - Seamless transition between scanning modes
+
+#### `RoomAnalyzer`
+- Intelligent room type classification using object detection
+- Enhanced algorithm with size/shape fallback logic
+- Furniture and appliance cataloging
+- **Algorithm Features:**
+  - Object-based scoring (refrigerator → kitchen, bed → bedroom)
+  - Size-based fallback (small rooms → bathroom, large → living room)
+  - Confidence metrics for classification accuracy
+
+#### `WiFiSurveyManager`
+- Real-time WiFi speed testing with progress tracking
+- Distance-based measurement collection (every 1 foot)
+- Network monitoring and signal strength analysis
+- **Performance Features:**
+  - Throttled measurements to prevent device overload
+  - Real speed testing with downloadable content
+  - Progress callbacks for user feedback
+
+#### `ARVisualizationManager`
+- AR overlay system with performance optimizations
+- Room outline preservation for spatial context
+- WiFi measurement visualization with 3D nodes
+- **Optimization Features:**
+  - Node pooling for memory efficiency
+  - Reduced AR complexity for better performance
+  - Limited node count (20 max) for smooth operation
+
+#### `FloorPlanViewController`
+- Professional architectural-style floor plan rendering
+- Realistic furniture and appliance symbols
+- Interactive heatmap visualization
+- **Visual Features:**
+  - Proper door symbols with swing arcs
+  - Furniture symbols matching architectural standards
+  - Room shape accuracy using wall detection
+
+### Data Flow
+```
+RoomPlan Capture → Room Analysis → WiFi Survey → AR Visualization → Report Generation
+```
+
+## 🔧 Technical Implementation
+
+### File Structure and Responsibilities
+
+```
+RoomPlanSimple/
+├── RoomCaptureViewController.swift    # Main UI coordinator and state management
+├── RoomAnalyzer.swift                 # Room type classification and furniture detection
+├── WiFiSurveyManager.swift           # Network testing and measurement collection
+├── ARVisualizationManager.swift      # 3D AR rendering and node management
+├── FloorPlanViewController.swift     # 2D architectural floor plan rendering
+├── SpectrumBranding.swift           # Corporate design system and UI components
+└── WiFiReportGenerator.swift        # HTML report generation and export
+```
+
+### Key Design Decisions and Rationale
+
+#### 1. **User-Controlled Scanning** (vs Auto-Detection)
+**Decision**: Manual start/stop buttons instead of automatic completion detection
+**Rationale**: RoomPlan doesn't provide reliable completion signals; user knows best when they've captured enough data
+**Implementation**: `primaryActionTapped()` switches between "Start/Stop Room Scan" based on `isScanning` state
+
+#### 2. **Distance-Based WiFi Measurements** (vs Time-Based)
+**Decision**: Record measurements every 1 foot of movement instead of every second
+**Rationale**: Prevents overwhelming the system with too many data points while ensuring adequate coverage
+**Implementation**: `simd_distance(location, lastPosition) >= 0.3048` (1 foot in meters)
+
+#### 3. **Architectural Symbols** (vs Generic Shapes)
+**Decision**: Professional furniture symbols instead of simple rectangles
+**Rationale**: Makes floor plans immediately recognizable to technicians and customers
+**Implementation**: Specialized drawing methods for each furniture category with proper labels
+
+#### 4. **AR Performance Optimization**
+**Decision**: Limited nodes (20 max), 2-second update intervals, simplified AR config
+**Rationale**: Prevents device overheating and maintains smooth AR tracking
+**Implementation**: Node pooling with `maxNodes = 20` and `updateInterval = 2.0`
+
+### Detailed Component APIs
+
+#### RoomCaptureViewController
+**Primary Responsibility**: UI state management and workflow coordination
+
+**Key Properties**:
+```swift
+private var isScanning: Bool = false           // Current scanning state
+private var capturedRoomData: CapturedRoom?    // Processed room data from RoomPlan
+private var primaryActionButton: UIButton?     // Context-sensitive main action
+private var speedTestProgressView: UIProgressView?  // Speed test visual feedback
+```
+
+**State Management Logic**:
+```swift
+func updateButtonStates() {
+    if isScanning {
+        primaryActionButton?.setTitle("Stop Room Scan", for: .normal)
+    } else if capturedRoomData == nil {
+        primaryActionButton?.setTitle("Start Room Scan", for: .normal)
+    } else if !wifiSurveyManager.isRecording {
+        primaryActionButton?.setTitle("Start WiFi Survey", for: .normal)
+    } else {
+        primaryActionButton?.setTitle("Stop WiFi Survey", for: .normal)
+    }
+}
+```
+
+**Critical Methods**:
+- `primaryActionTapped()`: Main user interaction handler
+- `startSession()`/`stopSession()`: RoomPlan capture control
+- `startWiFiSurvey()`/`stopWiFiSurvey()`: WiFi measurement control
+- `updateStatusLabel()`: Visual feedback with color-coded backgrounds
+
+#### RoomAnalyzer
+**Primary Responsibility**: AI-powered room classification and furniture cataloging
+
+**Enhanced Classification Algorithm**:
+```swift
+func classifyRoom(surface: CapturedRoom.Surface, objects: [CapturedRoom.Object]) -> RoomType {
+    // Step 1: Object-based scoring
+    var kitchenScore = 0, bedroomScore = 0, bathroomScore = 0
+    
+    for object in nearbyObjects {
+        switch object.category {
+        case .refrigerator, .oven, .dishwasher: kitchenScore += 3
+        case .bed: bedroomScore += 4
+        case .toilet, .bathtub: bathroomScore += 4
+        case .sofa, .television: livingRoomScore += 3
+        // ... complete scoring logic
+        }
+    }
+    
+    // Step 2: Find highest scoring room type
+    let maxScore = scores.max(by: { $0.1 < $1.1 })
+    
+    // Step 3: Fallback to size-based classification if no objects
+    if maxScore?.1 == 0 {
+        return classifyRoomBySize(surface: surface)
+    }
+    
+    return maxScore?.0 ?? .unknown
+}
+
+func classifyRoomBySize(surface: CapturedRoom.Surface) -> RoomType {
+    let area = calculateSurfaceArea(surface)
+    let aspectRatio = max(width, depth) / min(width, depth)
+    
+    // Size-based heuristics
+    if area < 6.0 { return aspectRatio > 2.0 ? .hallway : .bathroom }
+    else if area < 12.0 { return aspectRatio > 2.0 ? .hallway : .bedroom }
+    else if area < 25.0 { return .bedroom }
+    else { return .livingRoom }
+}
+```
+
+**Data Structures**:
+```swift
+struct IdentifiedRoom {
+    let type: RoomType                    // Classification result
+    let bounds: CapturedRoom.Surface      // Original RoomPlan data
+    let center: simd_float3              // Room center point
+    let area: Float                      // Calculated floor area
+    let confidence: Float                // Classification confidence (0-1)
+    let wallPoints: [simd_float2]        // Actual wall boundary points
+    let doorways: [simd_float2]          // Door/opening positions
+}
+```
+
+#### WiFiSurveyManager
+**Primary Responsibility**: Network performance measurement and data collection
+
+**Real Speed Testing Implementation**:
+```swift
+func performRealSpeedTest(completion: @escaping (Result<Double, SpeedTestError>) -> Void) {
+    guard !isRunningSpeedTest else { return }
+    isRunningSpeedTest = true
+    
+    // Use 1MB download for speed calculation
+    let testURL = URL(string: "https://httpbin.org/bytes/1048576")!
+    let startTime = CFAbsoluteTimeGetCurrent()
+    
+    // Progress tracking with timer
+    let progressTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] timer in
+        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        let progress = min(Float(elapsed / 10.0), 0.95)
+        self?.speedTestProgressHandler?(progress, "Testing download speed...")
+    }
+    
+    // Download task with completion handler
+    let task = session.downloadTask(with: request) { tempURL, response, error in
+        let duration = CFAbsoluteTimeGetCurrent() - startTime
+        let bytes = Double(fileSize)
+        let mbps = (bytes * 8 / duration) / 1_000_000
+        completion(.success(mbps))
+    }
+}
+```
+
+**Distance-Based Recording**:
+```swift
+func recordMeasurement(at location: simd_float3, roomType: RoomType?) {
+    guard isRecording else { return }
+    
+    // Only record if moved at least 1 foot
+    if let lastPosition = lastMeasurementPosition {
+        let distance = simd_distance(location, lastPosition)
+        guard distance >= measurementDistanceThreshold else { return }
+    }
+    
+    lastMeasurementPosition = location
+    // Create and store measurement...
+}
+```
+
+#### ARVisualizationManager
+**Primary Responsibility**: 3D AR visualization with performance optimization
+
+**Node Pooling System**:
+```swift
+private var nodePool: [SCNNode] = []
+private let maxNodes = 20
+
+func addWiFiMeasurementVisualization(at position: simd_float3, measurement: WiFiMeasurement) {
+    // Performance optimization: Limit number of nodes
+    if measurementDisplayNodes.count >= maxNodes {
+        let oldestNode = measurementDisplayNodes.removeFirst()
+        oldestNode.removeFromParentNode()
+        nodePool.append(oldestNode)  // Return to pool for reuse
+    }
+    
+    let node = getOrCreateMeasurementNode(for: measurement)
+    // ... add to scene
+}
+```
+
+**Room Outline Preservation**:
+```swift
+func createRoomOutlines(from capturedRoom: CapturedRoom) {
+    // Create semi-transparent wall outlines
+    for wall in capturedRoom.walls {
+        let wallNode = createWallOutlineNode(from: wall)
+        // Thin white boxes showing wall positions
+        wallNode.geometry = SCNBox(width: wall.dimensions.x, height: wall.dimensions.y, length: 0.02)
+        wallNode.material.transparency = 0.7
+    }
+}
+```
+
+#### FloorPlanViewController
+**Primary Responsibility**: 2D architectural floor plan rendering
+
+**Architectural Drawing System**:
+```swift
+func drawArchitecturalDoor(context: CGContext, at center: CGPoint, scale: CGFloat) {
+    let doorWidth: CGFloat = 12 * scale / 50
+    
+    // Door frame (opening in wall)
+    context.setStrokeColor(UIColor.white.cgColor)
+    context.move(to: CGPoint(x: center.x - doorWidth/2, y: center.y))
+    context.addLine(to: CGPoint(x: center.x + doorWidth/2, y: center.y))
+    context.strokePath()
+    
+    // Door swing arc (architectural convention)
+    context.addArc(center: CGPoint(x: center.x - doorWidth/2, y: center.y),
+                   radius: doorWidth, startAngle: 0, endAngle: .pi/2, clockwise: false)
+    context.strokePath()
+    
+    // Door panel position
+    context.move(to: CGPoint(x: center.x - doorWidth/2, y: center.y))
+    context.addLine(to: CGPoint(x: center.x - doorWidth/2, y: center.y - doorWidth))
+    context.strokePath()
+}
+```
+
+**Furniture Symbol Library**:
+Each furniture type has a specialized drawing method following architectural conventions:
+
+```swift
+func drawBed(context: CGContext, at center: CGPoint, size: CGSize) {
+    // Bed frame outline
+    context.addRect(rect)
+    context.strokePath()
+    
+    // Pillows at head of bed (20% of length)
+    let pillowRect = CGRect(x: rect.minX + 2, y: rect.minY + 2, 
+                           width: rect.width - 4, height: rect.height * 0.2)
+    context.setFillColor(UIColor.lightGray.cgColor)
+    context.addRect(pillowRect)
+    context.fillPath()
+    
+    drawFurnitureLabel(context: context, text: "BED", at: center)
+}
+
+func drawSofa(context: CGContext, at center: CGPoint, size: CGSize) {
+    // Rounded rectangle for sofa body
+    context.addRoundedRect(in: rect, cornerWidth: 4, cornerHeight: 4)
+    context.drawPath(using: .fillStroke)
+    
+    // Dashed lines for cushion divisions
+    context.setLineDash(phase: 0, lengths: [3, 2])
+    let cushionWidth = size.width / 3
+    for i in 1..<3 {
+        let x = rect.minX + CGFloat(i) * cushionWidth
+        context.move(to: CGPoint(x: x, y: rect.minY + 2))
+        context.addLine(to: CGPoint(x: x, y: rect.maxY - 2))
+    }
+    context.strokePath()
+}
+```
+
+### Performance Monitoring and Optimization
+
+#### Memory Management Strategy
+- **Node Pooling**: Reuse AR nodes instead of constant creation/destruction
+- **Limited Node Count**: Maximum 20 AR measurement nodes at any time
+- **Weak References**: All closures use `[weak self]` to prevent retain cycles
+- **Cleanup Methods**: Explicit removal of AR nodes and timers
+
+#### AR Performance Optimization
+```swift
+// Simplified AR configuration for better performance
+let configuration = ARWorldTrackingConfiguration()
+configuration.sceneReconstruction = .mesh        // Remove classification
+configuration.environmentTexturing = .none       // Disable texturing
+// Disable person segmentation for performance
+```
+
+#### WiFi Testing Optimization
+- **Background Threading**: Network requests don't block UI
+- **Progress Callbacks**: Real-time feedback prevents user confusion
+- **Error Handling**: Graceful degradation when network tests fail
+- **Throttled Measurements**: Distance-based instead of time-based
+
+### Error Handling and Edge Cases
+
+#### Common Issues and Solutions
+
+**1. RoomPlan Capture Failures**
+- **Symptom**: `captureView(didPresent:error:)` called with error
+- **Cause**: Poor lighting, insufficient LiDAR data, or device movement too fast
+- **Solution**: Status messages guide user to move slower and ensure good lighting
+
+**2. AR Tracking Performance Issues**
+- **Symptom**: "poor slam" messages in console, AR nodes jumping
+- **Cause**: Device overheating, insufficient processing power
+- **Solution**: Reduced AR complexity, node pooling, update throttling
+
+**3. WiFi Speed Test Failures**
+- **Symptom**: `SpeedTestError` in completion handler
+- **Cause**: Network connectivity issues, server unavailable
+- **Solution**: Graceful fallback to last known speed, user notification
+
+**4. Room Classification Inaccuracy**
+- **Symptom**: Wrong room types detected
+- **Cause**: Insufficient or ambiguous furniture objects
+- **Solution**: Fallback to size-based classification with confidence metrics
+
+#### Debug Logging Strategy
+```swift
+// Comprehensive logging with emoji prefixes for easy filtering
+print("🏠 Classifying room with \(nearbyObjects.count) nearby objects")
+print("📍 WiFi measurement #\(measurements.count) recorded")
+print("🎯 Adding AR visualization for measurement")
+print("⚠️ Invalid coverage value: \(coverage) at position \(position)")
+```
+
+### Integration Points and Extension Opportunities
+
+#### Current Integration Points
+- **RoomPlan Framework**: Apple's 3D room capture system
+- **ARKit**: Augmented reality visualization platform  
+- **Network Framework**: Real-time connectivity monitoring
+- **SceneKit**: 3D node rendering and management
+- **Core Graphics**: 2D floor plan rendering
+
+#### Future Integration Opportunities
+```swift
+// Potential cloud sync integration point
+extension WiFiSurveyManager {
+    func syncToSpectrumCloud() {
+        // Upload room data and measurements to Spectrum backend
+        // Implement OAuth authentication
+        // Handle offline data queuing
+    }
+}
+
+// Potential IoT device integration
+extension RoomAnalyzer {
+    func detectSmartDevices() -> [IoTDevice] {
+        // Scan for Spectrum-compatible smart home devices
+        // Map device locations to room layout
+        // Provide connectivity recommendations
+    }
+}
+```
+
+### Testing Strategy and Quality Assurance
+
+#### Unit Test Coverage Areas
+- **Room Classification Logic**: Test with various furniture combinations
+- **WiFi Measurement Distance Calculations**: Verify 1-foot threshold accuracy
+- **AR Node Pooling**: Ensure proper cleanup and reuse
+- **Speed Test Calculations**: Validate Mbps calculations with known data sizes
+
+#### Manual Testing Checklist
+- [ ] Room scanning works in various lighting conditions
+- [ ] AR tracking remains stable during WiFi survey
+- [ ] Floor plans render correctly with all furniture types
+- [ ] Speed test progress indicators function properly
+- [ ] App handles network connectivity loss gracefully
+
+This enhanced documentation provides complete context for future development work, including architectural decisions, implementation details, common issues, and extension points. Any developer should be able to understand and modify the codebase without requiring additional AI assistance.
+
+## 🎨 Visual Design System
+
+### Spectrum Branding
+- **Primary Blue**: `UIColor(red: 0.0, green: 0.122, blue: 0.247, alpha: 1.0)`
+- **Accent Colors**: Green, Orange, Silver for different states
+- **Typography**: System fonts with appropriate weights and sizes
+- **Button Styles**: Primary, Secondary, Accent with consistent styling
+
+### Floor Plan Symbols
+- **Doors**: Arc showing swing direction with frame opening
+- **Furniture**: Realistic symbols with text labels
+  - Beds: Rectangle with pillow area
+  - Sofas: Rounded rectangle with cushion divisions
+  - Tables: Circle (round) or rectangle (rectangular)
+  - Appliances: Specialized symbols with identifying features
+- **Rooms**: Actual wall boundaries instead of simple rectangles
+
+### Status Indicators
+- **📱 Scanning**: Move around to capture room layout
+- **✅ Complete**: Room captured with count of identified rooms
+- **📡 Measuring**: WiFi survey in progress with point count
+- **🎉 Finished**: Survey complete with results available
+
+## 📊 Performance Optimizations
+
+### AR Rendering
+- **Node Pooling**: Reuse AR nodes to reduce memory allocation
+- **Limited Nodes**: Maximum 20 measurement nodes for smooth performance
+- **Reduced Complexity**: Simplified AR configuration for better tracking
+- **Update Throttling**: 2-second intervals to reduce processing load
+
+### WiFi Testing
+- **Distance-Based**: Only test every foot of movement
+- **Progress Tracking**: Visual feedback during 10+ second speed tests
+- **Error Handling**: Graceful fallback when network tests fail
+- **Background Processing**: Non-blocking network operations
+
+### Memory Management
+- **Cleanup Methods**: Proper removal of AR nodes and listeners
+- **Weak References**: Prevent retain cycles in callbacks
+- **Efficient Data Structures**: Optimized for large measurement datasets
+
+## 🔍 Debugging and Logging
+
+### Comprehensive Logging
+```swift
+print("🏠 Classifying room with \(nearbyObjects.count) nearby objects")
+print("📍 WiFi measurement #\(measurements.count) recorded at (\(location.x), \(location.y), \(location.z))")
+print("🎯 Adding AR visualization for measurement at (\(position.x), \(position.y), \(position.z))")
+```
+
+### Debug Information
+- Room classification process with object detection
+- WiFi measurement collection with location tracking  
+- AR node creation and positioning
+- Speed test progress and results
+
+## 🚀 Future Enhancements
+
+### Potential Improvements
+- **Cloud Sync**: Store room layouts and measurements in Spectrum backend
+- **Historical Analysis**: Track WiFi performance over time
+- **Advanced Analytics**: Machine learning for optimal router placement
+- **Multi-Floor Support**: Handle complex building layouts
+- **Professional Reporting**: PDF generation with detailed technical specifications
+
+### Integration Opportunities
+- **Spectrum Systems**: Connect with customer service and technical support
+- **IoT Integration**: Monitor smart home device connectivity
+- **Network Optimization**: Automatic router configuration recommendations
+
+## 📝 Development Notes
+
+### iOS Version Requirements
+- **iOS 17.0+**: Required for full RoomPlan functionality
+- **ARKit Support**: iPhone/iPad with LiDAR sensor recommended
+- **Network Access**: WiFi connection required for speed testing
+
+### Performance Considerations
+- **Device Heat**: Extended AR sessions may cause device warming
+- **Battery Usage**: 3D scanning and AR rendering are power-intensive
+- **Storage**: Room data and measurements require local storage space
+
+### Configuration
+Set the run destination to an iOS 17+ device with a LiDAR Scanner. This app requires augmented reality and network access, so it doesn't support Simulator.
+
+## 🔧 Development Guide and Troubleshooting
+
+### Build Configuration Requirements
+
+#### Xcode Settings
+- **Deployment Target**: iOS 17.0 or later
+- **Frameworks**: RoomPlan, ARKit, SceneKit, Network, Core Graphics
+- **Entitlements**: Camera usage, WiFi access
+- **Device**: iPhone/iPad with LiDAR sensor (iPhone 12 Pro or later, iPad Pro 2020 or later)
+
+#### Info.plist Required Keys
+```xml
+<key>NSCameraUsageDescription</key>
+<string>This app requires access to your camera to use the LiDAR scanner for room mapping and WiFi analysis.</string>
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>Location access is needed to identify WiFi networks accurately.</string>
+```
+
+### Common Development Issues and Solutions
+
+#### Build Issues
+
+**Problem**: `SpectrumBranding.swift` not found during build
+**Solution**: Ensure file is added to target in project.pbxproj:
+```
+/* SpectrumBranding.swift in Sources */ = {isa = PBXBuildFile; fileRef = [UUID] /* SpectrumBranding.swift */; };
+```
+
+**Problem**: NWPath ambiguity error
+**Solution**: Use explicit Network framework import:
+```swift
+import Network
+// Use Network.NWPath instead of just NWPath
+```
+
+**Problem**: RoomPlan availability warnings
+**Solution**: Wrap RoomPlan usage in availability checks:
+```swift
+if #available(iOS 17.0, *) {
+    roomAnalyzer.analyzeCapturedRoom(processedResult)
+}
+```
+
+#### Runtime Issues
+
+**Problem**: App crashes on simulator
+**Root Cause**: ARKit and LiDAR not available on simulator
+**Solution**: Add device check in AppDelegate:
+```swift
+guard ARWorldTrackingConfiguration.isSupported else {
+    // Show unsupported device screen
+    return
+}
+```
+
+**Problem**: Room scanning appears to hang
+**Root Cause**: User waiting for automatic completion that doesn't exist
+**Solution**: User must manually tap "Stop Room Scan" when satisfied with capture
+
+**Problem**: WiFi measurements not appearing in AR
+**Root Cause**: AR session not starting properly
+**Debug Steps**:
+1. Check `arVisualizationManager.isARActive` is true
+2. Verify `switchToARMode()` calls `startARSession()`
+3. Look for AR permission errors in console
+
+**Problem**: Floor plan shows no walls, only furniture
+**Root Cause**: Wall extraction failing from RoomPlan data
+**Debug Steps**:
+1. Check `room.wallPoints.count` in logs
+2. Verify `extractWallPoints()` finds nearby walls
+3. Fallback to rectangular room shape if no walls detected
+
+#### Performance Issues
+
+**Problem**: App becomes unresponsive during WiFi survey
+**Root Cause**: Too many AR nodes or measurements
+**Solution**: Verify node pooling is working:
+```swift
+// Check current node count doesn't exceed limit
+if measurementDisplayNodes.count >= maxNodes {
+    // Remove oldest nodes
+}
+```
+
+**Problem**: Device overheating during extended use
+**Root Cause**: Intensive AR processing
+**Solution**: Reduce AR complexity:
+```swift
+configuration.sceneReconstruction = .mesh  // Not .meshWithClassification
+configuration.environmentTexturing = .none
+```
+
+**Problem**: Speed tests timing out
+**Root Cause**: Network connectivity or server issues
+**Debug Steps**:
+1. Test with known good network connection
+2. Check `speedTestProgressHandler` is being called
+3. Verify URL `https://httpbin.org/bytes/1048576` is accessible
+
+### Code Modification Guidelines
+
+#### Adding New Furniture Types
+1. Add case to `CapturedRoom.Object.Category` (if not already present)
+2. Update scoring in `RoomAnalyzer.classifyRoom()`:
+```swift
+case .newFurnitureType:
+    appropriateRoomScore += scoreValue
+```
+3. Create drawing method in `FloorPlanViewController`:
+```swift
+func drawNewFurniture(context: CGContext, at center: CGPoint, size: CGSize) {
+    // Follow architectural symbol conventions
+    // Include appropriate text label
+}
+```
+4. Add case to `drawArchitecturalFurniture()` switch statement
+
+#### Adding New Room Types
+1. Add case to `RoomType` enum:
+```swift
+case newRoomType = "New Room Type"
+```
+2. Update classification scoring in `classifyRoom()`
+3. Add color in `roomTypeColor()` method
+4. Update size-based fallback logic if appropriate
+
+#### Modifying WiFi Measurement Frequency
+Current: Every 1 foot of movement (`0.3048` meters)
+```swift
+private let measurementDistanceThreshold: Float = 0.3048
+```
+To change frequency, modify this constant:
+- More frequent: `0.1524` (6 inches)
+- Less frequent: `0.6096` (2 feet)
+
+#### Customizing AR Performance
+Node limit (currently 20):
+```swift
+private let maxNodes = 20
+```
+Update frequency (currently 2 seconds):
+```swift
+private let updateInterval: TimeInterval = 2.0
+```
+
+### Testing Procedures
+
+#### Device Testing Checklist
+- [ ] **iPhone 12 Pro or later**: LiDAR sensor required
+- [ ] **iOS 17.0+**: RoomPlan framework availability
+- [ ] **Good lighting**: Avoid dark environments
+- [ ] **WiFi network**: Connected network for speed testing
+- [ ] **Clear space**: 10+ feet scanning area for best results
+
+#### Feature Testing Scenarios
+
+**Room Scanning Test**:
+1. Start in corner of room
+2. Move device slowly (1-2 feet per second)
+3. Capture all walls, floor, and major furniture
+4. Stop manually when satisfied with coverage
+5. Verify room type classification is reasonable
+
+**WiFi Survey Test**:
+1. Ensure AR mode displays room outlines
+2. Move around room systematically
+3. Verify measurement nodes appear every ~3 feet of movement
+4. Check speed test progress indicators appear
+5. Confirm measurements recorded in AR overlay
+
+**Floor Plan Test**:
+1. Verify room shapes match actual layout
+2. Check furniture symbols are recognizable
+3. Test door symbols show proper swing arcs
+4. Confirm room labels display with confidence percentages
+5. Toggle heatmap overlay functionality
+
+#### Performance Benchmarks
+- **Memory Usage**: Should not exceed 200MB during normal operation
+- **Frame Rate**: AR view should maintain 30+ FPS
+- **Speed Test Duration**: 5-15 seconds per test depending on network
+- **Room Analysis**: Complete within 2-3 seconds after scan stop
+
+### Debugging Tools and Techniques
+
+#### Console Logging Filters
+Use these filters in Xcode console to isolate relevant logs:
+- `🏠` - Room analysis and classification
+- `📍` - WiFi measurement recording
+- `🎯` - AR visualization creation
+- `⚠️` - Warnings and validation errors
+- `📡` - Network and speed testing
+
+#### Common Log Messages and Meanings
+```
+"🏠 Classifying room with 3 nearby objects"
+→ Room classification in progress, found 3 furniture items
+
+"📍 WiFi measurement #15 recorded at (1.2, 0.5, -2.1)"
+→ Successfully recorded 15th measurement at specific 3D position
+
+"⚠️ Insufficient coverage data points for heatmap: 1"
+→ Need more measurements for heatmap generation
+
+"Skipping integration due to poor slam"
+→ AR tracking quality degraded, reduce AR complexity
+```
+
+#### Memory Leak Detection
+Use Xcode Instruments to monitor:
+- **AR Node Count**: Should not continuously increase
+- **Timer References**: Ensure all timers are invalidated
+- **Closure Captures**: Check for strong reference cycles
+
+### Architecture Evolution and Scalability
+
+#### Current Limitations and Future Solutions
+
+**Single Floor Limitation**:
+- Current: Only handles single-floor layouts
+- Future: Multi-floor detection using altitude changes
+- Implementation: Extend `RoomAnalyzer` with floor grouping logic
+
+**Local Data Storage**:
+- Current: All data stored in memory during session
+- Future: Core Data persistence for historical analysis
+- Implementation: Add data model layer with sync capabilities
+
+**Network Testing Accuracy**:
+- Current: Simple download speed test
+- Future: Comprehensive latency, jitter, and packet loss analysis
+- Implementation: Extend `WiFiSurveyManager` with advanced metrics
+
+#### Extension Points for Custom Features
+
+**Custom Branding Integration**:
+```swift
+// Extend SpectrumBranding for white-label versions
+extension SpectrumBranding {
+    static func configureForPartner(_ partner: String) {
+        // Load partner-specific colors, fonts, logos
+    }
+}
+```
+
+**Advanced Analytics Integration**:
+```swift
+// Add analytics tracking throughout app
+extension RoomCaptureViewController {
+    func trackUserAction(_ action: String, parameters: [String: Any]) {
+        // Send to analytics service
+    }
+}
+```
+
+**Cloud Sync Preparation**:
+```swift
+// Protocol for future cloud sync implementation
+protocol CloudSyncable {
+    func uploadToCloud() async throws
+    func downloadFromCloud() async throws
+}
+```
+
+This comprehensive documentation provides complete context for understanding, maintaining, and extending the Spectrum WiFi Analyzer app without requiring additional AI assistance.
+
+---
+
+*This application demonstrates the integration of Apple's latest AR technologies with real-world network analysis use cases, creating a professional tool for WiFi assessment and optimization.*

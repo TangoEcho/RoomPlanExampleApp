@@ -36,5 +36,11 @@
 		<key>UILaunchScreen</key>
 		<string>LaunchScreen</string>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>This app requires access to your camera to use the LiDAR scanner. This is used to create a model of your room for planning purposes. Your camera images and LiDAR data are only used for this purpose and are not stored or shared.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app needs location access to identify WiFi networks and provide accurate coverage analysis for your specific location.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app accesses your local network to perform WiFi speed tests and signal strength analysis to help optimize your home network coverage.</string>
 </dict>
 </plist>

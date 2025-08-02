@@ -17,9 +17,18 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var arVisualizationManager = ARVisualizationManager()
     private var arSceneView: ARSCNView!
     
-    private var surveyButton: UIButton?
-    private var toggleARButton: UIButton? 
+    private var primaryActionButton: UIButton?
     private var viewResultsButton: UIButton?
+    private var statusLabel: UILabel?
+    private var progressIndicator: UIProgressView?
+    private var speedTestProgressView: UIProgressView?
+    private var speedTestLabel: UILabel?
+    
+    // Bottom navigation
+    private var bottomNavBar: UIView?
+    private var roomScanNavButton: UIButton?
+    private var wifiSurveyNavButton: UIButton?
+    private var floorPlanNavButton: UIButton?
     
     private var isARMode = false
     private var capturedRoomData: CapturedRoom?
@@ -42,15 +51,33 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         setupRoomCaptureView()
         setupARView()
         setupWiFiSurvey()
+        setupBottomNavigation()
         updateButtonStates()
     }
     
     private func setupRoomCaptureView() {
-        roomCaptureView = RoomCaptureView(frame: view.bounds)
-        roomCaptureView.captureSession.delegate = self
-        roomCaptureView.delegate = self
+        print("🔧 Setting up RoomCaptureView...")
         
-        view.insertSubview(roomCaptureView, at: 0)
+        // Remove existing room capture view if any
+        roomCaptureView?.removeFromSuperview()
+        
+        roomCaptureView = RoomCaptureView(frame: view.bounds)
+        roomCaptureView?.captureSession.delegate = self
+        roomCaptureView?.delegate = self
+        roomCaptureView?.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Insert at index 0 to be behind all UI elements
+        view.insertSubview(roomCaptureView!, at: 0)
+        
+        // Add constraints to ensure it fills the entire view
+        NSLayoutConstraint.activate([
+            roomCaptureView!.topAnchor.constraint(equalTo: view.topAnchor),
+            roomCaptureView!.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            roomCaptureView!.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            roomCaptureView!.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        
+        print("✅ RoomCaptureView setup complete")
     }
     
     private func setupARView() {
@@ -68,73 +95,311 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private func setupWiFiSurvey() {
         // Create buttons programmatically for now to avoid storyboard connection issues
         setupSurveyButtons()
+        
+        // Setup speed test progress handler
+        wifiSurveyManager.speedTestProgressHandler = { [weak self] progress, message in
+            DispatchQueue.main.async {
+                self?.updateSpeedTestProgress(progress: progress, message: message)
+            }
+        }
     }
     
     private func setupSurveyButtons() {
-        // Create survey button
-        surveyButton = UIButton(type: .system)
-        surveyButton?.setTitle("Start WiFi Survey", for: .normal)
-        surveyButton?.backgroundColor = .systemBlue
-        surveyButton?.setTitleColor(.white, for: .normal)
-        surveyButton?.layer.cornerRadius = 8
-        surveyButton?.translatesAutoresizingMaskIntoConstraints = false
-        surveyButton?.addTarget(self, action: #selector(toggleWiFiSurvey), for: .touchUpInside)
+        // Create status label
+        statusLabel = SpectrumBranding.createSpectrumLabel(text: "Starting room scan...", style: .caption)
+        statusLabel?.textAlignment = .center
+        statusLabel?.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        statusLabel?.textColor = .white
+        statusLabel?.layer.cornerRadius = 8
+        statusLabel?.layer.masksToBounds = true
         
-        // Create toggle AR button
-        toggleARButton = UIButton(type: .system)
-        toggleARButton?.setTitle("AR View", for: .normal)
-        toggleARButton?.backgroundColor = .systemGreen
-        toggleARButton?.setTitleColor(.white, for: .normal)
-        toggleARButton?.layer.cornerRadius = 8
-        toggleARButton?.translatesAutoresizingMaskIntoConstraints = false
-        toggleARButton?.addTarget(self, action: #selector(toggleARMode), for: .touchUpInside)
+        // Create progress indicator
+        progressIndicator = UIProgressView(progressViewStyle: .default)
+        progressIndicator?.progressTintColor = SpectrumBranding.Colors.spectrumBlue
+        progressIndicator?.trackTintColor = SpectrumBranding.Colors.spectrumSilver
+        progressIndicator?.translatesAutoresizingMaskIntoConstraints = false
+        progressIndicator?.isHidden = true
         
-        // Create view results button
-        viewResultsButton = UIButton(type: .system)
-        viewResultsButton?.setTitle("View Results", for: .normal)
-        viewResultsButton?.backgroundColor = .systemOrange
-        viewResultsButton?.setTitleColor(.white, for: .normal)
-        viewResultsButton?.layer.cornerRadius = 8
-        viewResultsButton?.translatesAutoresizingMaskIntoConstraints = false
-        viewResultsButton?.addTarget(self, action: #selector(viewResults), for: .touchUpInside)
+        // Create speed test progress view
+        speedTestProgressView = UIProgressView(progressViewStyle: .default)
+        speedTestProgressView?.progressTintColor = SpectrumBranding.Colors.spectrumGreen
+        speedTestProgressView?.trackTintColor = SpectrumBranding.Colors.spectrumSilver
+        speedTestProgressView?.translatesAutoresizingMaskIntoConstraints = false
+        speedTestProgressView?.isHidden = true
         
-        // Add buttons to view
-        guard let surveyButton = surveyButton,
-              let toggleARButton = toggleARButton,
-              let viewResultsButton = viewResultsButton else { return }
+        // Create speed test label
+        speedTestLabel = SpectrumBranding.createSpectrumLabel(text: "Running speed test...", style: .caption)
+        speedTestLabel?.textAlignment = .center
+        speedTestLabel?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
+        speedTestLabel?.textColor = .white
+        speedTestLabel?.layer.cornerRadius = 8
+        speedTestLabel?.layer.masksToBounds = true
+        speedTestLabel?.translatesAutoresizingMaskIntoConstraints = false
+        speedTestLabel?.isHidden = true
         
-        view.addSubview(surveyButton)
-        view.addSubview(toggleARButton)
-        view.addSubview(viewResultsButton)
+        // Add UI elements to view
+        guard let statusLabel = statusLabel,
+              let progressIndicator = progressIndicator,
+              let speedTestProgressView = speedTestProgressView,
+              let speedTestLabel = speedTestLabel else { return }
+        
+        view.addSubview(statusLabel)
+        view.addSubview(progressIndicator)
+        view.addSubview(speedTestProgressView)
+        view.addSubview(speedTestLabel)
         
         // Setup constraints
         NSLayoutConstraint.activate([
-            surveyButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
-            surveyButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
-            surveyButton.heightAnchor.constraint(equalToConstant: 44),
-            surveyButton.widthAnchor.constraint(equalToConstant: 120),
+            // Status label at top
+            statusLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            statusLabel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+            statusLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
+            statusLabel.heightAnchor.constraint(equalToConstant: 32),
             
-            toggleARButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            toggleARButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
-            toggleARButton.heightAnchor.constraint(equalToConstant: 44),
-            toggleARButton.widthAnchor.constraint(equalToConstant: 100),
+            // Progress indicator below status
+            progressIndicator.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 8),
+            progressIndicator.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+            progressIndicator.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
+            progressIndicator.heightAnchor.constraint(equalToConstant: 4),
             
-            viewResultsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
-            viewResultsButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
-            viewResultsButton.heightAnchor.constraint(equalToConstant: 44),
-            viewResultsButton.widthAnchor.constraint(equalToConstant: 120)
+            // Speed test label and progress (center of screen)
+            speedTestLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            speedTestLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -30),
+            speedTestLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+            speedTestLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
+            speedTestLabel.heightAnchor.constraint(equalToConstant: 40),
+            
+            speedTestProgressView.topAnchor.constraint(equalTo: speedTestLabel.bottomAnchor, constant: 8),
+            speedTestProgressView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 40),
+            speedTestProgressView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -40),
+            speedTestProgressView.heightAnchor.constraint(equalToConstant: 6)
         ])
     }
     
+    private func setupBottomNavigation() {
+        // Create bottom navigation bar
+        bottomNavBar = UIView()
+        bottomNavBar?.backgroundColor = SpectrumBranding.Colors.secondaryBackground
+        bottomNavBar?.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Create navigation buttons
+        roomScanNavButton = SpectrumBranding.createSpectrumButton(title: "Room Scan", style: .secondary)
+        roomScanNavButton?.addTarget(self, action: #selector(roomScanNavTapped), for: .touchUpInside)
+        
+        wifiSurveyNavButton = SpectrumBranding.createSpectrumButton(title: "WiFi Survey", style: .secondary)
+        wifiSurveyNavButton?.addTarget(self, action: #selector(wifiSurveyNavTapped), for: .touchUpInside)
+        
+        floorPlanNavButton = SpectrumBranding.createSpectrumButton(title: "Floor Plan", style: .secondary)
+        floorPlanNavButton?.addTarget(self, action: #selector(floorPlanNavTapped), for: .touchUpInside)
+        
+        guard let bottomNavBar = bottomNavBar,
+              let roomScanNavButton = roomScanNavButton,
+              let wifiSurveyNavButton = wifiSurveyNavButton,
+              let floorPlanNavButton = floorPlanNavButton else { return }
+        
+        view.addSubview(bottomNavBar)
+        bottomNavBar.addSubview(roomScanNavButton)
+        bottomNavBar.addSubview(wifiSurveyNavButton)
+        bottomNavBar.addSubview(floorPlanNavButton)
+        
+        NSLayoutConstraint.activate([
+            // Bottom nav bar
+            bottomNavBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomNavBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomNavBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            bottomNavBar.heightAnchor.constraint(equalToConstant: 60),
+            
+            // Navigation buttons - equal width
+            roomScanNavButton.leadingAnchor.constraint(equalTo: bottomNavBar.leadingAnchor, constant: 10),
+            roomScanNavButton.centerYAnchor.constraint(equalTo: bottomNavBar.centerYAnchor),
+            roomScanNavButton.heightAnchor.constraint(equalToConstant: 40),
+            roomScanNavButton.widthAnchor.constraint(equalTo: wifiSurveyNavButton.widthAnchor),
+            
+            wifiSurveyNavButton.leadingAnchor.constraint(equalTo: roomScanNavButton.trailingAnchor, constant: 10),
+            wifiSurveyNavButton.centerYAnchor.constraint(equalTo: bottomNavBar.centerYAnchor),
+            wifiSurveyNavButton.heightAnchor.constraint(equalToConstant: 40),
+            wifiSurveyNavButton.widthAnchor.constraint(equalTo: floorPlanNavButton.widthAnchor),
+            
+            floorPlanNavButton.leadingAnchor.constraint(equalTo: wifiSurveyNavButton.trailingAnchor, constant: 10),
+            floorPlanNavButton.trailingAnchor.constraint(equalTo: bottomNavBar.trailingAnchor, constant: -10),
+            floorPlanNavButton.centerYAnchor.constraint(equalTo: bottomNavBar.centerYAnchor),
+            floorPlanNavButton.heightAnchor.constraint(equalToConstant: 40)
+        ])
+        
+        updateBottomNavigation()
+    }
+    
+    @objc private func roomScanNavTapped() {
+        if !isScanning && capturedRoomData == nil {
+            startSession()
+        } else if isScanning {
+            stopSession()
+        }
+        updateBottomNavigation()
+    }
+    
+    @objc private func wifiSurveyNavTapped() {
+        if capturedRoomData != nil {
+            if !wifiSurveyManager.isRecording && wifiSurveyManager.measurements.isEmpty {
+                startWiFiSurvey()
+            } else if wifiSurveyManager.isRecording {
+                stopWiFiSurvey()
+            }
+        }
+        updateBottomNavigation()
+    }
+    
+    @objc private func floorPlanNavTapped() {
+        if capturedRoomData != nil && !wifiSurveyManager.measurements.isEmpty {
+            viewResults()
+        }
+    }
+    
+    private func updateBottomNavigation() {
+        // Room Scan button
+        if isScanning {
+            roomScanNavButton?.setTitle("🛑 Stop", for: .normal)
+            roomScanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
+            roomScanNavButton?.isEnabled = true
+        } else if capturedRoomData == nil {
+            roomScanNavButton?.setTitle("📱 Scan", for: .normal)
+            roomScanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+            roomScanNavButton?.isEnabled = true
+        } else {
+            roomScanNavButton?.setTitle("✅ Done", for: .normal)
+            roomScanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+            roomScanNavButton?.isEnabled = false
+        }
+        
+        // WiFi Survey button
+        if capturedRoomData == nil {
+            wifiSurveyNavButton?.setTitle("📡 WiFi", for: .normal)
+            wifiSurveyNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
+            wifiSurveyNavButton?.isEnabled = false
+        } else if wifiSurveyManager.isRecording {
+            wifiSurveyNavButton?.setTitle("🛑 Stop", for: .normal)
+            wifiSurveyNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
+            wifiSurveyNavButton?.isEnabled = true
+        } else if wifiSurveyManager.measurements.isEmpty {
+            wifiSurveyNavButton?.setTitle("📡 Start", for: .normal)
+            wifiSurveyNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+            wifiSurveyNavButton?.isEnabled = true
+        } else {
+            wifiSurveyNavButton?.setTitle("✅ Done", for: .normal)
+            wifiSurveyNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+            wifiSurveyNavButton?.isEnabled = false
+        }
+        
+        // Floor Plan button
+        let hasRoomData = capturedRoomData != nil
+        let hasWifiData = !wifiSurveyManager.measurements.isEmpty
+        
+        if hasRoomData && hasWifiData {
+            floorPlanNavButton?.setTitle("📊 Results", for: .normal)
+            floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+            floorPlanNavButton?.isEnabled = true
+        } else {
+            floorPlanNavButton?.setTitle("📊 Plan", for: .normal)
+            floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
+            floorPlanNavButton?.isEnabled = false
+        }
+    }
+    
     private func updateButtonStates() {
-        surveyButton?.setTitle(wifiSurveyManager.isRecording ? "Stop Survey" : "Start WiFi Survey", for: .normal)
-        toggleARButton?.setTitle(isARMode ? "Room Scan" : "AR View", for: .normal)
-        viewResultsButton?.isEnabled = capturedRoomData != nil && !wifiSurveyManager.measurements.isEmpty
+        print("🔄 Updating button states - isScanning: \(isScanning), capturedRoomData: \(capturedRoomData != nil), wifiRecording: \(wifiSurveyManager.isRecording), measurements: \(wifiSurveyManager.measurements.count)")
+        
+        // Update status label
+        updateStatusLabel()
+        
+        // Update progress indicator
+        updateProgressIndicator()
+        
+        // Update bottom navigation
+        updateBottomNavigation()
+    }
+    
+    private func updateStatusLabel() {
+        var statusText = "Ready to start room scanning"
+        var backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        
+        if isScanning {
+            statusText = "📱 Move around to capture room - Tap 'Stop' when satisfied"
+            backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
+        } else if isScanning == false && capturedRoomData == nil {
+            statusText = "🔄 Ready to start scanning - Move device to capture room layout"
+            backgroundColor = UIColor.systemGray.withAlphaComponent(0.9)
+        } else if capturedRoomData != nil && !wifiSurveyManager.isRecording && wifiSurveyManager.measurements.isEmpty {
+            statusText = "✅ Room captured! Found \(roomAnalyzer.identifiedRooms.count) rooms - Ready for WiFi survey"
+            backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
+        } else if wifiSurveyManager.isRecording {
+            statusText = "📡 Recording WiFi (\(wifiSurveyManager.measurements.count) points) - Move around room"
+            backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
+        } else if capturedRoomData != nil && !wifiSurveyManager.measurements.isEmpty {
+            statusText = "🎉 WiFi survey complete - View detailed results"
+            backgroundColor = UIColor.systemPurple.withAlphaComponent(0.9)
+        }
+        
+        statusLabel?.text = statusText
+        statusLabel?.backgroundColor = backgroundColor
+    }
+    
+    private func updateProgressIndicator() {
+        let hasRoomData = capturedRoomData != nil
+        let hasMeasurements = !wifiSurveyManager.measurements.isEmpty
+        
+        if !hasRoomData {
+            progressIndicator?.progress = 0.0
+            progressIndicator?.isHidden = !isScanning
+        } else if !hasMeasurements {
+            progressIndicator?.progress = 0.5
+            progressIndicator?.isHidden = false
+        } else {
+            progressIndicator?.progress = 1.0
+            progressIndicator?.isHidden = false
+        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        startSession()
+        
+        print("🎬 RoomCaptureViewController viewDidAppear - starting preview")
+        
+        // Ensure the room capture view is properly configured
+        setupRoomCaptureViewIfNeeded()
+        
+        // Start the camera preview (but not scanning) so user can see the feed
+        startCameraPreview()
+        
+        // Auto-start scanning immediately since we bypassed the instruction screen
+        if !isScanning && capturedRoomData == nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                print("🚀 Auto-starting room scan...")
+                self.startSession()
+            }
+        }
+        
+        updateButtonStates()
+    }
+    
+    private func setupRoomCaptureViewIfNeeded() {
+        guard roomCaptureView == nil else { return }
+        
+        print("⚠️ RoomCaptureView was nil, recreating...")
+        setupRoomCaptureView()
+    }
+    
+    private func startCameraPreview() {
+        guard let roomCaptureView = roomCaptureView else {
+            print("❌ Cannot start camera preview: roomCaptureView is nil")
+            return
+        }
+        
+        if !isScanning {
+            print("📹 Starting camera preview...")
+            roomCaptureView.captureSession.run(configuration: roomCaptureSessionConfig)
+        } else {
+            print("📹 Already scanning, camera should be active")
+        }
     }
     
     override func viewWillDisappear(_ flag: Bool) {
@@ -143,17 +408,54 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     }
     
     private func startSession() {
+        guard let roomCaptureView = roomCaptureView else {
+            print("❌ Cannot start session: roomCaptureView is nil")
+            return
+        }
+        
+        guard RoomCaptureSession.isSupported else {
+            print("❌ Cannot start session: RoomCaptureSession not supported")
+            showAlert(title: "Device Not Supported", message: "This device does not support room capture.")
+            return
+        }
+        
+        print("🚀 Starting room capture session...")
+        
         isScanning = true
-        roomCaptureView?.captureSession.run(configuration: roomCaptureSessionConfig)
+        
+        // Configure and start the session
+        roomCaptureView.captureSession.run(configuration: roomCaptureSessionConfig)
+        print("✅ Room capture session started successfully")
+        
+        // Start monitoring WiFi network info during room scanning
+        startWiFiMonitoring()
         
         setActiveNavBar()
+        updateButtonStates()
     }
     
     private func stopSession() {
+        print("🛑 Stopping room capture session...")
         isScanning = false
         roomCaptureView?.captureSession.stop()
+        stopWiFiMonitoring()
         
         setCompleteNavBar()
+        updateButtonStates()
+        
+        print("✅ Room capture session stopped")
+    }
+    
+    private func startWiFiMonitoring() {
+        // Start basic WiFi network monitoring during room scan
+        let networkInfo = wifiSurveyManager.getCurrentNetworkInfo()
+        if let ssid = networkInfo.ssid, !ssid.isEmpty {
+            print("📶 Connected to WiFi: \(ssid)")
+        }
+    }
+    
+    private func stopWiFiMonitoring() {
+        // Stop any ongoing WiFi monitoring
     }
     
     // Decide to post-process and show the final results.
@@ -169,61 +471,150 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         if #available(iOS 17.0, *) {
             roomAnalyzer.analyzeCapturedRoom(processedResult)
         }
+        
+        // Pass room data to AR visualization manager
+        arVisualizationManager.setCapturedRoomData(processedResult)
+        
         updateButtonStates()
     }
     
-    @IBAction func doneScanning(_ sender: UIBarButtonItem) {
-        if isScanning { 
-            stopSession() 
-        } else { 
-            if wifiSurveyManager.isRecording {
-                wifiSurveyManager.stopSurvey()
-            }
-            cancelScanning(sender) 
+    // Removed Done/Cancel actions - using bottom navigation instead
+    
+    private func startWiFiSurvey() {
+        guard capturedRoomData != nil else {
+            showAlert(title: "Room Scan Required", message: "Please complete room scanning first.")
+            return
+        }
+        
+        // Check network connectivity before starting survey
+        guard isNetworkAvailable() else {
+            showAlert(title: "Network Required", message: "Please connect to a WiFi network to perform speed tests.")
+            return
+        }
+        
+        wifiSurveyManager.startSurvey()
+        switchToARMode()
+        statusLabel?.text = "Starting WiFi survey..."
+        
+        // Start a timer to update status with measurement count
+        startStatusUpdateTimer()
+        updateButtonStates()
+    }
+    
+    private func stopWiFiSurvey() {
+        print("🛑 Stopping WiFi survey...")
+        
+        // Stop survey first
+        wifiSurveyManager.stopSurvey()
+        
+        // Stop AR session with proper cleanup
+        arVisualizationManager.stopARSession()
+        
+        // Switch back to room capture view
+        switchToRoomCapture()
+        
+        // Update UI
+        statusLabel?.text = "WiFi survey completed - \\(wifiSurveyManager.measurements.count) measurements recorded"
+        stopStatusUpdateTimer()
+        updateButtonStates()
+        
+        print("✅ WiFi survey stopped successfully")
+        
+        // Ensure results button is enabled after survey completion
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.updateButtonStates()
         }
     }
     
-    @objc private func toggleWiFiSurvey() {
-        if wifiSurveyManager.isRecording {
-            wifiSurveyManager.stopSurvey()
-            if isARMode {
-                arVisualizationManager.stopARSession()
-                switchToRoomCapture()
+    private func isNetworkAvailable() -> Bool {
+        // Simple network check - in a real app you'd use NWPathMonitor
+        return true // For now, assume network is available
+    }
+    
+    private var statusUpdateTimer: Timer?
+    
+    private func startStatusUpdateTimer() {
+        statusUpdateTimer?.invalidate()
+        statusUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.updateStatusLabel()
             }
-        } else {
-            guard capturedRoomData != nil else {
-                showAlert(title: "Room Scan Required", message: "Please complete room scanning before starting WiFi survey.")
-                return
-            }
+        }
+    }
+    
+    private func stopStatusUpdateTimer() {
+        statusUpdateTimer?.invalidate()
+        statusUpdateTimer = nil
+    }
+    
+    private func updateSpeedTestProgress(progress: Float, message: String) {
+        if progress > 0 && !message.isEmpty {
+            // Show speed test UI
+            speedTestLabel?.text = "📊 \(message)"
+            speedTestLabel?.isHidden = false
+            speedTestProgressView?.isHidden = false
+            speedTestProgressView?.progress = progress
             
-            wifiSurveyManager.startSurvey()
-            switchToARMode()
+            // Make the speed test more visible by temporarily changing status
+            if wifiSurveyManager.isRecording {
+                statusLabel?.text = "📊 \(message) - \(wifiSurveyManager.measurements.count) measurements"
+                statusLabel?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
+            }
+        } else {
+            // Hide speed test UI
+            speedTestLabel?.isHidden = true
+            speedTestProgressView?.isHidden = true
+            
+            // Restore normal status
+            if wifiSurveyManager.isRecording {
+                updateStatusLabel()
+            }
         }
-        updateButtonStates()
     }
     
-    @objc private func toggleARMode() {
-        if isARMode {
-            switchToRoomCapture()
-        } else {
-            switchToARMode()
-        }
-    }
     
     @objc private func viewResults() {
-        guard let capturedRoom = capturedRoomData else { return }
+        guard capturedRoomData != nil else {
+            showAlert(title: "No Room Data", message: "Please complete room scanning first.")
+            return
+        }
         
-        let heatmapData = wifiSurveyManager.generateHeatmapData()
+        guard !wifiSurveyManager.measurements.isEmpty else {
+            showAlert(title: "No WiFi Data", message: "Please complete WiFi survey first.")
+            return
+        }
         
-        let floorPlanVC = FloorPlanViewController()
-        floorPlanVC.updateWithData(heatmapData: heatmapData, roomAnalyzer: roomAnalyzer)
-        navigationController?.pushViewController(floorPlanVC, animated: true)
+        print("📊 Generating results for \(wifiSurveyManager.measurements.count) measurements...")
+        
+        // Show loading indicator
+        statusLabel?.text = "Generating analysis results..."
+        
+        // Generate heatmap data in background to prevent UI freezing
+        DispatchQueue.global(qos: .userInitiated).async {
+            let heatmapData = self.wifiSurveyManager.generateHeatmapData()
+            
+            DispatchQueue.main.async {
+                print("✅ Results generated, navigating to floor plan...")
+                
+                let floorPlanVC = FloorPlanViewController()
+                floorPlanVC.updateWithData(heatmapData: heatmapData, roomAnalyzer: self.roomAnalyzer)
+                floorPlanVC.modalPresentationStyle = .fullScreen
+                self.present(floorPlanVC, animated: true)
+                
+                // Reset status
+                self.statusLabel?.text = "Analysis complete"
+            }
+        }
     }
     
     private func switchToARMode() {
         isARMode = true
         roomCaptureView.isHidden = true
         arSceneView.isHidden = false
+        
+        // Start AR session when switching to AR mode
+        arVisualizationManager.startARSession()
+        
         updateButtonStates()
     }
     
@@ -234,15 +625,22 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         updateButtonStates()
     }
     
-    private func showAlert(title: String, message: String) {
+    private func showAlert(title: String, message: String, completion: (() -> Void)? = nil) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        
+        if let completion = completion {
+            alert.addAction(UIAlertAction(title: "Yes", style: .default) { _ in
+                completion()
+            })
+            alert.addAction(UIAlertAction(title: "Not Now", style: .cancel))
+        } else {
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+        }
+        
         present(alert, animated: true)
     }
 
-    @IBAction func cancelScanning(_ sender: UIBarButtonItem) {
-        navigationController?.dismiss(animated: true)
-    }
+    // Removed cancel action - navigation handled by bottom nav
     
     // Export the USDZ output by specifying the `.parametric` export option.
     // Alternatively, `.mesh` exports a nonparametric file and `.all`

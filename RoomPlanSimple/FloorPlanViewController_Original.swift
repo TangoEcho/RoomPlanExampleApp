@@ -65,10 +65,10 @@ class FloorPlanViewController: UIViewController {
             legendView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
             legendView.heightAnchor.constraint(equalToConstant: 120),
             
-            exportButton.topAnchor.constraint(equalTo: legendView.bottomAnchor, constant: 16),
-            exportButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            exportButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            exportButton.heightAnchor.constraint(equalToConstant: 50),
+            exportButton.topAnchor.constraint(equalTo: legendView.bottomAnchor, constant: 10),
+            exportButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            exportButton.widthAnchor.constraint(equalToConstant: 150),
+            exportButton.heightAnchor.constraint(equalToConstant: 44),
             
             measurementsList.topAnchor.constraint(equalTo: exportButton.bottomAnchor, constant: 10),
             measurementsList.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -139,7 +139,6 @@ class FloorPlanViewController: UIViewController {
     
     private func createLegendItem(label: String, color: UIColor) -> UIView {
         let containerView = UIView()
-        containerView.translatesAutoresizingMaskIntoConstraints = false
         
         let colorView = UIView()
         colorView.backgroundColor = color
@@ -148,23 +147,19 @@ class FloorPlanViewController: UIViewController {
         
         let labelView = UILabel()
         labelView.text = label
-        labelView.font = SpectrumBranding.Typography.captionFont
-        labelView.textColor = SpectrumBranding.Colors.textPrimary
+        labelView.font = UIFont.systemFont(ofSize: 12)
         labelView.translatesAutoresizingMaskIntoConstraints = false
         
         containerView.addSubview(colorView)
         containerView.addSubview(labelView)
         
         NSLayoutConstraint.activate([
-            // Set container height
-            containerView.heightAnchor.constraint(equalToConstant: 24),
-            
             colorView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             colorView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            colorView.widthAnchor.constraint(equalToConstant: 16),
-            colorView.heightAnchor.constraint(equalToConstant: 16),
+            colorView.widthAnchor.constraint(equalToConstant: 12),
+            colorView.heightAnchor.constraint(equalToConstant: 12),
             
-            labelView.leadingAnchor.constraint(equalTo: colorView.trailingAnchor, constant: 12),
+            labelView.leadingAnchor.constraint(equalTo: colorView.trailingAnchor, constant: 8),
             labelView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
             labelView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor)
         ])
@@ -219,10 +214,6 @@ class FloorPlanViewController: UIViewController {
             popOver.sourceView = exportButton
         }
     }
-    
-    private func signalStrengthColor(_ strength: Int) -> UIColor {
-        return SpectrumBranding.signalStrengthColor(for: strength)
-    }
 }
 
 extension FloorPlanViewController: UITableViewDataSource, UITableViewDelegate {
@@ -243,73 +234,9 @@ extension FloorPlanViewController: UITableViewDataSource, UITableViewDelegate {
         
         return cell
     }
-}
-
-class FloorPlanRenderer: UIView {
-    private var rooms: [RoomAnalyzer.IdentifiedRoom] = []
-    private var furniture: [RoomAnalyzer.FurnitureItem] = []
-    private var heatmapData: WiFiHeatmapData?
-    private var showHeatmap = false
     
-    func renderFloorPlan(rooms: [RoomAnalyzer.IdentifiedRoom], 
-                        furniture: [RoomAnalyzer.FurnitureItem],
-                        heatmapData: WiFiHeatmapData,
-                        showHeatmap: Bool) {
-        self.rooms = rooms
-        self.furniture = furniture
-        self.heatmapData = heatmapData
-        self.showHeatmap = showHeatmap
-        
-        // Debug logging
-        print("🏠 Rendering floor plan with \(rooms.count) rooms, \(furniture.count) furniture items")
-        print("📊 Heatmap data: \(heatmapData.measurements.count) measurements, \(heatmapData.coverageMap.count) coverage points")
-        print("   Show heatmap: \(showHeatmap)")
-        
-        for room in rooms {
-            print("   Room: \(room.type.rawValue) at (\(room.center.x), \(room.center.z)) size: \(room.bounds.dimensions.x)x\(room.bounds.dimensions.z)x\(room.bounds.dimensions.y)")
-        }
-        
-        setNeedsDisplay()
-    }
-    
-    override func draw(_ rect: CGRect) {
-        super.draw(rect)
-        
-        guard let context = UIGraphicsGetCurrentContext() else { return }
-        
-        context.setFillColor(UIColor.systemBackground.cgColor)
-        context.fill(rect)
-        
-        drawRooms(context: context, rect: rect)
-        drawFurniture(context: context, rect: rect)
-        
-        if showHeatmap {
-            drawHeatmap(context: context, rect: rect)
-        }
-        
-        drawMeasurementPoints(context: context, rect: rect)
-        drawOptimalRouterPlacements(context: context, rect: rect)
-    }
-    
-    private func drawRooms(context: CGContext, rect: CGRect) {
-        let scale = calculateScale(rect: rect)
-        let offset = calculateOffset(rect: rect)
-        
-        for room in rooms {
-            if room.wallPoints.count >= 3 {
-                // Draw actual room shape from wall points
-                drawRoomShape(context: context, room: room, scale: scale, offset: offset)
-            } else {
-                // Fallback to rectangular shape
-                drawRectangularRoom(context: context, room: room, scale: scale, offset: offset)
-            }
-            
-            // Draw doorways
-            drawDoorways(context: context, room: room, scale: scale, offset: offset)
-            
-            // Draw room label
-            drawRoomLabel(context: context, room: room, scale: scale, offset: offset)
-        }
+    private func signalStrengthColor(_ strength: Int) -> UIColor {
+        return SpectrumBranding.signalStrengthColor(for: strength)
     }
     
     private func roomTypeColor(_ roomType: RoomType) -> UIColor {
@@ -475,6 +402,74 @@ class FloorPlanRenderer: UIView {
         // Draw the text
         attributedString.draw(in: textRect)
     }
+}
+
+class FloorPlanRenderer: UIView {
+    private var rooms: [RoomAnalyzer.IdentifiedRoom] = []
+    private var furniture: [RoomAnalyzer.FurnitureItem] = []
+    private var heatmapData: WiFiHeatmapData?
+    private var showHeatmap = false
+    
+    func renderFloorPlan(rooms: [RoomAnalyzer.IdentifiedRoom], 
+                        furniture: [RoomAnalyzer.FurnitureItem],
+                        heatmapData: WiFiHeatmapData,
+                        showHeatmap: Bool) {
+        self.rooms = rooms
+        self.furniture = furniture
+        self.heatmapData = heatmapData
+        self.showHeatmap = showHeatmap
+        
+        // Debug logging
+        print("🏠 Rendering floor plan with \(rooms.count) rooms, \(furniture.count) furniture items")
+        print("📊 Heatmap data: \(heatmapData.measurements.count) measurements, \(heatmapData.coverageMap.count) coverage points")
+        print("   Show heatmap: \(showHeatmap)")
+        
+        for room in rooms {
+            print("   Room: \(room.type.rawValue) at (\(room.center.x), \(room.center.z)) size: \(room.bounds.dimensions.x)x\(room.bounds.dimensions.z)x\(room.bounds.dimensions.y)")
+        }
+        
+        setNeedsDisplay()
+    }
+    
+    override func draw(_ rect: CGRect) {
+        super.draw(rect)
+        
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        
+        context.setFillColor(UIColor.systemBackground.cgColor)
+        context.fill(rect)
+        
+        drawRooms(context: context, rect: rect)
+        drawFurniture(context: context, rect: rect)
+        
+        if showHeatmap {
+            drawHeatmap(context: context, rect: rect)
+        }
+        
+        drawMeasurementPoints(context: context, rect: rect)
+        drawOptimalRouterPlacements(context: context, rect: rect)
+    }
+    
+    private func drawRooms(context: CGContext, rect: CGRect) {
+        let scale = calculateScale(rect: rect)
+        let offset = calculateOffset(rect: rect)
+        
+        for room in rooms {
+            if room.wallPoints.count >= 3 {
+                // Draw actual room shape from wall points
+                drawRoomShape(context: context, room: room, scale: scale, offset: offset)
+            } else {
+                // Fallback to rectangular shape
+                drawRectangularRoom(context: context, room: room, scale: scale, offset: offset)
+            }
+            
+            // Draw doorways
+            drawDoorways(context: context, room: room, scale: scale, offset: offset)
+            
+            // Draw room label
+            drawRoomLabel(context: context, room: room, scale: scale, offset: offset)
+        }
+    }
     
     private func drawFurniture(context: CGContext, rect: CGRect) {
         let scale = calculateScale(rect: rect)
@@ -497,93 +492,34 @@ class FloorPlanRenderer: UIView {
     private func drawArchitecturalFurniture(context: CGContext, item: RoomAnalyzer.FurnitureItem, at center: CGPoint, size: CGSize) {
         context.saveGState()
         
-        // Draw a subtle background shape first
-        drawFurnitureBackground(context: context, at: center, size: size, category: item.category)
-        
-        // Then draw the emoji icon on top
-        let emoji = emojiForFurniture(item.category)
-        drawFurnitureEmoji(context: context, emoji: emoji, at: center, size: size)
+        switch item.category {
+        case .bed:
+            drawBed(context: context, at: center, size: size)
+        case .sofa:
+            drawSofa(context: context, at: center, size: size)
+        case .table:
+            drawTable(context: context, at: center, size: size)
+        case .chair:
+            drawChair(context: context, at: center, size: size)
+        case .refrigerator:
+            drawRefrigerator(context: context, at: center, size: size)
+        case .oven:
+            drawOven(context: context, at: center, size: size)
+        case .sink:
+            drawSink(context: context, at: center, size: size)
+        case .toilet:
+            drawToilet(context: context, at: center, size: size)
+        case .bathtub:
+            drawBathtub(context: context, at: center, size: size)
+        case .television:
+            drawTelevision(context: context, at: center, size: size)
+        case .dishwasher:
+            drawDishwasher(context: context, at: center, size: size)
+        default:
+            drawGenericFurniture(context: context, at: center, size: size)
+        }
         
         context.restoreGState()
-    }
-    
-    private func emojiForFurniture(_ category: CapturedRoom.Object.Category) -> String {
-        switch category {
-        case .bed:
-            return "🛏️"
-        case .sofa:
-            return "🛋️"
-        case .table:
-            return "🪑" // Using chair emoji to represent table area
-        case .chair:
-            return "🪑"
-        case .refrigerator:
-            return "❄️"
-        case .oven:
-            return "🔥"
-        case .sink:
-            return "🚿"
-        case .toilet:
-            return "🚽"
-        case .bathtub:
-            return "🛁"
-        case .television:
-            return "📺"
-        case .dishwasher:
-            return "🧽"
-        default:
-            return "📦"
-        }
-    }
-    
-    private func drawFurnitureBackground(context: CGContext, at center: CGPoint, size: CGSize, category: CapturedRoom.Object.Category) {
-        let rect = CGRect(x: center.x - size.width/2, y: center.y - size.height/2, width: size.width, height: size.height)
-        
-        // Choose background color based on category
-        let backgroundColor: UIColor
-        switch category {
-        case .bed, .sofa:
-            backgroundColor = UIColor.systemBlue.withAlphaComponent(0.3)
-        case .table, .chair:
-            backgroundColor = UIColor.systemBrown.withAlphaComponent(0.3)
-        case .refrigerator, .oven, .sink, .dishwasher, .stove:
-            backgroundColor = UIColor.systemGray.withAlphaComponent(0.3)
-        case .toilet, .bathtub:
-            backgroundColor = UIColor.systemCyan.withAlphaComponent(0.3)
-        case .television:
-            backgroundColor = UIColor.systemPurple.withAlphaComponent(0.3)
-        default:
-            backgroundColor = UIColor.systemYellow.withAlphaComponent(0.3)
-        }
-        
-        // Draw rounded background
-        context.setFillColor(backgroundColor.cgColor)
-        context.setStrokeColor(backgroundColor.withAlphaComponent(0.8).cgColor)
-        context.setLineWidth(1.0)
-        
-        let roundedPath = CGPath(roundedRect: rect, cornerWidth: min(size.width, size.height) * 0.2, cornerHeight: min(size.width, size.height) * 0.2, transform: nil)
-        context.addPath(roundedPath)
-        context.drawPath(using: .fillStroke)
-    }
-    
-    private func drawFurnitureEmoji(context: CGContext, emoji: String, at center: CGPoint, size: CGSize) {
-        // Calculate emoji size based on furniture size
-        let emojiSize = max(min(size.width, size.height) * 0.8, 16) // Minimum 16pt, scale with furniture
-        
-        let attributes = [
-            NSAttributedString.Key.font: UIFont.systemFont(ofSize: emojiSize),
-            NSAttributedString.Key.foregroundColor: UIColor.label
-        ]
-        
-        let textSize = emoji.size(withAttributes: attributes)
-        let textRect = CGRect(
-            x: center.x - textSize.width / 2,
-            y: center.y - textSize.height / 2,
-            width: textSize.width,
-            height: textSize.height
-        )
-        
-        emoji.draw(in: textRect, withAttributes: attributes)
     }
     
     // MARK: - Furniture Drawing Methods
@@ -908,6 +844,27 @@ class FloorPlanRenderer: UIView {
             x: rect.width / 2 - CGFloat(centerX) * scale,
             y: rect.height / 2 - CGFloat(centerZ) * scale
         )
+    }
+    
+    private func roomTypeColor(_ roomType: RoomType) -> UIColor {
+        switch roomType {
+        case .kitchen:
+            return UIColor.systemRed
+        case .livingRoom:
+            return UIColor.systemBlue
+        case .bedroom:
+            return UIColor.systemGreen
+        case .bathroom:
+            return UIColor.systemCyan
+        case .office:
+            return UIColor.systemPurple
+        case .diningRoom:
+            return UIColor.systemOrange
+        case .hallway:
+            return UIColor.systemGray
+        default:
+            return UIColor.systemGray2
+        }
     }
     
     private func signalStrengthColor(_ strength: Int) -> UIColor {

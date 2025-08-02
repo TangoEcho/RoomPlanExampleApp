@@ -20,6 +20,7 @@
 		ACEF94C62820AF6600776A9D /* OnboardingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACEF94C52820AF6600776A9D /* OnboardingViewController.swift */; };
 		B60C4857AAB4429B919CBF85 /* WiFiSurveyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88DBB66906604175836B05AF /* WiFiSurveyManager.swift */; };
 		C33000D823094C028CE2DDDF /* ARVisualizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E7EF368BF7C416A8F777AE1 /* ARVisualizationManager.swift */; };
+		SPECTRUM001100220033044 /* SpectrumBranding.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPECTRUM001100220033055 /* SpectrumBranding.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +42,7 @@
 		BD2AAACF95EE43A4AA8220E6 /* FloorPlanViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloorPlanViewController.swift; sourceTree = "<group>"; };
 		CD4891E2C9F3F7012DE25B49 /* LICENSE.txt */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = LICENSE.txt; sourceTree = "<group>"; };
 		FA98238F745C469C8D0DFFF1 /* RoomAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomAnalyzer.swift; sourceTree = "<group>"; };
+		SPECTRUM001100220033055 /* SpectrumBranding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectrumBranding.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,6 +100,7 @@
 				FA98238F745C469C8D0DFFF1 /* RoomAnalyzer.swift */,
 				872C4060B5C54006A6D91234 /* WiFiReportGenerator.swift */,
 				88DBB66906604175836B05AF /* WiFiSurveyManager.swift */,
+				SPECTRUM001100220033055 /* SpectrumBranding.swift */,
 			);
 			path = RoomPlanSimple;
 			sourceTree = "<group>";
@@ -138,7 +141,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1400;
-				LastUpgradeCheck = 1400;
+				LastUpgradeCheck = 1640;
 				ORGANIZATIONNAME = Apple;
 				TargetAttributes = {
 					ACEF94AC2820AD2300776A9D = {
@@ -192,6 +195,7 @@
 				6A86B87C45BB4693B26BC16C /* RoomAnalyzer.swift in Sources */,
 				9E8FD46BC00C4C19981BCB71 /* WiFiReportGenerator.swift in Sources */,
 				B60C4857AAB4429B919CBF85 /* WiFiSurveyManager.swift in Sources */,
+				SPECTRUM001100220033044 /* SpectrumBranding.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -259,8 +263,10 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = M7Z4VLP3A9;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -320,8 +326,10 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = M7Z4VLP3A9;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -349,7 +357,6 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = M7Z4VLP3A9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RoomPlanSimple/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
@@ -383,7 +390,6 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = M7Z4VLP3A9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RoomPlanSimple/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
