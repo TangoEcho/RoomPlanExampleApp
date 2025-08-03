@@ -10,6 +10,7 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - **AR Visualization**: Augmented reality overlay showing WiFi measurements in 3D space
 - **Professional Reports**: Generate detailed WiFi analysis reports with floor plans
 - **Architectural Floor Plans**: Professional-style floor plans with proper symbols
+- **🎭 iOS Simulator Support**: Complete UI testing with mock data (no hardware required)
 
 ### Key Capabilities
 - **Smart Room Detection**: Automatically identifies room types (kitchen, bedroom, bathroom, etc.)
@@ -20,6 +21,8 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - **Speed Test Progress**: Visual progress indicators during network testing
 - **Perfect Coordinate Alignment**: iOS 17+ shared ARSession for zero coordinate drift
 - **Seamless Mode Transitions**: Instant switching between room scanning and WiFi surveying
+- **Enhanced Error Handling**: Graceful handling of tracking failures and device positioning issues
+- **Real-time Guidance**: Contextual user guidance for optimal camera positioning
 
 ## 🎯 User Experience
 
@@ -545,7 +548,8 @@ print("🎯 Adding AR visualization for measurement at (\(position.x), \(positio
 - **Storage**: Room data and measurements require local storage space
 
 ### Configuration
-Set the run destination to an iOS 17+ device with a LiDAR Scanner. This app requires augmented reality and network access, so it doesn't support Simulator.
+**Device**: Set the run destination to an iOS 17+ device with a LiDAR Scanner for full functionality.  
+**Simulator**: iOS Simulator is now supported for UI testing with mock data (no hardware required).
 
 ## 🔧 Development Guide and Troubleshooting
 
@@ -592,14 +596,17 @@ if #available(iOS 17.0, *) {
 
 #### Runtime Issues
 
-**Problem**: App crashes on simulator
+**Problem**: App crashes on simulator (Legacy Issue - Now Fixed)
 **Root Cause**: ARKit and LiDAR not available on simulator
-**Solution**: Add device check in AppDelegate:
+**Solution**: App now includes comprehensive simulator support with mock data:
 ```swift
-guard ARWorldTrackingConfiguration.isSupported else {
-    // Show unsupported device screen
-    return
+#if targetEnvironment(simulator)
+print("🎭 Running in simulator - bypassing RoomPlan compatibility check")
+#else
+if !RoomCaptureSession.isSupported {
+    showUnsupportedDeviceAlert()
 }
+#endif
 ```
 
 **Problem**: Room scanning appears to hang
@@ -696,33 +703,41 @@ private let updateInterval: TimeInterval = 2.0
 ### Testing Procedures
 
 #### Device Testing Checklist
-- [ ] **iPhone 12 Pro or later**: LiDAR sensor required
+- [ ] **iPhone 12 Pro or later**: LiDAR sensor required for full functionality
+- [ ] **iOS Simulator**: Supported for UI testing with mock data
 - [ ] **iOS 17.0+**: RoomPlan framework availability
-- [ ] **Good lighting**: Avoid dark environments
+- [ ] **Good lighting**: Avoid dark environments (device testing only)
 - [ ] **WiFi network**: Connected network for speed testing
-- [ ] **Clear space**: 10+ feet scanning area for best results
+- [ ] **Clear space**: 10+ feet scanning area for best results (device testing only)
 
 #### Feature Testing Scenarios
 
-**Room Scanning Test**:
+**Room Scanning Test** (Device):
 1. Start in corner of room
 2. Move device slowly (1-2 feet per second)
 3. Capture all walls, floor, and major furniture
 4. Stop manually when satisfied with coverage
 5. Verify room type classification is reasonable
 
-**WiFi Survey Test**:
-1. Ensure AR mode displays room outlines
-2. Move around room systematically
-3. Verify measurement nodes appear every ~3 feet of movement
-4. Check speed test progress indicators appear
-5. Confirm measurements recorded in AR overlay
+**Room Scanning Test** (Simulator):
+1. Launch app in iOS Simulator
+2. Verify "SIMULATOR MODE" label appears with mock camera
+3. Start room scan - progress bar should simulate scanning
+4. Stop scan - should generate mock room with furniture
+5. Verify room classification works with mock data
 
-**Floor Plan Test**:
-1. Verify room shapes match actual layout
-2. Check furniture symbols are recognizable
-3. Test door symbols show proper swing arcs
-4. Confirm room labels display with confidence percentages
+**WiFi Survey Test** (Both Device & Simulator):
+1. Switch to WiFi survey mode
+2. Verify AR mode displays room outlines (or mock AR in simulator)
+3. Move around systematically (or click different areas in simulator)
+4. Check speed test progress indicators appear
+5. Confirm measurements recorded in visualization
+
+**Floor Plan Test** (Both Device & Simulator):
+1. Navigate to floor plan view
+2. Verify room shapes render correctly
+3. Check furniture symbols are recognizable
+4. Test door symbols show proper swing arcs
 5. Toggle heatmap overlay functionality
 
 #### Performance Benchmarks
