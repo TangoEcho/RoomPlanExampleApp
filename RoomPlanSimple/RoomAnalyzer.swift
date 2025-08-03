@@ -336,46 +336,187 @@ class RoomAnalyzer: ObservableObject {
     }
     
     private func extractWallPoints(from surface: CapturedRoom.Surface, capturedRoom: CapturedRoom) -> [simd_float2] {
-        // Try to find walls that bound this floor
         let floorCenter = calculateSurfaceCenter(surface)
         let floorBounds = surface.dimensions
         
-        var wallPoints: [simd_float2] = []
+        print("🏠 Creating room outlines for \(capturedRoom.walls.count) walls")
+        print("   Floor center: (\(String(format: "%.2f", floorCenter.x)), \(String(format: "%.2f", floorCenter.z)))")
+        print("   Floor bounds: \(String(format: "%.2f", floorBounds.x)) x \(String(format: "%.2f", floorBounds.z))")
         
-        // Look for walls near this floor
+        // Check for invalid floor dimensions first
+        if floorBounds.x <= 0.1 || floorBounds.z <= 0.1 {
+            print("⚠️ Invalid floor dimensions detected, using fallback rectangular room")
+            return createFallbackRectangularRoom(center: floorCenter, bounds: floorBounds)
+        }
+        
+        // Collect and filter wall segments that belong to this room
+        var relevantWalls: [(center: simd_float2, direction: simd_float2, length: Float)] = []
+        
         for wall in capturedRoom.walls {
-            let wallCenter = simd_float3(wall.transform.columns.3.x, wall.transform.columns.3.y, wall.transform.columns.3.z)
-            let distance = simd_distance(simd_float2(floorCenter.x, floorCenter.z), simd_float2(wallCenter.x, wallCenter.z))
+            let wallCenter3D = simd_float3(wall.transform.columns.3.x, wall.transform.columns.3.y, wall.transform.columns.3.z)
+            let wallCenter2D = simd_float2(wallCenter3D.x, wallCenter3D.z)
+            let distance = simd_distance(simd_float2(floorCenter.x, floorCenter.z), wallCenter2D)
             
-            // If wall is close to floor, add its endpoints
-            if distance < (max(floorBounds.x, floorBounds.z) * 0.7) {
-                let wallLength = wall.dimensions.x
+            // Only include walls that are close to this floor and reasonably sized
+            let maxDistance = max(floorBounds.x, floorBounds.z) * 0.8
+            if distance < maxDistance && wall.dimensions.x > 0.3 { // At least 30cm long
                 let wallDirection = simd_float2(wall.transform.columns.0.x, wall.transform.columns.0.z)
-                let wallNormal = simd_normalize(wallDirection)
+                let normalizedDirection = simd_length(wallDirection) > 0 ? simd_normalize(wallDirection) : simd_float2(1, 0)
                 
-                let point1 = simd_float2(wallCenter.x, wallCenter.z) - wallNormal * (wallLength / 2)
-                let point2 = simd_float2(wallCenter.x, wallCenter.z) + wallNormal * (wallLength / 2)
-                
-                wallPoints.append(point1)
-                wallPoints.append(point2)
+                relevantWalls.append((center: wallCenter2D, direction: normalizedDirection, length: wall.dimensions.x))
             }
         }
         
-        // If no walls found, create rectangular boundary from floor dimensions
-        if wallPoints.isEmpty {
-            let halfWidth = floorBounds.x / 2
-            let halfDepth = floorBounds.z / 2
-            let center2D = simd_float2(floorCenter.x, floorCenter.z)
-            
-            wallPoints = [
-                center2D + simd_float2(-halfWidth, -halfDepth), // bottom-left
-                center2D + simd_float2(halfWidth, -halfDepth),  // bottom-right
-                center2D + simd_float2(halfWidth, halfDepth),   // top-right
-                center2D + simd_float2(-halfWidth, halfDepth)   // top-left
-            ]
+        print("   Found \(relevantWalls.count) relevant walls after filtering")
+        
+        // If we have too many wall segments (indicating mesh triangulation), simplify
+        if relevantWalls.count > 12 {
+            print("   Too many wall segments (\(relevantWalls.count)), creating simplified boundary")
+            return createSimplifiedRoomBoundary(center: floorCenter, bounds: floorBounds, walls: relevantWalls)
         }
         
-        return wallPoints
+        // If we have a reasonable number of walls, try to create a proper boundary
+        if relevantWalls.count >= 3 {
+            let boundary = createOrderedRoomBoundary(walls: relevantWalls, floorCenter: floorCenter, floorBounds: floorBounds)
+            if validateRoomBoundary(boundary) {
+                print("   Created ordered boundary with \(boundary.count) points")
+                return boundary
+            } else {
+                print("   Boundary validation failed, using fallback")
+            }
+        }
+        
+        // Fallback to rectangular room if wall detection fails
+        print("   Using rectangular fallback room")
+        return createFallbackRectangularRoom(center: floorCenter, bounds: floorBounds)
+    }
+    
+    private func createSimplifiedRoomBoundary(center: simd_float3, bounds: simd_float3, walls: [(center: simd_float2, direction: simd_float2, length: Float)]) -> [simd_float2] {
+        // Group walls by similar directions to reduce complexity
+        var horizontalWalls: [simd_float2] = []
+        var verticalWalls: [simd_float2] = []
+        
+        for wall in walls {
+            // Check if wall is more horizontal or vertical
+            if abs(wall.direction.x) > abs(wall.direction.y) {
+                horizontalWalls.append(wall.center)
+            } else {
+                verticalWalls.append(wall.center)
+            }
+        }
+        
+        // Find boundary extents from wall positions
+        let center2D = simd_float2(center.x, center.z)
+        let allWallCenters = walls.map { $0.center }
+        
+        if allWallCenters.isEmpty {
+            return createFallbackRectangularRoom(center: center, bounds: bounds)
+        }
+        
+        let minX = allWallCenters.map { $0.x }.min() ?? (center2D.x - bounds.x/2)
+        let maxX = allWallCenters.map { $0.x }.max() ?? (center2D.x + bounds.x/2)
+        let minZ = allWallCenters.map { $0.y }.min() ?? (center2D.y - bounds.z/2)
+        let maxZ = allWallCenters.map { $0.y }.max() ?? (center2D.y + bounds.z/2)
+        
+        // Create a simplified rectangular boundary from wall extents
+        return [
+            simd_float2(minX, minZ), // bottom-left
+            simd_float2(maxX, minZ), // bottom-right
+            simd_float2(maxX, maxZ), // top-right
+            simd_float2(minX, maxZ)  // top-left
+        ]
+    }
+    
+    private func createOrderedRoomBoundary(walls: [(center: simd_float2, direction: simd_float2, length: Float)], floorCenter: simd_float3, floorBounds: simd_float3) -> [simd_float2] {
+        // Create wall endpoints
+        var wallEndpoints: [simd_float2] = []
+        
+        for wall in walls {
+            let halfLength = wall.length / 2
+            let endpoint1 = wall.center - wall.direction * halfLength
+            let endpoint2 = wall.center + wall.direction * halfLength
+            wallEndpoints.append(endpoint1)
+            wallEndpoints.append(endpoint2)
+        }
+        
+        // Remove duplicate points (merge points that are very close)
+        let mergedPoints = mergeNearbyPoints(wallEndpoints, threshold: 0.3)
+        
+        if mergedPoints.count < 3 {
+            return createFallbackRectangularRoom(center: floorCenter, bounds: floorBounds)
+        }
+        
+        // Order points to form a coherent boundary (convex hull or clockwise ordering)
+        let orderedPoints = orderPointsClockwise(mergedPoints, center: simd_float2(floorCenter.x, floorCenter.z))
+        
+        return orderedPoints
+    }
+    
+    private func mergeNearbyPoints(_ points: [simd_float2], threshold: Float) -> [simd_float2] {
+        var mergedPoints: [simd_float2] = []
+        
+        for point in points {
+            var shouldAdd = true
+            for existingPoint in mergedPoints {
+                if simd_distance(point, existingPoint) < threshold {
+                    shouldAdd = false
+                    break
+                }
+            }
+            if shouldAdd {
+                mergedPoints.append(point)
+            }
+        }
+        
+        return mergedPoints
+    }
+    
+    private func orderPointsClockwise(_ points: [simd_float2], center: simd_float2) -> [simd_float2] {
+        // Sort points by angle from center (clockwise)
+        let sortedPoints = points.sorted { point1, point2 in
+            let angle1 = atan2(point1.y - center.y, point1.x - center.x)
+            let angle2 = atan2(point2.y - center.y, point2.x - center.x)
+            return angle1 < angle2
+        }
+        
+        return sortedPoints
+    }
+    
+    private func validateRoomBoundary(_ boundary: [simd_float2]) -> Bool {
+        // Check if boundary has at least 3 points and forms a reasonable shape
+        if boundary.count < 3 {
+            return false
+        }
+        
+        // Check if points are not all collinear or in a tiny area
+        let minX = boundary.map { $0.x }.min() ?? 0
+        let maxX = boundary.map { $0.x }.max() ?? 0
+        let minY = boundary.map { $0.y }.min() ?? 0
+        let maxY = boundary.map { $0.y }.max() ?? 0
+        
+        let width = maxX - minX
+        let height = maxY - minY
+        
+        // Room should be at least 0.5m x 0.5m
+        return width > 0.5 && height > 0.5
+    }
+    
+    private func createFallbackRectangularRoom(center: simd_float3, bounds: simd_float3) -> [simd_float2] {
+        // Ensure minimum room dimensions for visibility
+        let minDimension: Float = 1.0
+        let roomWidth = max(bounds.x, minDimension)
+        let roomDepth = max(bounds.z, minDimension)
+        
+        let halfWidth = roomWidth / 2
+        let halfDepth = roomDepth / 2
+        let center2D = simd_float2(center.x, center.z)
+        
+        return [
+            center2D + simd_float2(-halfWidth, -halfDepth), // bottom-left
+            center2D + simd_float2(halfWidth, -halfDepth),  // bottom-right
+            center2D + simd_float2(halfWidth, halfDepth),   // top-right
+            center2D + simd_float2(-halfWidth, halfDepth)   // top-left
+        ]
     }
     
     private func findDoorways(for surface: CapturedRoom.Surface, capturedRoom: CapturedRoom) -> [simd_float2] {

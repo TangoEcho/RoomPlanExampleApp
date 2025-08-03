@@ -351,37 +351,199 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     }
     
     func generateHeatmapData() -> WiFiHeatmapData {
-        var coverageMap: [simd_float3: Double] = [:]
+        print("📊 Generating heatmap data from \(measurements.count) measurements")
         
-        for measurement in measurements {
-            let normalizedSignal = Double(measurement.signalStrength + 100) / 100.0
-            coverageMap[measurement.location] = normalizedSignal
+        // Check if we have enough data for meaningful heatmap
+        guard measurements.count >= 2 else {
+            print("⚠️ Insufficient coverage data points for heatmap: \(measurements.count)")
+            
+            // Create basic coverage map from available measurements
+            var coverageMap: [simd_float3: Double] = [:]
+            for measurement in measurements {
+                let normalizedSignal = Double(measurement.signalStrength + 100) / 100.0
+                coverageMap[measurement.location] = normalizedSignal
+            }
+            
+            return WiFiHeatmapData(
+                measurements: measurements,
+                coverageMap: coverageMap,
+                optimalRouterPlacements: calculateOptimalRouterPlacements()
+            )
         }
         
+        // Generate interpolated coverage map with improved algorithm
+        let interpolatedCoverageMap = generateInterpolatedCoverageMap()
         let optimalPlacements = calculateOptimalRouterPlacements()
+        
+        print("✅ Generated heatmap with \(interpolatedCoverageMap.count) interpolated coverage points")
         
         return WiFiHeatmapData(
             measurements: measurements,
-            coverageMap: coverageMap,
+            coverageMap: interpolatedCoverageMap,
             optimalRouterPlacements: optimalPlacements
         )
     }
     
-    private func calculateOptimalRouterPlacements() -> [simd_float3] {
-        var placements: [simd_float3] = []
+    private func generateInterpolatedCoverageMap() -> [simd_float3: Double] {
+        var coverageMap: [simd_float3: Double] = [:]
         
-        let roomCenters: [simd_float3] = Dictionary(grouping: measurements) { $0.roomType }
-            .compactMapValues { measurements -> simd_float3? in
-                guard !measurements.isEmpty else { return nil }
-                let sum = measurements.reduce(simd_float3(0,0,0)) { $0 + $1.location }
-                return sum / Float(measurements.count)
-            }.values.compactMap { $0 }
+        // Calculate room bounds from measurements
+        let positions = measurements.map { $0.location }
+        let minX = positions.map { $0.x }.min() ?? 0
+        let maxX = positions.map { $0.x }.max() ?? 0
+        let minZ = positions.map { $0.z }.min() ?? 0
+        let maxZ = positions.map { $0.z }.max() ?? 0
         
-        for center in roomCenters {
-            placements.append(center)
+        // Ensure reasonable grid size
+        let roomWidth = max(maxX - minX, 1.0)
+        let roomDepth = max(maxZ - minZ, 1.0)
+        
+        // Create interpolation grid (0.3m resolution for smooth coverage)
+        let gridResolution: Float = 0.3
+        let gridWidth = Int(ceil(roomWidth / gridResolution))
+        let gridDepth = Int(ceil(roomDepth / gridResolution))
+        
+        print("📐 Creating \(gridWidth)x\(gridDepth) interpolation grid")
+        
+        // Generate coverage for each grid point using inverse distance weighting
+        for x in 0...gridWidth {
+            for z in 0...gridDepth {
+                let gridPoint = simd_float3(
+                    minX + Float(x) * gridResolution,
+                    0, // Floor level
+                    minZ + Float(z) * gridResolution
+                )
+                
+                let interpolatedStrength = interpolateSignalStrength(at: gridPoint)
+                let normalizedSignal = Double(interpolatedStrength + 100) / 100.0
+                
+                // Only include points with reasonable signal strength
+                if interpolatedStrength > -120 { // Exclude extremely weak signals
+                    coverageMap[gridPoint] = max(0, min(1, normalizedSignal))
+                }
+            }
         }
         
+        return coverageMap
+    }
+    
+    private func interpolateSignalStrength(at point: simd_float3) -> Float {
+        guard !measurements.isEmpty else { return -100 }
+        
+        var weightedSum: Float = 0
+        var totalWeight: Float = 0
+        
+        // Use inverse distance weighting for interpolation
+        for measurement in measurements {
+            let distance = simd_distance(point, measurement.location)
+            
+            // Avoid division by zero for exact matches
+            let weight = distance < 0.01 ? 1000.0 : 1.0 / (distance * distance)
+            
+            weightedSum += Float(measurement.signalStrength) * weight
+            totalWeight += weight
+        }
+        
+        return totalWeight > 0 ? weightedSum / totalWeight : -100
+    }
+    
+    private func calculateOptimalRouterPlacements() -> [simd_float3] {
+        guard measurements.count >= 2 else {
+            print("⚠️ Insufficient measurements for router placement analysis")
+            return []
+        }
+        
+        print("🎯 Calculating optimal router placements using coverage gap analysis")
+        
+        // Find areas with poor coverage (signal strength < -80 dBm)
+        let poorCoverageAreas = measurements.filter { $0.signalStrength < -80 }
+        let goodCoverageAreas = measurements.filter { $0.signalStrength >= -60 }
+        
+        var placements: [simd_float3] = []
+        
+        // Strategy 1: Place router at center of good coverage area
+        if !goodCoverageAreas.isEmpty {
+            let centerOfGoodCoverage = calculateCenterPoint(from: goodCoverageAreas.map { $0.location })
+            placements.append(centerOfGoodCoverage)
+            print("   📍 Primary placement at center of good coverage: (\(String(format: "%.1f", centerOfGoodCoverage.x)), \(String(format: "%.1f", centerOfGoodCoverage.z)))")
+        }
+        
+        // Strategy 2: If we have poor coverage areas, place additional routers
+        if !poorCoverageAreas.isEmpty && poorCoverageAreas.count >= 2 {
+            // Group poor coverage areas that are close together
+            let poorCoverageGroups = groupNearbyLocations(poorCoverageAreas.map { $0.location }, threshold: 3.0)
+            
+            for group in poorCoverageGroups {
+                if group.count >= 2 { // Only place router if multiple poor spots are clustered
+                    let groupCenter = calculateCenterPoint(from: group)
+                    
+                    // Don't place too close to existing placements
+                    let tooClose = placements.contains { simd_distance($0, groupCenter) < 2.0 }
+                    if !tooClose {
+                        placements.append(groupCenter)
+                        print("   📍 Additional placement for poor coverage area: (\(String(format: "%.1f", groupCenter.x)), \(String(format: "%.1f", groupCenter.z)))")
+                    }
+                }
+            }
+        }
+        
+        // Strategy 3: If no good coverage, place at measurement centroid
+        if placements.isEmpty {
+            let overallCenter = calculateCenterPoint(from: measurements.map { $0.location })
+            placements.append(overallCenter)
+            print("   📍 Fallback placement at measurement centroid: (\(String(format: "%.1f", overallCenter.x)), \(String(format: "%.1f", overallCenter.z)))")
+        }
+        
+        // Validate placements are within reasonable bounds
+        placements = placements.filter { placement in
+            let positions = measurements.map { $0.location }
+            let minX = positions.map { $0.x }.min() ?? 0
+            let maxX = positions.map { $0.x }.max() ?? 0
+            let minZ = positions.map { $0.z }.min() ?? 0
+            let maxZ = positions.map { $0.z }.max() ?? 0
+            
+            return placement.x >= minX - 1 && placement.x <= maxX + 1 &&
+                   placement.z >= minZ - 1 && placement.z <= maxZ + 1
+        }
+        
+        print("✅ Recommended \(placements.count) optimal router placement(s)")
         return placements
+    }
+    
+    private func calculateCenterPoint(from locations: [simd_float3]) -> simd_float3 {
+        guard !locations.isEmpty else { return simd_float3(0, 0, 0) }
+        
+        let sum = locations.reduce(simd_float3(0, 0, 0)) { $0 + $1 }
+        return sum / Float(locations.count)
+    }
+    
+    private func groupNearbyLocations(_ locations: [simd_float3], threshold: Float) -> [[simd_float3]] {
+        var groups: [[simd_float3]] = []
+        var unprocessed = locations
+        
+        while !unprocessed.isEmpty {
+            var currentGroup = [unprocessed.removeFirst()]
+            
+            // Find all locations within threshold of current group
+            var foundNew = true
+            while foundNew {
+                foundNew = false
+                for (index, location) in unprocessed.enumerated().reversed() {
+                    let isClose = currentGroup.contains { groupLocation in
+                        simd_distance(groupLocation, location) <= threshold
+                    }
+                    if isClose {
+                        currentGroup.append(location)
+                        unprocessed.remove(at: index)
+                        foundNew = true
+                    }
+                }
+            }
+            
+            groups.append(currentGroup)
+        }
+        
+        return groups
     }
     
     // MARK: - Movement Detection Methods

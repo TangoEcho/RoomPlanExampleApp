@@ -2,6 +2,12 @@ import UIKit
 import SceneKit
 import RoomPlan
 
+protocol FloorPlanInteractionDelegate: AnyObject {
+    func didSelectRoom(_ room: RoomAnalyzer.IdentifiedRoom)
+    func didSelectMeasurement(_ measurement: WiFiMeasurement)
+    func didSelectRouterPlacement(_ placement: simd_float3)
+}
+
 class FloorPlanViewController: UIViewController {
     private var floorPlanView: UIView!
     private var heatmapToggle: UISwitch!
@@ -251,6 +257,154 @@ class FloorPlanRenderer: UIView {
     private var heatmapData: WiFiHeatmapData?
     private var showHeatmap = false
     
+    // Interactive features
+    weak var delegate: FloorPlanInteractionDelegate?
+    private var selectedRoom: RoomAnalyzer.IdentifiedRoom?
+    private var selectedMeasurement: WiFiMeasurement?
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupInteraction()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupInteraction()
+    }
+    
+    private func setupInteraction() {
+        isUserInteractionEnabled = true
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        addGestureRecognizer(tapGesture)
+    }
+    
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        let tapLocation = gesture.location(in: self)
+        print("🖱️ Tap detected at (\(tapLocation.x), \(tapLocation.y))")
+        
+        let scale = calculateScale(rect: bounds)
+        let offset = calculateOffset(rect: bounds)
+        
+        // Check if tap hit a room
+        if let room = findRoomAtLocation(tapLocation, scale: scale, offset: offset) {
+            selectedRoom = room
+            delegate?.didSelectRoom(room)
+            print("🏠 Selected room: \(room.type.rawValue)")
+            setNeedsDisplay() // Redraw to highlight selection
+            return
+        }
+        
+        // Check if tap hit a measurement point
+        if let heatmapData = heatmapData {
+            if let measurement = findMeasurementAtLocation(tapLocation, measurements: heatmapData.measurements, scale: scale, offset: offset) {
+                selectedMeasurement = measurement
+                delegate?.didSelectMeasurement(measurement)
+                print("📍 Selected measurement: \(measurement.signalStrength)dBm")
+                setNeedsDisplay() // Redraw to highlight selection
+                return
+            }
+            
+            // Check if tap hit a router placement
+            if let placement = findRouterPlacementAtLocation(tapLocation, placements: heatmapData.optimalRouterPlacements, scale: scale, offset: offset) {
+                delegate?.didSelectRouterPlacement(placement)
+                print("📡 Selected router placement")
+                return
+            }
+        }
+        
+        // Clear selection if nothing hit
+        selectedRoom = nil
+        selectedMeasurement = nil
+        setNeedsDisplay()
+        print("✋ Selection cleared")
+    }
+    
+    private func findRoomAtLocation(_ location: CGPoint, scale: CGFloat, offset: CGPoint) -> RoomAnalyzer.IdentifiedRoom? {
+        for room in rooms {
+            if room.wallPoints.count >= 3 {
+                // Check if point is inside room polygon
+                let screenPoints = room.wallPoints.map { point in
+                    CGPoint(
+                        x: CGFloat(point.x) * scale + offset.x,
+                        y: CGFloat(point.y) * scale + offset.y
+                    )
+                }
+                
+                if isPointInPolygon(location, polygon: screenPoints) {
+                    return room
+                }
+            } else {
+                // Check rectangular room
+                let roomRect = CGRect(
+                    x: CGFloat(room.center.x) * scale + offset.x - CGFloat(room.bounds.dimensions.x) * scale / 2,
+                    y: CGFloat(room.center.z) * scale + offset.y - CGFloat(room.bounds.dimensions.z) * scale / 2,
+                    width: CGFloat(room.bounds.dimensions.x) * scale,
+                    height: CGFloat(room.bounds.dimensions.z) * scale
+                )
+                
+                if roomRect.contains(location) {
+                    return room
+                }
+            }
+        }
+        return nil
+    }
+    
+    private func findMeasurementAtLocation(_ location: CGPoint, measurements: [WiFiMeasurement], scale: CGFloat, offset: CGPoint) -> WiFiMeasurement? {
+        let tapRadius: CGFloat = 15.0 // Increased tap area for easier selection
+        
+        for measurement in measurements {
+            let measurementPoint = CGPoint(
+                x: CGFloat(measurement.location.x) * scale + offset.x,
+                y: CGFloat(measurement.location.z) * scale + offset.y
+            )
+            
+            let distance = sqrt(pow(location.x - measurementPoint.x, 2) + pow(location.y - measurementPoint.y, 2))
+            if distance <= tapRadius {
+                return measurement
+            }
+        }
+        return nil
+    }
+    
+    private func findRouterPlacementAtLocation(_ location: CGPoint, placements: [simd_float3], scale: CGFloat, offset: CGPoint) -> simd_float3? {
+        let tapRadius: CGFloat = 20.0
+        
+        for placement in placements {
+            let placementPoint = CGPoint(
+                x: CGFloat(placement.x) * scale + offset.x,
+                y: CGFloat(placement.z) * scale + offset.y
+            )
+            
+            let distance = sqrt(pow(location.x - placementPoint.x, 2) + pow(location.y - placementPoint.y, 2))
+            if distance <= tapRadius {
+                return placement
+            }
+        }
+        return nil
+    }
+    
+    private func isPointInPolygon(_ point: CGPoint, polygon: [CGPoint]) -> Bool {
+        guard polygon.count > 2 else { return false }
+        
+        var inside = false
+        var j = polygon.count - 1
+        
+        for i in 0..<polygon.count {
+            let xi = polygon[i].x
+            let yi = polygon[i].y
+            let xj = polygon[j].x
+            let yj = polygon[j].y
+            
+            if ((yi > point.y) != (yj > point.y)) && (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi) {
+                inside = !inside
+            }
+            j = i
+        }
+        
+        return inside
+    }
+    
     func renderFloorPlan(rooms: [RoomAnalyzer.IdentifiedRoom], 
                         furniture: [RoomAnalyzer.FurnitureItem],
                         heatmapData: WiFiHeatmapData,
@@ -334,7 +488,18 @@ class FloorPlanRenderer: UIView {
     }
     
     private func drawRoomShape(context: CGContext, room: RoomAnalyzer.IdentifiedRoom, scale: CGFloat, offset: CGPoint) {
-        guard room.wallPoints.count >= 3 else { return }
+        guard room.wallPoints.count >= 3 else { 
+            print("⚠️ Room \(room.type.rawValue) has insufficient wall points (\(room.wallPoints.count)), using rectangular fallback")
+            drawRectangularRoom(context: context, room: room, scale: scale, offset: offset)
+            return 
+        }
+        
+        // Validate wall points before rendering
+        if !validateWallPointsForRendering(room.wallPoints) {
+            print("⚠️ Room \(room.type.rawValue) has invalid wall points, using rectangular fallback")
+            drawRectangularRoom(context: context, room: room, scale: scale, offset: offset)
+            return
+        }
         
         // Convert wall points to screen coordinates
         let screenPoints = room.wallPoints.map { point in
@@ -342,6 +507,13 @@ class FloorPlanRenderer: UIView {
                 x: CGFloat(point.x) * scale + offset.x,
                 y: CGFloat(point.y) * scale + offset.y
             )
+        }
+        
+        // Validate screen coordinates
+        guard validateScreenPoints(screenPoints) else {
+            print("⚠️ Room \(room.type.rawValue) generated invalid screen coordinates, using rectangular fallback")
+            drawRectangularRoom(context: context, room: room, scale: scale, offset: offset)
+            return
         }
         
         // Create path from wall points
@@ -352,16 +524,88 @@ class FloorPlanRenderer: UIView {
         }
         path.closeSubpath()
         
-        // Fill the room
-        context.setFillColor(roomTypeColor(room.type).withAlphaComponent(0.3).cgColor)
+        // Verify path is valid before rendering
+        if path.isEmpty {
+            print("⚠️ Room \(room.type.rawValue) generated empty path, using rectangular fallback")
+            drawRectangularRoom(context: context, room: room, scale: scale, offset: offset)
+            return
+        }
+        
+        // Fill the room (highlight if selected)
+        let isSelected = selectedRoom?.id == room.id
+        let fillAlpha: CGFloat = isSelected ? 0.6 : 0.3
+        context.setFillColor(roomTypeColor(room.type).withAlphaComponent(fillAlpha).cgColor)
         context.addPath(path)
         context.fillPath()
         
-        // Draw walls
+        // Draw walls (thicker if selected)
         context.setStrokeColor(roomTypeColor(room.type).cgColor)
-        context.setLineWidth(3.0)
+        context.setLineWidth(isSelected ? 4.0 : 3.0)
         context.addPath(path)
         context.strokePath()
+        
+        // Add selection indicator
+        if isSelected {
+            context.setStrokeColor(UIColor.systemBlue.cgColor)
+            context.setLineWidth(2.0)
+            context.setLineDash(phase: 0, lengths: [5, 3])
+            context.addPath(path)
+            context.strokePath()
+            context.setLineDash(phase: 0, lengths: []) // Reset dash
+        }
+        
+        print("✅ Successfully rendered room \(room.type.rawValue) with \(room.wallPoints.count) wall points")
+    }
+    
+    private func validateWallPointsForRendering(_ wallPoints: [simd_float2]) -> Bool {
+        // Check for minimum points
+        if wallPoints.count < 3 {
+            return false
+        }
+        
+        // Check for valid coordinates (no NaN or infinite values)
+        for point in wallPoints {
+            if !point.x.isFinite || !point.y.isFinite {
+                return false
+            }
+        }
+        
+        // Check that points define a reasonable area
+        let minX = wallPoints.map { $0.x }.min() ?? 0
+        let maxX = wallPoints.map { $0.x }.max() ?? 0
+        let minY = wallPoints.map { $0.y }.min() ?? 0
+        let maxY = wallPoints.map { $0.y }.max() ?? 0
+        
+        let width = maxX - minX
+        let height = maxY - minY
+        
+        // Area should be at least 0.25 square meters (0.5m x 0.5m)
+        return width > 0.5 && height > 0.5
+    }
+    
+    private func validateScreenPoints(_ points: [CGPoint]) -> Bool {
+        // Check for valid screen coordinates
+        for point in points {
+            if !point.x.isFinite || !point.y.isFinite {
+                return false
+            }
+            // Points should be within reasonable screen bounds
+            if point.x < -1000 || point.x > 10000 || point.y < -1000 || point.y > 10000 {
+                return false
+            }
+        }
+        
+        // Check that points define a visible area on screen
+        let minX = points.map { $0.x }.min() ?? 0
+        let maxX = points.map { $0.x }.max() ?? 0
+        let minY = points.map { $0.y }.min() ?? 0
+        let maxY = points.map { $0.y }.max() ?? 0
+        
+        let width = maxX - minX
+        let height = maxY - minY
+        
+        // Should be at least 1 pixel wide and tall
+        return width > 1.0 && height > 1.0
     }
     
     private func drawRectangularRoom(context: CGContext, room: RoomAnalyzer.IdentifiedRoom, scale: CGFloat, offset: CGPoint) {
@@ -797,27 +1041,137 @@ class FloorPlanRenderer: UIView {
     private func drawHeatmap(context: CGContext, rect: CGRect) {
         guard let heatmapData = heatmapData else { return }
         
+        print("🎨 Drawing enhanced heatmap with \(heatmapData.coverageMap.count) coverage points")
+        
         let scale = calculateScale(rect: rect)
         let offset = calculateOffset(rect: rect)
         
+        // Create improved heatmap with gradient circles and better coverage representation
         for (position, coverage) in heatmapData.coverageMap {
             let center = CGPoint(
                 x: CGFloat(position.x) * scale + offset.x,
                 y: CGFloat(position.z) * scale + offset.y
             )
             
-            let radius = 30.0 * CGFloat(coverage)
+            // Calculate signal strength from normalized coverage
             let signalStrength = Int((coverage - 1.0) * 50.0 - 100)
-            let color = signalStrengthColor(signalStrength).withAlphaComponent(0.4)
             
-            context.setFillColor(color.cgColor)
-            context.addEllipse(in: CGRect(
-                x: center.x - radius,
-                y: center.y - radius,
-                width: radius * 2,
-                height: radius * 2
-            ))
+            // Adaptive radius based on signal strength (stronger signals cover wider areas)
+            let baseRadius: CGFloat = 25.0
+            let strengthMultiplier = max(0.3, CGFloat(coverage)) // Minimum 30% radius
+            let radius = baseRadius * strengthMultiplier
+            
+            // Create radial gradient for smooth coverage visualization
+            drawGradientCoverage(
+                context: context,
+                center: center,
+                radius: radius,
+                coverage: coverage,
+                signalStrength: signalStrength
+            )
+        }
+        
+        // Add coverage legend
+        drawHeatmapLegend(context: context, rect: rect)
+        
+        print("✅ Heatmap rendered with enhanced gradients and coverage modeling")
+    }
+    
+    private func drawGradientCoverage(context: CGContext, center: CGPoint, radius: CGFloat, coverage: Double, signalStrength: Int) {
+        // Create radial gradient from strong signal at center to weak at edges
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        
+        let centerColor = signalStrengthColor(signalStrength).withAlphaComponent(0.7)
+        let edgeColor = signalStrengthColor(signalStrength - 20).withAlphaComponent(0.2)
+        
+        let colors = [centerColor.cgColor, edgeColor.cgColor]
+        let locations: [CGFloat] = [0.0, 1.0]
+        
+        guard let gradient = CGGradient(colorsSpace: colorSpace, colors: colors as CFArray, locations: locations) else {
+            // Fallback to simple circle if gradient creation fails
+            context.setFillColor(centerColor.cgColor)
+            context.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
             context.fillPath()
+            return
+        }
+        
+        // Save context state
+        context.saveGState()
+        
+        // Clip to circle
+        context.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+        context.clip()
+        
+        // Draw radial gradient
+        context.drawRadialGradient(
+            gradient,
+            startCenter: center,
+            startRadius: 0,
+            endCenter: center,
+            endRadius: radius,
+            options: []
+        )
+        
+        // Restore context state
+        context.restoreGState()
+    }
+    
+    private func drawHeatmapLegend(context: CGContext, rect: CGRect) {
+        // Draw small legend in top-right corner
+        let legendWidth: CGFloat = 120
+        let legendHeight: CGFloat = 80
+        let legendX = rect.maxX - legendWidth - 10
+        let legendY = rect.minY + 10
+        
+        let legendRect = CGRect(x: legendX, y: legendY, width: legendWidth, height: legendHeight)
+        
+        // Legend background
+        context.setFillColor(UIColor.systemBackground.withAlphaComponent(0.9).cgColor)
+        context.setStrokeColor(UIColor.systemGray3.cgColor)
+        context.setLineWidth(1.0)
+        let roundedPath = CGPath(roundedRect: legendRect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        context.addPath(roundedPath)
+        context.drawPath(using: .fillStroke)
+        
+        // Legend title
+        let titleText = "Signal Strength"
+        let titleAttributes = [
+            NSAttributedString.Key.font: UIFont.systemFont(ofSize: 12, weight: .medium),
+            NSAttributedString.Key.foregroundColor: UIColor.label
+        ]
+        let titleSize = titleText.size(withAttributes: titleAttributes)
+        let titleRect = CGRect(
+            x: legendX + (legendWidth - titleSize.width) / 2,
+            y: legendY + 5,
+            width: titleSize.width,
+            height: titleSize.height
+        )
+        titleText.draw(in: titleRect, withAttributes: titleAttributes)
+        
+        // Legend items
+        let legendItems = [
+            (-40, "Excellent"),
+            (-60, "Good"),
+            (-80, "Fair"),
+            (-100, "Poor")
+        ]
+        
+        for (index, (strength, label)) in legendItems.enumerated() {
+            let itemY = legendY + 25 + CGFloat(index) * 12
+            
+            // Color circle
+            let circleSize: CGFloat = 8
+            let circleRect = CGRect(x: legendX + 8, y: itemY, width: circleSize, height: circleSize)
+            context.setFillColor(signalStrengthColor(strength).cgColor)
+            context.addEllipse(in: circleRect)
+            context.fillPath()
+            
+            // Label text
+            let labelAttributes = [
+                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 10),
+                NSAttributedString.Key.foregroundColor: UIColor.label
+            ]
+            label.draw(at: CGPoint(x: legendX + 20, y: itemY - 1), withAttributes: labelAttributes)
         }
     }
     
@@ -833,11 +1187,58 @@ class FloorPlanRenderer: UIView {
                 y: CGFloat(measurement.location.z) * scale + offset.y
             )
             
+            // Check if this measurement is selected
+            let isSelected = selectedMeasurement?.location.x == measurement.location.x &&
+                           selectedMeasurement?.location.y == measurement.location.y &&
+                           selectedMeasurement?.location.z == measurement.location.z
+            
             let color = signalStrengthColor(measurement.signalStrength)
+            let radius: CGFloat = isSelected ? 6 : 4
+            
+            // Draw measurement point
             context.setFillColor(color.cgColor)
-            context.addEllipse(in: CGRect(x: center.x - 4, y: center.y - 4, width: 8, height: 8))
+            context.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
             context.fillPath()
+            
+            // Add selection indicator
+            if isSelected {
+                context.setStrokeColor(UIColor.systemBlue.cgColor)
+                context.setLineWidth(3.0)
+                context.addEllipse(in: CGRect(x: center.x - radius - 2, y: center.y - radius - 2, width: (radius + 2) * 2, height: (radius + 2) * 2))
+                context.strokePath()
+                
+                // Show measurement details
+                let detailText = "\(measurement.signalStrength)dBm\n\(String(format: "%.1f", measurement.speed))Mbps"
+                drawMeasurementDetail(context: context, text: detailText, at: center)
+            }
         }
+    }
+    
+    private func drawMeasurementDetail(context: CGContext, text: String, at center: CGPoint) {
+        let attributes = [
+            NSAttributedString.Key.font: UIFont.systemFont(ofSize: 10, weight: .medium),
+            NSAttributedString.Key.foregroundColor: UIColor.label,
+            NSAttributedString.Key.backgroundColor: UIColor.systemBackground
+        ]
+        
+        let textSize = text.size(withAttributes: attributes)
+        let textRect = CGRect(
+            x: center.x + 15,
+            y: center.y - textSize.height / 2,
+            width: textSize.width + 4,
+            height: textSize.height + 2
+        )
+        
+        // Background for text
+        context.setFillColor(UIColor.systemBackground.withAlphaComponent(0.9).cgColor)
+        context.setStrokeColor(UIColor.systemGray3.cgColor)
+        context.setLineWidth(1.0)
+        let roundedRect = CGPath(roundedRect: textRect.insetBy(dx: -2, dy: -1), cornerWidth: 4, cornerHeight: 4, transform: nil)
+        context.addPath(roundedRect)
+        context.drawPath(using: .fillStroke)
+        
+        // Draw text
+        text.draw(in: textRect, withAttributes: attributes)
     }
     
     private func drawOptimalRouterPlacements(context: CGContext, rect: CGRect) {
