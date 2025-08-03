@@ -203,9 +203,20 @@ class RoomAnalyzer: ObservableObject {
         let area = calculateSurfaceArea(surface)
         let width = surface.dimensions.x
         let depth = surface.dimensions.z
-        let aspectRatio = max(width, depth) / min(width, depth)
         
-        print("   Fallback classification by size: \(area)m², aspect ratio: \(aspectRatio)")
+        // Handle invalid dimensions safely
+        let safeWidth = max(width, 0.1) // Ensure non-zero
+        let safeDepth = max(depth, 0.1) // Ensure non-zero
+        let aspectRatio = max(safeWidth, safeDepth) / min(safeWidth, safeDepth)
+        
+        print("   Fallback classification by size: \(String(format: "%.1f", area))m², aspect ratio: \(String(format: "%.2f", aspectRatio))")
+        print("   Surface dimensions: \(String(format: "%.2f", width)) x \(String(format: "%.2f", depth))")
+        
+        // If dimensions are effectively zero, use a heuristic approach
+        if width <= 0.1 || depth <= 0.1 {
+            print("   Invalid dimensions detected, defaulting to living room classification")
+            return .livingRoom
+        }
         
         // Very small rooms are likely bathrooms or closets
         if area < 6.0 {
@@ -215,11 +226,16 @@ class RoomAnalyzer: ObservableObject {
         else if area < 12.0 {
             return aspectRatio > 2.0 ? .hallway : .bedroom
         }
-        // Medium rooms
+        // Medium rooms - be more specific about living vs dining
         else if area < 25.0 {
-            return .bedroom
+            // Medium rectangular rooms are often dining rooms
+            return aspectRatio < 1.5 ? .diningRoom : .bedroom
         }
         // Large rooms are likely living areas
+        else if area < 50.0 {
+            return .livingRoom
+        }
+        // Very large areas might be open concept or multiple rooms
         else {
             return .livingRoom
         }
@@ -231,7 +247,35 @@ class RoomAnalyzer: ObservableObject {
     }
     
     private func calculateSurfaceArea(_ surface: CapturedRoom.Surface) -> Float {
-        return surface.dimensions.x * surface.dimensions.z
+        let area = surface.dimensions.x * surface.dimensions.z
+        
+        // Validate area calculation - if dimensions are 0 or invalid, calculate from bounds
+        if area <= 0 || !area.isFinite {
+            print("⚠️ Invalid surface dimensions (\(surface.dimensions.x) x \(surface.dimensions.z)), attempting bounds calculation")
+            
+            // Try to calculate area from transform matrix bounds
+            let transform = surface.transform
+            let scale = simd_float3(
+                simd_length(simd_float3(transform.columns.0.x, transform.columns.0.y, transform.columns.0.z)),
+                simd_length(simd_float3(transform.columns.1.x, transform.columns.1.y, transform.columns.1.z)),
+                simd_length(simd_float3(transform.columns.2.x, transform.columns.2.y, transform.columns.2.z))
+            )
+            
+            // For floor surfaces, use X and Z scale components
+            let estimatedArea = scale.x * scale.z
+            
+            if estimatedArea > 0 && estimatedArea.isFinite {
+                print("   Estimated area from transform: \(estimatedArea)m²")
+                return estimatedArea
+            }
+            
+            // Fallback: assume minimum reasonable room size
+            let fallbackArea: Float = 10.0 // 10 square meters
+            print("   Using fallback area: \(fallbackArea)m²")
+            return fallbackArea
+        }
+        
+        return area
     }
     
     private func calculateRoomConfidence(roomType: RoomType, objects: [CapturedRoom.Object], surface: CapturedRoom.Surface) -> Float {

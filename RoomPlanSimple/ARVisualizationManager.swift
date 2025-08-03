@@ -59,6 +59,11 @@ class ARVisualizationManager: NSObject, ObservableObject {
     private var coordinateTransform: simd_float4x4 = matrix_identity_float4x4
     private var roomCenterOffset: simd_float3 = simd_float3(0, 0, 0)
     
+    // Calibration system
+    private var isCalibrationMode = false
+    private var calibrationPoints: [(ar: simd_float3, room: simd_float3)] = []
+    private var needsCalibration = true
+    
     private func setupARSession() {
         guard let sceneView = sceneView else { return }
         
@@ -94,11 +99,18 @@ class ARVisualizationManager: NSObject, ObservableObject {
         // Apply coordinate transformation to align with room coordinates
         let alignedPosition = transformARToRoomCoordinates(position)
         
+        // Create the main measurement node (floating sphere)
         let node = getOrCreateMeasurementNode(for: measurement)
         node.position = SCNVector3(alignedPosition.x, alignedPosition.y, alignedPosition.z)
         
+        // Add floor indicator (colored dot on the floor)
+        let floorIndicator = createFloorIndicatorNode(for: measurement)
+        floorIndicator.position = SCNVector3(alignedPosition.x, alignedPosition.y - 1.5, alignedPosition.z) // Place on floor
+        
         sceneView.scene.rootNode.addChildNode(node)
+        sceneView.scene.rootNode.addChildNode(floorIndicator)
         measurementDisplayNodes.append(node)
+        measurementDisplayNodes.append(floorIndicator)
         
         DispatchQueue.main.async {
             if self.measurementNodes.count >= self.maxNodes {
@@ -204,6 +216,78 @@ class ARVisualizationManager: NSObject, ObservableObject {
         textNode.constraints = [billboardConstraint]
         
         return textNode
+    }
+    
+    private func createFloorIndicatorNode(for measurement: WiFiMeasurement) -> SCNNode {
+        let node = SCNNode()
+        
+        // Create a colored circle on the floor
+        let circleGeometry = SCNCylinder(radius: 0.15, height: 0.01) // Thin cylinder as floor circle
+        let material = SCNMaterial()
+        
+        let signalColor = signalStrengthColor(measurement.signalStrength)
+        material.diffuse.contents = signalColor
+        material.emission.contents = signalColor.withAlphaComponent(0.5)
+        material.transparency = 0.8
+        
+        // Add pulsing effect for better visibility
+        material.metalness.contents = 0.2
+        material.roughness.contents = 0.1
+        
+        circleGeometry.materials = [material]
+        node.geometry = circleGeometry
+        
+        // Add inner circle with speed information
+        let innerCircle = SCNCylinder(radius: 0.08, height: 0.02)
+        let innerMaterial = SCNMaterial()
+        
+        // Color inner circle based on speed
+        let speedColor: UIColor
+        if measurement.speed > 100 {
+            speedColor = SpectrumBranding.Colors.excellentSignal
+        } else if measurement.speed > 50 {
+            speedColor = SpectrumBranding.Colors.goodSignal
+        } else if measurement.speed > 20 {
+            speedColor = SpectrumBranding.Colors.fairSignal
+        } else {
+            speedColor = SpectrumBranding.Colors.poorSignal
+        }
+        
+        innerMaterial.diffuse.contents = speedColor
+        innerMaterial.emission.contents = speedColor.withAlphaComponent(0.3)
+        innerMaterial.transparency = 0.6
+        innerCircle.materials = [innerMaterial]
+        
+        let innerNode = SCNNode(geometry: innerCircle)
+        innerNode.position = SCNVector3(0, 0.005, 0) // Slightly above main circle
+        node.addChildNode(innerNode)
+        
+        // Add subtle animation
+        let scaleAnimation = CABasicAnimation(keyPath: "transform.scale")
+        scaleAnimation.fromValue = 0.9
+        scaleAnimation.toValue = 1.1
+        scaleAnimation.duration = 2.0
+        scaleAnimation.repeatCount = .infinity
+        scaleAnimation.autoreverses = true
+        scaleAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        node.addAnimation(scaleAnimation, forKey: "floorPulse")
+        
+        // Add a small text label for signal strength
+        let floorText = SCNText(string: "\(measurement.signalStrength)", extrusionDepth: 0.005)
+        floorText.font = UIFont.boldSystemFont(ofSize: 0.04)
+        floorText.materials.first?.diffuse.contents = UIColor.white
+        
+        let floorTextNode = SCNNode(geometry: floorText)
+        floorTextNode.position = SCNVector3(-0.02, 0.01, -0.02) // Center the text
+        floorTextNode.scale = SCNVector3(0.01, 0.01, 0.01)
+        
+        let textBillboard = SCNBillboardConstraint()
+        textBillboard.freeAxes = [.Y]
+        floorTextNode.constraints = [textBillboard]
+        
+        node.addChildNode(floorTextNode)
+        
+        return node
     }
     
     private func signalStrengthColor(_ strength: Int) -> UIColor {
@@ -475,17 +559,29 @@ class ARVisualizationManager: NSObject, ObservableObject {
     
     @available(iOS 17.0, *)
     private func calculateCoordinateTransform(from capturedRoom: CapturedRoom) {
-        // Calculate the room center from floor surfaces
-        guard !capturedRoom.floors.isEmpty else { return }
+        // Calculate the room center from floor surfaces with improved accuracy
+        guard !capturedRoom.floors.isEmpty else { 
+            print("⚠️ No floor data available for coordinate alignment")
+            return 
+        }
         
-        let roomCenter = capturedRoom.floors.reduce(simd_float3(0, 0, 0)) { result, floor in
-            let floorCenter = simd_float3(floor.transform.columns.3.x, floor.transform.columns.3.y, floor.transform.columns.3.z)
-            return result + floorCenter
-        } / Float(capturedRoom.floors.count)
+        // Method 1: Calculate center from floor bounds instead of just transform origins
+        var minBounds = simd_float3(Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude)
+        var maxBounds = simd_float3(-Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude)
         
-        roomCenterOffset = roomCenter
+        for floor in capturedRoom.floors {
+            let center = simd_float3(floor.transform.columns.3.x, floor.transform.columns.3.y, floor.transform.columns.3.z)
+            let halfSize = floor.dimensions / 2
+            
+            minBounds = simd_min(minBounds, center - halfSize)
+            maxBounds = simd_max(maxBounds, center + halfSize)
+        }
         
-        print("🔄 Coordinate alignment: Room center at (\(roomCenter.x), \(roomCenter.y), \(roomCenter.z))")
+        let geometricCenter = (minBounds + maxBounds) / 2
+        roomCenterOffset = geometricCenter
+        
+        print("🔄 Coordinate alignment: Geometric room center at (\(String(format: "%.3f", geometricCenter.x)), \(String(format: "%.3f", geometricCenter.y)), \(String(format: "%.3f", geometricCenter.z)))")
+        print("   Room bounds: min(\(String(format: "%.3f", minBounds.x)), \(String(format: "%.3f", minBounds.y)), \(String(format: "%.3f", minBounds.z))) max(\(String(format: "%.3f", maxBounds.x)), \(String(format: "%.3f", maxBounds.y)), \(String(format: "%.3f", maxBounds.z)))")
         
         // Try to find matching features between AR and Room coordinate systems
         alignWithRoomFeatures(capturedRoom)
@@ -565,21 +661,25 @@ class ARVisualizationManager: NSObject, ObservableObject {
     }
     
     private func transformARToRoomCoordinates(_ arPosition: simd_float3) -> simd_float3 {
-        // Apply coordinate transformation to align AR position with room coordinates
-        // For now, apply the room center offset as a basic alignment
-        let transformed = arPosition - roomCenterOffset
+        // Simplified coordinate transformation - just use AR coordinates directly
+        // This eliminates the misalignment issues while we work on proper calibration
         
-        // Could add more sophisticated transformations here:
-        // - Rotation alignment based on wall directions
-        // - Scale adjustments
-        // - Feature-based fine-tuning
+        // For now, just apply a basic offset to bring coordinates into a reasonable range
+        let simplified = simd_float3(
+            arPosition.x,  // Keep X as-is
+            arPosition.y,  // Keep Y as-is  
+            arPosition.z   // Keep Z as-is
+        )
         
-        return transformed
+        // Debug logging for coordinate transformation
+        print("🔄 Simplified coordinate transform: AR(\(String(format: "%.2f", arPosition.x)), \(String(format: "%.2f", arPosition.y)), \(String(format: "%.2f", arPosition.z))) -> Room(\(String(format: "%.2f", simplified.x)), \(String(format: "%.2f", simplified.y)), \(String(format: "%.2f", simplified.z)))")
+        
+        return simplified
     }
     
     private func transformRoomToARCoordinates(_ roomPosition: simd_float3) -> simd_float3 {
-        // Inverse transformation for room coordinates to AR coordinates
-        return roomPosition + roomCenterOffset
+        // Simplified inverse transformation - just return as-is for now
+        return roomPosition
     }
 }
 

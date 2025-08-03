@@ -250,8 +250,11 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     }
     
     @objc private func floorPlanNavTapped() {
-        if capturedRoomData != nil && !wifiSurveyManager.measurements.isEmpty {
+        // Allow floor plan access if room data exists, even without WiFi measurements
+        if capturedRoomData != nil {
             viewResults()
+        } else {
+            showAlert(title: "Room Scan Required", message: "Please complete room scanning first to view the floor plan.")
         }
     }
     
@@ -290,13 +293,18 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             wifiSurveyNavButton?.isEnabled = false
         }
         
-        // Floor Plan button
+        // Floor Plan button - allow access after room scan, enhanced if WiFi data available
         let hasRoomData = capturedRoomData != nil
         let hasWifiData = !wifiSurveyManager.measurements.isEmpty
         
-        if hasRoomData && hasWifiData {
-            floorPlanNavButton?.setTitle("📊 Results", for: .normal)
-            floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+        if hasRoomData {
+            if hasWifiData {
+                floorPlanNavButton?.setTitle("📊 Results", for: .normal)
+                floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+            } else {
+                floorPlanNavButton?.setTitle("📊 Plan", for: .normal)
+                floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+            }
             floorPlanNavButton?.isEnabled = true
         } else {
             floorPlanNavButton?.setTitle("📊 Plan", for: .normal)
@@ -579,30 +587,50 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             return
         }
         
-        guard !wifiSurveyManager.measurements.isEmpty else {
-            showAlert(title: "No WiFi Data", message: "Please complete WiFi survey first.")
-            return
-        }
+        let hasWifiData = !wifiSurveyManager.measurements.isEmpty
         
-        print("📊 Generating results for \(wifiSurveyManager.measurements.count) measurements...")
-        
-        // Show loading indicator
-        statusLabel?.text = "Generating analysis results..."
-        
-        // Generate heatmap data in background to prevent UI freezing
-        DispatchQueue.global(qos: .userInitiated).async {
-            let heatmapData = self.wifiSurveyManager.generateHeatmapData()
+        if hasWifiData {
+            print("📊 Generating results for \(wifiSurveyManager.measurements.count) measurements...")
+            
+            // Show loading indicator
+            statusLabel?.text = "Generating analysis results..."
+            
+            // Generate heatmap data in background to prevent UI freezing
+            DispatchQueue.global(qos: .userInitiated).async {
+                let heatmapData = self.wifiSurveyManager.generateHeatmapData()
+                
+                DispatchQueue.main.async {
+                    print("✅ Results generated, navigating to floor plan...")
+                    
+                    let floorPlanVC = FloorPlanViewController()
+                    floorPlanVC.updateWithData(heatmapData: heatmapData, roomAnalyzer: self.roomAnalyzer)
+                    floorPlanVC.modalPresentationStyle = .fullScreen
+                    self.present(floorPlanVC, animated: true)
+                    
+                    // Reset status
+                    self.statusLabel?.text = "Analysis complete"
+                }
+            }
+        } else {
+            print("📊 Showing floor plan without WiFi data...")
+            
+            // Show basic floor plan without WiFi heatmap
+            statusLabel?.text = "Loading floor plan..."
             
             DispatchQueue.main.async {
-                print("✅ Results generated, navigating to floor plan...")
-                
                 let floorPlanVC = FloorPlanViewController()
-                floorPlanVC.updateWithData(heatmapData: heatmapData, roomAnalyzer: self.roomAnalyzer)
+                // Create empty heatmap data for basic floor plan view
+                let emptyHeatmapData = WiFiHeatmapData(
+                    measurements: [],
+                    coverageMap: [:],
+                    optimalRouterPlacements: []
+                )
+                floorPlanVC.updateWithData(heatmapData: emptyHeatmapData, roomAnalyzer: self.roomAnalyzer)
                 floorPlanVC.modalPresentationStyle = .fullScreen
                 self.present(floorPlanVC, animated: true)
                 
                 // Reset status
-                self.statusLabel?.text = "Analysis complete"
+                self.statusLabel?.text = "Floor plan loaded"
             }
         }
     }

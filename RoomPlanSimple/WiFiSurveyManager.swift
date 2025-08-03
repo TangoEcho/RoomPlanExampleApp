@@ -48,6 +48,13 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     private var lastMeasurementPosition: simd_float3?
     private let measurementDistanceThreshold: Float = 0.3048 // ~1 foot in meters
     
+    // Movement detection for smart WiFi scanning
+    private var positionHistory: [(position: simd_float3, timestamp: TimeInterval)] = []
+    private var lastMovementTime: TimeInterval = 0
+    private let movementStopThreshold: TimeInterval = 1.0 // Reduced to 1 second for more responsive measurement
+    private let positionHistorySize = 5 // Reduced to 5 positions for faster detection
+    private var isFirstMeasurement = true
+    
     override init() {
         super.init()
         setupNetworkMonitoring()
@@ -81,6 +88,11 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     
     func startSurvey() {
         isRecording = true
+        isFirstMeasurement = true
+        positionHistory.removeAll()
+        lastMovementTime = Date().timeIntervalSince1970
+        
+        print("📡 Starting WiFi survey with simplified movement detection")
         
         // Perform initial speed test
         performRealSpeedTest { [weak self] result in
@@ -119,14 +131,31 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     func recordMeasurement(at location: simd_float3, roomType: RoomType?) {
         guard isRecording else { return }
         
-        // Check if we've moved at least 1 foot since last measurement
+        let currentTime = Date().timeIntervalSince1970
+        
+        // Update position history for movement detection
+        updatePositionHistory(location: location, timestamp: currentTime)
+        
+        // Check if user has moved at least 1 foot from last measurement
         if let lastPosition = lastMeasurementPosition {
             let distance = simd_distance(location, lastPosition)
-            guard distance >= measurementDistanceThreshold else { return }
+            guard distance >= measurementDistanceThreshold else { 
+                // Still update movement tracking even if not measuring
+                updateMovementTracking(location: location, timestamp: currentTime)
+                return 
+            }
         }
         
+        // Check if user has stopped moving (no significant movement in last 2 seconds)
+        guard hasUserStoppedMoving(currentTime: currentTime) else {
+            print("🏃‍♂️ User still moving, waiting for stop...")
+            updateMovementTracking(location: location, timestamp: currentTime)
+            return
+        }
+        
+        // User has moved >1 foot and stopped - take measurement
         lastMeasurementPosition = location
-        lastMeasurementTime = Date().timeIntervalSince1970
+        lastMeasurementTime = currentTime
         
         let measurement = WiFiMeasurement(
             location: location,
@@ -143,6 +172,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         // Debug logging
         print("📍 WiFi measurement #\(measurements.count) recorded at (\(String(format: "%.2f", location.x)), \(String(format: "%.2f", location.y)), \(String(format: "%.2f", location.z))) in \(roomType?.rawValue ?? "Unknown room")")
         print("   Signal: \(currentSignalStrength)dBm, Speed: \(String(format: "%.1f", measurement.speed))Mbps")
+        print("   📊 User stopped moving - measurement taken automatically")
     }
     
     private func performSpeedTest() -> Double {
@@ -352,5 +382,89 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         }
         
         return placements
+    }
+    
+    // MARK: - Movement Detection Methods
+    
+    private func updatePositionHistory(location: simd_float3, timestamp: TimeInterval) {
+        // Add new position to history
+        positionHistory.append((position: location, timestamp: timestamp))
+        
+        // Limit history size
+        if positionHistory.count > positionHistorySize {
+            positionHistory.removeFirst(positionHistory.count - positionHistorySize)
+        }
+    }
+    
+    private func updateMovementTracking(location: simd_float3, timestamp: TimeInterval) {
+        // Check if there was significant movement since last check
+        if let lastHistoryEntry = positionHistory.last {
+            let distance = simd_distance(location, lastHistoryEntry.position)
+            let timeDelta = timestamp - lastHistoryEntry.timestamp
+            
+            // Much more lenient movement detection - only consider significant movement
+            if distance > 0.3 && timeDelta > 0.3 { // Increased thresholds
+                lastMovementTime = timestamp
+                print("👣 Significant movement detected: \(String(format: "%.2f", distance))m in \(String(format: "%.1f", timeDelta))s")
+            }
+        } else {
+            // First position, set as movement time
+            lastMovementTime = timestamp
+        }
+    }
+    
+    private func hasUserStoppedMoving(currentTime: TimeInterval) -> Bool {
+        // Allow first measurement immediately
+        if isFirstMeasurement {
+            print("📍 Taking first WiFi measurement immediately")
+            isFirstMeasurement = false
+            return true
+        }
+        
+        // If we don't have enough history, allow measurement
+        guard positionHistory.count >= 3 else { 
+            print("📍 Not enough position history, allowing measurement")
+            return true 
+        }
+        
+        // Much more lenient movement detection
+        let timeSinceLastMovement = currentTime - lastMovementTime
+        let hasStoppedMoving = timeSinceLastMovement >= movementStopThreshold
+        
+        // Simplified stability check - just check if recent positions are reasonably close
+        let recentPositions = positionHistory.suffix(3) // Only check last 3 positions
+        let isStable = isPositionStable(positions: Array(recentPositions))
+        
+        // Be more permissive - allow measurement if either condition is met
+        if hasStoppedMoving || isStable {
+            print("✋ User ready for measurement (stopped: \(hasStoppedMoving), stable: \(isStable))")
+            return true
+        }
+        
+        print("🏃‍♂️ User still moving, waiting... (time since movement: \(String(format: "%.1f", timeSinceLastMovement))s)")
+        return false
+    }
+    
+    private func isPositionStable(positions: [(position: simd_float3, timestamp: TimeInterval)]) -> Bool {
+        guard positions.count >= 2 else { return true } // With less data, assume stable
+        
+        // Much more lenient stability check - allow up to 0.5m movement
+        let lastPosition = positions.last!.position
+        let stabilityRadius: Float = 0.5 // Increased from 0.2m to 0.5m
+        
+        // Only check the most recent position against the previous one
+        if positions.count >= 2 {
+            let previousPosition = positions[positions.count - 2].position
+            let distance = simd_distance(lastPosition, previousPosition)
+            let isStable = distance <= stabilityRadius
+            
+            if !isStable {
+                print("   Position change: \(String(format: "%.2f", distance))m (threshold: \(stabilityRadius)m)")
+            }
+            
+            return isStable
+        }
+        
+        return true
     }
 }

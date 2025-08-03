@@ -107,8 +107,8 @@ class OnboardingViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         
-        // Auto-transition to room capture after splash screen delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+        // Reduce splash screen delay to improve perceived loading time
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.transitionToRoomCapture()
         }
     }
