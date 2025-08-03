@@ -98,9 +98,14 @@ class OnboardingViewController: UIViewController {
     }
     
     private func checkDeviceCompatibility() {
+        // In simulator, bypass RoomPlan support check for UI testing
+        #if targetEnvironment(simulator)
+        print("🎭 Running in simulator - bypassing RoomPlan compatibility check")
+        #else
         if !RoomCaptureSession.isSupported {
             showUnsupportedDeviceAlert()
         }
+        #endif
         // Auto-start will be triggered after view appears
     }
     
@@ -114,10 +119,14 @@ class OnboardingViewController: UIViewController {
     }
     
     private func transitionToRoomCapture() {
+        #if targetEnvironment(simulator)
+        print("🎭 Simulator: Transitioning to RoomCaptureViewController with mock data")
+        #else
         guard RoomCaptureSession.isSupported else {
             showUnsupportedDeviceAlert()
             return
         }
+        #endif
         
         // Create RoomCaptureViewController directly without navigation controller
         if let roomCaptureVC = self.storyboard?.instantiateViewController(

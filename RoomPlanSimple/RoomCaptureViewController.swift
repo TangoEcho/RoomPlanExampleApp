@@ -60,11 +60,22 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     @IBOutlet var cancelButton: UIBarButtonItem?
     
     private var isScanning: Bool = false
+    private var isSimulatorMode: Bool {
+        #if targetEnvironment(simulator)
+        return true
+        #else
+        return false
+        #endif
+    }
     
     private var roomCaptureView: RoomCaptureView!
     private var roomCaptureSessionConfig: RoomCaptureSession.Configuration = RoomCaptureSession.Configuration()
     
     private var finalResults: CapturedRoom?
+    
+    // Simulator mode properties
+    private var simulatorTimer: Timer?
+    private var simulatorProgress: Float = 0.0
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -77,6 +88,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     }
     
     private func setupRoomCaptureView() {
+        if isSimulatorMode {
+            print("🎭 Simulator: Setting up mock camera view")
+            setupMockCameraView()
+            return
+        }
+        
         print("🔧 Setting up RoomCaptureView with shared ARSession for optimal coordinate alignment...")
         
         // Remove existing room capture view if any
@@ -102,6 +119,43 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         ])
         
         print("✅ RoomCaptureView setup complete")
+    }
+    
+    private func setupMockCameraView() {
+        // Create a mock camera background for simulator
+        let mockCameraView = UIView(frame: view.bounds)
+        mockCameraView.backgroundColor = UIColor.systemGray
+        mockCameraView.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Add a label to indicate simulator mode
+        let simulatorLabel = UILabel()
+        simulatorLabel.text = "📱 SIMULATOR MODE\nMock Camera Feed\n\nUI Testing Environment"
+        simulatorLabel.textAlignment = .center
+        simulatorLabel.numberOfLines = 0
+        simulatorLabel.font = UIFont.systemFont(ofSize: 18, weight: .medium)
+        simulatorLabel.textColor = .white
+        simulatorLabel.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        simulatorLabel.layer.cornerRadius = 12
+        simulatorLabel.layer.masksToBounds = true
+        simulatorLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Insert mock view at index 0 to be behind all UI elements
+        view.insertSubview(mockCameraView, at: 0)
+        view.addSubview(simulatorLabel)
+        
+        NSLayoutConstraint.activate([
+            mockCameraView.topAnchor.constraint(equalTo: view.topAnchor),
+            mockCameraView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            mockCameraView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            mockCameraView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            
+            simulatorLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            simulatorLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            simulatorLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 40),
+            simulatorLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -40)
+        ])
+        
+        print("✅ Mock camera view setup complete")
     }
     
     private func setupARView() {
@@ -309,30 +363,40 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private func switchToWiFiSurvey() {
         guard isScanning else { return }
         
-        print("🔄 Switching from room scanning to WiFi survey with coordinate alignment...")
+        print("🔄 Switching from room scanning to WiFi survey...")
         
-        // iOS 17+: Use advanced coordinate alignment with shared ARSession
-        // Stop RoomPlan but keep ARSession running for perfect coordinate alignment
-        roomCaptureView?.captureSession.stop(pauseARSession: false)
-        print("🎯 RoomPlan stopped with ARSession maintained for coordinate continuity")
+        if isSimulatorMode {
+            // Simulator mode - load mock WiFi data
+            print("🎭 Loading mock WiFi survey data")
+            let mockMeasurements = createMockWiFiMeasurements()
+            wifiSurveyManager.measurements = mockMeasurements
+            print("🎭 Loaded \(mockMeasurements.count) mock WiFi measurements")
+        } else {
+            // iOS 17+: Use advanced coordinate alignment with shared ARSession
+            // Stop RoomPlan but keep ARSession running for perfect coordinate alignment
+            roomCaptureView?.captureSession.stop(pauseARSession: false)
+            print("🎯 RoomPlan stopped with ARSession maintained for coordinate continuity")
+            
+            // Store the current room data as additional coordinate reference
+            if let capturedRoom = capturedRoomData {
+                print("📍 Using captured room data as coordinate reference")
+                arVisualizationManager.setCapturedRoomData(capturedRoom)
+            }
+        }
         
         roomPlanPaused = true
-        
-        // Store the current room data as additional coordinate reference
-        if let capturedRoom = capturedRoomData {
-            print("📍 Using captured room data as coordinate reference")
-            arVisualizationManager.setCapturedRoomData(capturedRoom)
-        }
         
         // Switch to surveying mode
         currentMode = .surveying
         isScanning = false
         
-        // Start WiFi survey with perfect coordinate alignment
+        // Start WiFi survey
         startWiFiSurveyWithinRoomPlan()
         
-        statusLabel?.text = "📡 WiFi survey mode - Perfect coordinate alignment active"
-        print("✅ Successfully switched to WiFi survey mode with coordinate alignment")
+        statusLabel?.text = isSimulatorMode ? 
+            "📡 Mock WiFi survey mode - UI testing" : 
+            "📡 WiFi survey mode - Perfect coordinate alignment active"
+        print("✅ Successfully switched to WiFi survey mode")
     }
     
     private func switchBackToScanning() {
@@ -604,6 +668,11 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     }
     
     private func startSession() {
+        if isSimulatorMode {
+            startSimulatorSession()
+            return
+        }
+        
         guard let roomCaptureView = roomCaptureView else {
             print("❌ Cannot start session: roomCaptureView is nil")
             return
@@ -633,14 +702,83 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         updateButtonStates()
     }
     
+    private func startSimulatorSession() {
+        print("🎭 Starting simulator mock session...")
+        
+        isScanning = true
+        simulatorProgress = 0.0
+        
+        // Start mock room scanning progress
+        simulatorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
+            self?.updateSimulatorProgress()
+        }
+        
+        // Load mock room data
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            self.loadMockRoomData()
+        }
+        
+        setActiveNavBar()
+        updateButtonStates()
+        
+        print("✅ Simulator session started")
+    }
+    
+    private func updateSimulatorProgress() {
+        simulatorProgress += 0.05
+        
+        // Update status with mock scanning progress
+        statusLabel?.text = "📱 Mock Room Scanning... \(Int(simulatorProgress * 100))%"
+        statusLabel?.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
+        
+        // Simulate completion after reaching 100%
+        if simulatorProgress >= 1.0 {
+            simulatorTimer?.invalidate()
+            simulatorTimer = nil
+            completeSimulatorScanning()
+        }
+    }
+    
+    private func loadMockRoomData() {
+        // Simulate room analysis with mock data
+        let mockRooms = createMockRoomAnalysis()
+        roomAnalyzer.identifiedRooms = mockRooms
+        
+        print("🎭 Loaded \(mockRooms.count) mock rooms for testing")
+        
+        // Update UI to reflect mock room data
+        updateButtonStates()
+    }
+    
+    private func completeSimulatorScanning() {
+        print("🎭 Simulator room scanning completed")
+        
+        // Simulate a successful room capture
+        isScanning = false
+        
+        // Mock captured room data (set a flag to indicate mock data exists)
+        capturedRoomData = nil // We'll use the room analyzer data instead
+        
+        statusLabel?.text = "✅ Mock Room Scan Complete - \(roomAnalyzer.identifiedRooms.count) rooms detected"
+        statusLabel?.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
+        
+        updateButtonStates()
+    }
+    
     private func stopSession() {
         print("🛑 Stopping room capture session...")
         isScanning = false
-        roomCaptureView?.captureSession.stop()
-        stopWiFiMonitoring()
         
-        // Stop tracking state monitoring
-        stopTrackingStateMonitoring()
+        if isSimulatorMode {
+            // Stop simulator timers
+            simulatorTimer?.invalidate()
+            simulatorTimer = nil
+        } else {
+            roomCaptureView?.captureSession.stop()
+            stopTrackingStateMonitoring()
+        }
+        
+        stopWiFiMonitoring()
         
         setCompleteNavBar()
         updateButtonStates()
@@ -749,6 +887,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     
     @objc private func viewResults() {
+        // In simulator mode, allow viewing results with mock data even without captured room data
+        if isSimulatorMode {
+            viewSimulatorResults()
+            return
+        }
+        
         guard capturedRoomData != nil else {
             showAlert(title: "No Room Data", message: "Please complete room scanning first.")
             return
@@ -798,6 +942,29 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 
                 // Reset status
                 self.statusLabel?.text = "Floor plan loaded"
+            }
+        }
+    }
+    
+    private func viewSimulatorResults() {
+        print("🎭 Showing simulator results with mock data...")
+        
+        statusLabel?.text = "📊 Loading mock analysis results..."
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            // Use mock heatmap data
+            let mockHeatmapData = self.createMockHeatmapData()
+            
+            DispatchQueue.main.async {
+                print("✅ Mock results generated, navigating to floor plan...")
+                
+                let floorPlanVC = FloorPlanViewController()
+                floorPlanVC.updateWithData(heatmapData: mockHeatmapData, roomAnalyzer: self.roomAnalyzer)
+                floorPlanVC.modalPresentationStyle = .fullScreen
+                self.present(floorPlanVC, animated: true)
+                
+                // Reset status
+                self.statusLabel?.text = "Mock analysis complete"
             }
         }
     }
@@ -1019,6 +1186,11 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     }
     
     private func isTrackingStateGood() -> Bool {
+        // In simulator mode, simulate good tracking most of the time
+        if isSimulatorMode {
+            return true // For UI testing, assume good tracking
+        }
+        
         guard let arSession = roomCaptureView?.captureSession.arSession else { return false }
         
         switch arSession.currentFrame?.camera.trackingState {
@@ -1037,6 +1209,142 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     private func showTrackingGuidance() {
         showEnhancedTrackingGuidance()
+    }
+    
+    // MARK: - Mock Data for Simulator
+    
+    private func createMockRoomAnalysis() -> [RoomAnalyzer.IdentifiedRoom] {
+        // Note: This is a simplified mock - will need to match actual RoomAnalyzer.IdentifiedRoom structure
+        // For now, we'll just set an empty array and let the real room analyzer work
+        return []
+    }
+    
+    private func createMockWiFiMeasurements() -> [WiFiMeasurement] {
+        var measurements: [WiFiMeasurement] = []
+        
+        // Living room measurements (good signal near router)
+        measurements.append(contentsOf: [
+            WiFiMeasurement(
+                location: simd_float3(2.0, 0, 1.0),
+                timestamp: Date().addingTimeInterval(-300),
+                signalStrength: -35,
+                networkName: "SpectrumSetup-A7",
+                speed: 450.0,
+                frequency: "5.18 GHz",
+                roomType: .livingRoom
+            ),
+            WiFiMeasurement(
+                location: simd_float3(4.0, 0, 2.0),
+                timestamp: Date().addingTimeInterval(-280),
+                signalStrength: -42,
+                networkName: "SpectrumSetup-A7",
+                speed: 380.0,
+                frequency: "5.18 GHz",
+                roomType: .livingRoom
+            ),
+            WiFiMeasurement(
+                location: simd_float3(3.5, 0, 3.0),
+                timestamp: Date().addingTimeInterval(-260),
+                signalStrength: -38,
+                networkName: "SpectrumSetup-A7",
+                speed: 420.0,
+                frequency: "5.18 GHz",
+                roomType: .livingRoom
+            )
+        ])
+        
+        // Kitchen measurements (moderate signal)
+        measurements.append(contentsOf: [
+            WiFiMeasurement(
+                location: simd_float3(-1.0, 0, 1.5),
+                timestamp: Date().addingTimeInterval(-240),
+                signalStrength: -58,
+                networkName: "SpectrumSetup-A7",
+                speed: 180.0,
+                frequency: "5.18 GHz",
+                roomType: .kitchen
+            ),
+            WiFiMeasurement(
+                location: simd_float3(-2.5, 0, 2.5),
+                timestamp: Date().addingTimeInterval(-220),
+                signalStrength: -65,
+                networkName: "SpectrumSetup-A7",
+                speed: 120.0,
+                frequency: "5.18 GHz",
+                roomType: .kitchen
+            )
+        ])
+        
+        // Bedroom measurements (weaker signal)
+        measurements.append(contentsOf: [
+            WiFiMeasurement(
+                location: simd_float3(2.5, 0, -2.0),
+                timestamp: Date().addingTimeInterval(-200),
+                signalStrength: -72,
+                networkName: "SpectrumSetup-A7",
+                speed: 85.0,
+                frequency: "5.18 GHz",
+                roomType: .bedroom
+            ),
+            WiFiMeasurement(
+                location: simd_float3(4.0, 0, -3.5),
+                timestamp: Date().addingTimeInterval(-180),
+                signalStrength: -78,
+                networkName: "SpectrumSetup-A7",
+                speed: 45.0,
+                frequency: "5.18 GHz",
+                roomType: .bedroom
+            )
+        ])
+        
+        return measurements
+    }
+    
+    private func createMockHeatmapData() -> WiFiHeatmapData {
+        let measurements = createMockWiFiMeasurements()
+        
+        // Generate interpolated coverage map
+        var coverageMap: [simd_float3: Double] = [:]
+        
+        // Create a grid covering the mock room area
+        for x in stride(from: -4.0, through: 6.0, by: 0.5) {
+            for z in stride(from: -5.0, through: 4.0, by: 0.5) {
+                let point = simd_float3(Float(x), 0, Float(z))
+                
+                // Calculate interpolated signal strength based on distance from measurements
+                var totalWeight: Float = 0
+                var weightedSignal: Float = 0
+                
+                for measurement in measurements {
+                    let distance = simd_distance(point, measurement.location)
+                    let weight = 1.0 / (distance + 0.1) // Avoid division by zero
+                    
+                    totalWeight += weight
+                    weightedSignal += weight * Float(measurement.signalStrength)
+                }
+                
+                if totalWeight > 0 {
+                    let interpolatedStrength = weightedSignal / totalWeight
+                    let normalizedSignal = Double(interpolatedStrength + 100) / 100.0
+                    
+                    if interpolatedStrength > -120 {
+                        coverageMap[point] = max(0, min(1, normalizedSignal))
+                    }
+                }
+            }
+        }
+        
+        // Mock optimal router placements (simplified as coordinates)
+        let optimalPlacements = [
+            simd_float3(1.0, 1.5, 0.5),
+            simd_float3(0.0, 1.5, 1.0)
+        ]
+        
+        return WiFiHeatmapData(
+            measurements: measurements,
+            coverageMap: coverageMap,
+            optimalRouterPlacements: optimalPlacements
+        )
     }
 }
 
