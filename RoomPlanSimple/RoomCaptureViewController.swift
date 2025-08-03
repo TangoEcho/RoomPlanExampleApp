@@ -25,10 +25,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     // Helper to check if iOS 17+ features are available
     private var isIOS17Available: Bool {
-        if #available(iOS 17.0, *) {
-            return true
-        }
-        return false
+        return true
     }
     
     private var primaryActionButton: UIButton?
@@ -86,13 +83,8 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         roomCaptureView?.removeFromSuperview()
         
         // iOS 17+: Use custom ARSession for perfect coordinate alignment
-        if #available(iOS 17.0, *) {
-            roomCaptureView = RoomCaptureView(frame: view.bounds, arSession: sharedARSession)
-            print("✅ Using iOS 17+ custom ARSession for coordinate alignment")
-        } else {
-            roomCaptureView = RoomCaptureView(frame: view.bounds)
-            print("⚠️ Using default ARSession (iOS 16), coordinate alignment may be less precise")
-        }
+        roomCaptureView = RoomCaptureView(frame: view.bounds, arSession: sharedARSession)
+        print("✅ Using iOS 17+ custom ARSession for coordinate alignment")
         
         roomCaptureView?.captureSession.delegate = self
         roomCaptureView?.delegate = self
@@ -320,15 +312,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         print("🔄 Switching from room scanning to WiFi survey with coordinate alignment...")
         
         // iOS 17+: Use advanced coordinate alignment with shared ARSession
-        if #available(iOS 17.0, *) {
-            // Stop RoomPlan but keep ARSession running for perfect coordinate alignment
-            roomCaptureView?.captureSession.stop(pauseARSession: false)
-            print("🎯 RoomPlan stopped with ARSession maintained for coordinate continuity")
-        } else {
-            // iOS 16: Traditional stop (less precise coordinate alignment)
-            roomCaptureView?.captureSession.stop()
-            print("⚠️ Using iOS 16 coordinate alignment approach")
-        }
+        // Stop RoomPlan but keep ARSession running for perfect coordinate alignment
+        roomCaptureView?.captureSession.stop(pauseARSession: false)
+        print("🎯 RoomPlan stopped with ARSession maintained for coordinate continuity")
         
         roomPlanPaused = true
         
@@ -676,9 +662,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         
         print("🏠 Room capture completed - processing room data...")
         
-        if #available(iOS 17.0, *) {
-            roomAnalyzer.analyzeCapturedRoom(processedResult)
-        }
+        roomAnalyzer.analyzeCapturedRoom(processedResult)
         
         // Pass room data to AR visualization manager
         arVisualizationManager.setCapturedRoomData(processedResult)

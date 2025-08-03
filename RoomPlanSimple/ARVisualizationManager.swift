@@ -50,10 +50,8 @@ class ARVisualizationManager: NSObject, ObservableObject {
         // This will be used to align AR coordinate system with RoomPlan coordinate system
         self.capturedRoomData = capturedRoom
         if let capturedRoom = capturedRoom {
-            if #available(iOS 17.0, *) {
-                createRoomOutlines(from: capturedRoom)
-                calculateCoordinateTransform(from: capturedRoom)
-            }
+            createRoomOutlines(from: capturedRoom)
+            calculateCoordinateTransform(from: capturedRoom)
         }
     }
     
@@ -431,7 +429,6 @@ class ARVisualizationManager: NSObject, ObservableObject {
         roomOutlineNodes.removeAll()
     }
     
-    @available(iOS 17.0, *)
     private func createRoomOutlines(from capturedRoom: CapturedRoom) {
         clearRoomOutlines()
         
@@ -447,12 +444,10 @@ class ARVisualizationManager: NSObject, ObservableObject {
         }
         
         // Create outlines for floors
-        if #available(iOS 17.0, *) {
-            for floor in capturedRoom.floors {
-                let floorNode = createFloorOutlineNode(from: floor)
-                sceneView.scene.rootNode.addChildNode(floorNode)
-                roomOutlineNodes.append(floorNode)
-            }
+        for floor in capturedRoom.floors {
+            let floorNode = createFloorOutlineNode(from: floor)
+            sceneView.scene.rootNode.addChildNode(floorNode)
+            roomOutlineNodes.append(floorNode)
         }
     }
     
@@ -585,7 +580,6 @@ class ARVisualizationManager: NSObject, ObservableObject {
     
     // MARK: - Coordinate System Alignment
     
-    @available(iOS 17.0, *)
     private func calculateCoordinateTransform(from capturedRoom: CapturedRoom) {
         // Calculate the room center from floor surfaces with improved accuracy
         guard !capturedRoom.floors.isEmpty else { 
@@ -615,7 +609,6 @@ class ARVisualizationManager: NSObject, ObservableObject {
         alignWithRoomFeatures(capturedRoom)
     }
     
-    @available(iOS 17.0, *)
     private func alignWithRoomFeatures(_ capturedRoom: CapturedRoom) {
         // Method 1: Try to align using walls as reference points
         alignWithWalls(capturedRoom)
@@ -627,7 +620,6 @@ class ARVisualizationManager: NSObject, ObservableObject {
         alignWithRoomBounds(capturedRoom)
     }
     
-    @available(iOS 17.0, *)
     private func alignWithWalls(_ capturedRoom: CapturedRoom) {
         guard !capturedRoom.walls.isEmpty else { return }
         
@@ -647,7 +639,6 @@ class ARVisualizationManager: NSObject, ObservableObject {
         }
     }
     
-    @available(iOS 17.0, *)
     private func alignWithFurniture(_ capturedRoom: CapturedRoom) {
         guard !capturedRoom.objects.isEmpty else { return }
         
@@ -667,7 +658,6 @@ class ARVisualizationManager: NSObject, ObservableObject {
         }
     }
     
-    @available(iOS 17.0, *)
     private func alignWithRoomBounds(_ capturedRoom: CapturedRoom) {
         // Calculate overall room bounds as fallback alignment method
         guard !capturedRoom.floors.isEmpty else { return }
@@ -755,16 +745,10 @@ extension ARVisualizationManager: ARSCNViewDelegate {
     private func determineCurrentRoomType(at position: simd_float3) -> RoomType? {
         guard let roomAnalyzer = roomAnalyzer else { return nil }
         
-        // Use user's actual position (camera position represents where user is standing)
-        let userPosition = position
-        
-        print("🏠 Determining room type for user position: (\(String(format: "%.2f", userPosition.x)), \(String(format: "%.2f", userPosition.y)), \(String(format: "%.2f", userPosition.z)))")
-        
-        for room in roomAnalyzer.identifiedRooms {
-            if isUserStandingInRoom(userPosition, room: room) {
-                print("   ✅ User is in \(room.type.rawValue)")
-                return room.type
-            }
+        // Use improved room detection method from RoomAnalyzer
+        if let containingRoom = roomAnalyzer.findRoomContaining(position: position) {
+            print("   ✅ User is in \(containingRoom.type.rawValue)")
+            return containingRoom.type
         }
         
         print("   ❓ User location not in any identified room")

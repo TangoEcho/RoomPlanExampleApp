@@ -41,39 +41,263 @@ class RoomAnalyzer: ObservableObject {
         case opening
     }
     
-    @available(iOS 17.0, *)
     func analyzeCapturedRoom(_ capturedRoom: CapturedRoom) {
         identifyRoomTypes(from: capturedRoom)
         catalogFurniture(from: capturedRoom)
         mapRoomConnections(from: capturedRoom)
     }
     
-    @available(iOS 17.0, *)
     private func identifyRoomTypes(from capturedRoom: CapturedRoom) {
         var rooms: [IdentifiedRoom] = []
         
-        for surface in capturedRoom.floors {
-            let roomType = classifyRoom(surface: surface, objects: capturedRoom.objects)
-            let center = calculateSurfaceCenter(surface)
-            let area = calculateSurfaceArea(surface)
-            
-            let wallPoints = extractWallPoints(from: surface, capturedRoom: capturedRoom)
-            let doorways = findDoorways(for: surface, capturedRoom: capturedRoom)
-            
-            let room = IdentifiedRoom(
-                type: roomType,
-                bounds: surface,
-                center: center,
-                area: area,
-                confidence: calculateRoomConfidence(roomType: roomType, objects: capturedRoom.objects, surface: surface),
-                wallPoints: wallPoints,
-                doorways: doorways
-            )
-            rooms.append(room)
+        print("🏠 Analyzing \(capturedRoom.floors.count) floor surfaces and \(capturedRoom.objects.count) objects")
+        
+        // If RoomPlan only detected one large floor, try to segment it based on furniture
+        if capturedRoom.floors.count == 1 && capturedRoom.objects.count > 5 {
+            print("🔍 Single large floor detected - attempting furniture-based room segmentation")
+            rooms = segmentRoomsByFurniture(capturedRoom: capturedRoom)
+        } else {
+            // Process each floor surface normally
+            for surface in capturedRoom.floors {
+                let room = createRoomFromSurface(surface: surface, capturedRoom: capturedRoom)
+                rooms.append(room)
+            }
         }
+        
+        // Validate and fix room boundaries
+        rooms = validateAndFixRoomBoundaries(rooms)
+        
+        print("✅ Identified \(rooms.count) rooms: \(rooms.map { $0.type.rawValue }.joined(separator: ", "))")
         
         DispatchQueue.main.async {
             self.identifiedRooms = rooms
+        }
+    }
+    
+    private func createRoomFromSurface(surface: CapturedRoom.Surface, capturedRoom: CapturedRoom) -> IdentifiedRoom {
+        let roomType = classifyRoom(surface: surface, objects: capturedRoom.objects)
+        let center = calculateSurfaceCenter(surface)
+        let area = calculateSurfaceArea(surface)
+        
+        let wallPoints = extractWallPoints(from: surface, capturedRoom: capturedRoom)
+        let doorways = findDoorways(for: surface, capturedRoom: capturedRoom)
+        
+        return IdentifiedRoom(
+            type: roomType,
+            bounds: surface,
+            center: center,
+            area: area,
+            confidence: calculateRoomConfidence(roomType: roomType, objects: capturedRoom.objects, surface: surface),
+            wallPoints: wallPoints,
+            doorways: doorways
+        )
+    }
+    
+    private func segmentRoomsByFurniture(capturedRoom: CapturedRoom) -> [IdentifiedRoom] {
+        print("🪑 Segmenting rooms based on \(capturedRoom.objects.count) furniture items")
+        
+        // Group furniture by spatial proximity to identify room clusters
+        let furnitureGroups = clusterFurnitureByProximity(capturedRoom.objects)
+        print("   Found \(furnitureGroups.count) furniture clusters")
+        
+        var rooms: [IdentifiedRoom] = []
+        let mainSurface = capturedRoom.floors.first!
+        
+        for (index, group) in furnitureGroups.enumerated() {
+            // Create a room for each furniture cluster
+            let roomBounds = calculateBoundsFromFurniture(group)
+            let roomCenter = calculateCenterFromFurniture(group)
+            let roomType = classifyRoomFromFurnitureGroup(group)
+            
+            // Create wall points that encompass the furniture
+            let wallPoints = createWallPointsFromBounds(roomBounds, expandBy: 1.0) // 1m padding
+            
+            let room = IdentifiedRoom(
+                type: roomType,
+                bounds: mainSurface, // Use main surface as base
+                center: roomCenter,
+                area: calculateAreaFromBounds(roomBounds),
+                confidence: calculateConfidenceFromFurniture(group, roomType: roomType),
+                wallPoints: wallPoints,
+                doorways: []
+            )
+            
+            rooms.append(room)
+            print("   Room \(index + 1): \(roomType.rawValue) with \(group.count) furniture items at \(roomCenter)")
+        }
+        
+        // If no clear furniture groups, create at least one room
+        if rooms.isEmpty {
+            let fallbackRoom = createRoomFromSurface(surface: mainSurface, capturedRoom: capturedRoom)
+            rooms.append(fallbackRoom)
+        }
+        
+        return rooms
+    }
+    
+    private func clusterFurnitureByProximity(_ objects: [CapturedRoom.Object]) -> [[CapturedRoom.Object]] {
+        let clusterDistance: Float = 4.0 // 4 meters max distance for same room
+        var clusters: [[CapturedRoom.Object]] = []
+        var unprocessed = objects
+        
+        while !unprocessed.isEmpty {
+            var currentCluster = [unprocessed.removeFirst()]
+            
+            var foundNewItems = true
+            while foundNewItems {
+                foundNewItems = false
+                
+                for (index, item) in unprocessed.enumerated().reversed() {
+                    let itemPos = simd_float3(item.transform.columns.3.x, item.transform.columns.3.y, item.transform.columns.3.z)
+                    
+                    // Check if item is close to any item in current cluster
+                    let isNearCluster = currentCluster.contains { clusterItem in
+                        let clusterPos = simd_float3(clusterItem.transform.columns.3.x, clusterItem.transform.columns.3.y, clusterItem.transform.columns.3.z)
+                        return simd_distance(itemPos, clusterPos) <= clusterDistance
+                    }
+                    
+                    if isNearCluster {
+                        currentCluster.append(item)
+                        unprocessed.remove(at: index)
+                        foundNewItems = true
+                    }
+                }
+            }
+            
+            clusters.append(currentCluster)
+        }
+        
+        return clusters.filter { $0.count >= 2 } // Only clusters with 2+ items
+    }
+    
+    private func classifyRoomFromFurnitureGroup(_ furniture: [CapturedRoom.Object]) -> RoomType {
+        var kitchenScore = 0
+        var bedroomScore = 0
+        var bathroomScore = 0
+        var livingRoomScore = 0
+        var diningRoomScore = 0
+        
+        for item in furniture {
+            switch item.category {
+            case .refrigerator, .oven, .dishwasher:
+                kitchenScore += 3
+            case .sink:
+                kitchenScore += 2
+                bathroomScore += 1
+            case .bed:
+                bedroomScore += 4
+            case .sofa, .television:
+                livingRoomScore += 3
+            case .toilet, .bathtub:
+                bathroomScore += 4
+            case .table:
+                diningRoomScore += 2
+                livingRoomScore += 1
+            case .chair:
+                diningRoomScore += 1
+            default:
+                break
+            }
+        }
+        
+        let scores = [
+            (RoomType.kitchen, kitchenScore),
+            (RoomType.bedroom, bedroomScore),
+            (RoomType.bathroom, bathroomScore),
+            (RoomType.livingRoom, livingRoomScore),
+            (RoomType.diningRoom, diningRoomScore)
+        ]
+        
+        return scores.max(by: { $0.1 < $1.1 })?.0 ?? .unknown
+    }
+    
+    private func calculateBoundsFromFurniture(_ furniture: [CapturedRoom.Object]) -> (min: simd_float3, max: simd_float3) {
+        let positions = furniture.map { simd_float3($0.transform.columns.3.x, $0.transform.columns.3.y, $0.transform.columns.3.z) }
+        
+        let minX = positions.map { $0.x }.min() ?? 0
+        let maxX = positions.map { $0.x }.max() ?? 0
+        let minZ = positions.map { $0.z }.min() ?? 0
+        let maxZ = positions.map { $0.z }.max() ?? 0
+        let y = positions.first?.y ?? 0
+        
+        return (min: simd_float3(minX, y, minZ), max: simd_float3(maxX, y, maxZ))
+    }
+    
+    private func calculateCenterFromFurniture(_ furniture: [CapturedRoom.Object]) -> simd_float3 {
+        let positions = furniture.map { simd_float3($0.transform.columns.3.x, $0.transform.columns.3.y, $0.transform.columns.3.z) }
+        let sum = positions.reduce(simd_float3(0, 0, 0)) { $0 + $1 }
+        return sum / Float(positions.count)
+    }
+    
+    private func createWallPointsFromBounds(_ bounds: (min: simd_float3, max: simd_float3), expandBy: Float) -> [simd_float2] {
+        let minX = bounds.min.x - expandBy
+        let maxX = bounds.max.x + expandBy
+        let minZ = bounds.min.z - expandBy
+        let maxZ = bounds.max.z + expandBy
+        
+        return [
+            simd_float2(minX, minZ), // bottom-left
+            simd_float2(maxX, minZ), // bottom-right
+            simd_float2(maxX, maxZ), // top-right
+            simd_float2(minX, maxZ)  // top-left
+        ]
+    }
+    
+    private func calculateAreaFromBounds(_ bounds: (min: simd_float3, max: simd_float3)) -> Float {
+        let width = bounds.max.x - bounds.min.x
+        let depth = bounds.max.z - bounds.min.z
+        return width * depth
+    }
+    
+    private func calculateConfidenceFromFurniture(_ furniture: [CapturedRoom.Object], roomType: RoomType) -> Float {
+        let relevantFurniture = furniture.filter { item in
+            switch roomType {
+            case .kitchen:
+                return [.refrigerator, .oven, .dishwasher, .sink].contains(item.category)
+            case .bedroom:
+                return [.bed].contains(item.category)
+            case .bathroom:
+                return [.toilet, .bathtub, .sink].contains(item.category)
+            case .livingRoom:
+                return [.sofa, .television].contains(item.category)
+            case .diningRoom:
+                return [.table, .chair].contains(item.category)
+            default:
+                return false
+            }
+        }
+        
+        return furniture.isEmpty ? 0.3 : Float(relevantFurniture.count) / Float(furniture.count)
+    }
+    
+    private func validateAndFixRoomBoundaries(_ rooms: [IdentifiedRoom]) -> [IdentifiedRoom] {
+        return rooms.map { room in
+            // Fix invalid dimensions
+            if room.bounds.dimensions.x <= 0.1 || room.bounds.dimensions.z <= 0.1 {
+                print("⚠️ Fixing invalid room dimensions for \(room.type.rawValue)")
+                
+                // Calculate proper dimensions from wall points
+                if room.wallPoints.count >= 4 {
+                    let minX = room.wallPoints.map { $0.x }.min() ?? room.center.x - 2
+                    let maxX = room.wallPoints.map { $0.x }.max() ?? room.center.x + 2
+                    let minZ = room.wallPoints.map { $0.y }.min() ?? room.center.z - 2
+                    let maxZ = room.wallPoints.map { $0.y }.max() ?? room.center.z + 2
+                    
+                    let fixedArea = (maxX - minX) * (maxZ - minZ)
+                    
+                    return IdentifiedRoom(
+                        type: room.type,
+                        bounds: room.bounds,
+                        center: room.center,
+                        area: fixedArea,
+                        confidence: room.confidence,
+                        wallPoints: room.wallPoints,
+                        doorways: room.doorways
+                    )
+                }
+            }
+            
+            return room
         }
     }
     
@@ -310,11 +534,67 @@ class RoomAnalyzer: ObservableObject {
     
     private func isObjectInSurface(_ position: simd_float3, surface: CapturedRoom.Surface) -> Bool {
         let surfaceCenter = calculateSurfaceCenter(surface)
-        let halfWidth = surface.dimensions.x / 2
-        let halfDepth = surface.dimensions.z / 2
+        let halfWidth = max(surface.dimensions.x / 2, 2.0) // Minimum 2m radius
+        let halfDepth = max(surface.dimensions.z / 2, 2.0) // Minimum 2m radius
         
         return abs(position.x - surfaceCenter.x) <= halfWidth &&
                abs(position.z - surfaceCenter.z) <= halfDepth
+    }
+    
+    // New method for checking if position is in any identified room
+    func findRoomContaining(position: simd_float3) -> IdentifiedRoom? {
+        print("🔍 Checking room containment for position (\(String(format: "%.2f", position.x)), \(String(format: "%.2f", position.z)))")
+        
+        for room in identifiedRooms {
+            print("   Testing room \(room.type.rawValue) at (\(String(format: "%.2f", room.center.x)), \(String(format: "%.2f", room.center.z)))")
+            
+            // Test using wall points if available
+            if room.wallPoints.count >= 3 {
+                let isInside = isPointInRoomPolygon(position, room: room)
+                print("     Polygon test: \(isInside)")
+                if isInside {
+                    return room
+                }
+            } else {
+                // Fallback to expanded rectangular boundary test
+                let expandedRadius: Float = 3.0 // 3m radius for containment
+                let distance = simd_distance(simd_float2(position.x, position.z), simd_float2(room.center.x, room.center.z))
+                let isInside = distance <= expandedRadius
+                print("     Distance test: \(String(format: "%.2f", distance))m <= \(expandedRadius)m = \(isInside)")
+                if isInside {
+                    return room
+                }
+            }
+        }
+        
+        print("   ❌ Position not found in any room")
+        return nil
+    }
+    
+    private func isPointInRoomPolygon(_ point: simd_float3, room: IdentifiedRoom) -> Bool {
+        let point2D = simd_float2(point.x, point.z)
+        return isPointInPolygon(point2D, polygon: room.wallPoints)
+    }
+    
+    private func isPointInPolygon(_ point: simd_float2, polygon: [simd_float2]) -> Bool {
+        guard polygon.count > 2 else { return false }
+        
+        var inside = false
+        var j = polygon.count - 1
+        
+        for i in 0..<polygon.count {
+            let xi = polygon[i].x
+            let yi = polygon[i].y
+            let xj = polygon[j].x
+            let yj = polygon[j].y
+            
+            if ((yi > point.y) != (yj > point.y)) && (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi) {
+                inside = !inside
+            }
+            j = i
+        }
+        
+        return inside
     }
     
     private func findContainingRoom(for position: simd_float4) -> UUID? {
