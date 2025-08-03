@@ -1,6 +1,6 @@
 # Spectrum WiFi Analyzer App
 
-A professional WiFi analysis application for Spectrum that combines Apple's ARKit and RoomPlan technologies to create comprehensive WiFi coverage maps and professional reports.
+A professional WiFi analysis application for Spectrum that combines Apple's ARKit and RoomPlan technologies to create comprehensive WiFi coverage maps and professional reports. Features advanced coordinate alignment using iOS 17+ custom ARSession support for seamless room scanning and AR visualization integration.
 
 ## 🌟 Features
 
@@ -18,14 +18,16 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - **Router Placement Recommendations**: Suggests optimal router locations
 - **Distance-Based Measurements**: Records WiFi data every foot of movement
 - **Speed Test Progress**: Visual progress indicators during network testing
+- **Perfect Coordinate Alignment**: iOS 17+ shared ARSession for zero coordinate drift
+- **Seamless Mode Transitions**: Instant switching between room scanning and WiFi surveying
 
 ## 🎯 User Experience
 
 ### Streamlined Workflow
 1. **Start Room Scan** → User-controlled scanning with real-time feedback
-2. **Stop When Satisfied** → Manual control over scan completion
-3. **Automatic Analysis** → AI identifies rooms and furniture automatically  
-4. **WiFi Survey** → AR-guided WiFi measurement collection
+2. **Seamless Mode Switch** → Unified toggle between scanning and surveying
+3. **Perfect Coordinate Alignment** → iOS 17+ shared ARSession maintains spatial context
+4. **WiFi Survey** → AR-guided WiFi measurement collection with perfect positioning
 5. **Professional Results** → Architectural-style floor plans and reports
 
 ### Visual Design

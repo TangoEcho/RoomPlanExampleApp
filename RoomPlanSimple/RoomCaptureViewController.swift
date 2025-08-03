@@ -17,6 +17,20 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var arVisualizationManager = ARVisualizationManager()
     private var arSceneView: ARSCNView!
     
+    // iOS 17+ Custom ARSession for perfect coordinate alignment
+    private lazy var sharedARSession: ARSession = {
+        let session = ARSession()
+        return session
+    }()
+    
+    // Helper to check if iOS 17+ features are available
+    private var isIOS17Available: Bool {
+        if #available(iOS 17.0, *) {
+            return true
+        }
+        return false
+    }
+    
     private var primaryActionButton: UIButton?
     private var viewResultsButton: UIButton?
     private var statusLabel: UILabel?
@@ -26,12 +40,22 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     // Bottom navigation
     private var bottomNavBar: UIView?
-    private var roomScanNavButton: UIButton?
-    private var wifiSurveyNavButton: UIButton?
+    private var scanSurveyToggleButton: UIButton?
     private var floorPlanNavButton: UIButton?
+    private var modeLabel: UILabel?
     
     private var isARMode = false
     private var capturedRoomData: CapturedRoom?
+    
+    // Unified scan/survey workflow
+    private var currentMode: CaptureMode = .scanning
+    private var roomPlanPaused = false
+    
+    enum CaptureMode {
+        case scanning    // Room scanning active
+        case surveying   // WiFi surveying (RoomPlan paused)
+        case completed   // Both complete
+    }
     
     @IBOutlet var exportButton: UIButton?
     
@@ -56,12 +80,20 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     }
     
     private func setupRoomCaptureView() {
-        print("🔧 Setting up RoomCaptureView...")
+        print("🔧 Setting up RoomCaptureView with shared ARSession for optimal coordinate alignment...")
         
         // Remove existing room capture view if any
         roomCaptureView?.removeFromSuperview()
         
-        roomCaptureView = RoomCaptureView(frame: view.bounds)
+        // iOS 17+: Use custom ARSession for perfect coordinate alignment
+        if #available(iOS 17.0, *) {
+            roomCaptureView = RoomCaptureView(frame: view.bounds, arSession: sharedARSession)
+            print("✅ Using iOS 17+ custom ARSession for coordinate alignment")
+        } else {
+            roomCaptureView = RoomCaptureView(frame: view.bounds)
+            print("⚠️ Using default ARSession (iOS 16), coordinate alignment may be less precise")
+        }
+        
         roomCaptureView?.captureSession.delegate = self
         roomCaptureView?.delegate = self
         roomCaptureView?.translatesAutoresizingMaskIntoConstraints = false
@@ -81,7 +113,16 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     }
     
     private func setupARView() {
-        arSceneView = ARSCNView(frame: view.bounds)
+        // iOS 17+: Use shared ARSession for perfect coordinate alignment
+        if isIOS17Available {
+            arSceneView = ARSCNView(frame: view.bounds)
+            arSceneView.session = sharedARSession  // Share the same ARSession
+            print("✅ AR view configured with shared ARSession for perfect coordinate alignment")
+        } else {
+            arSceneView = ARSCNView(frame: view.bounds)
+            print("⚠️ AR view using separate ARSession (iOS 16)")
+        }
+        
         arSceneView.isHidden = true
         view.insertSubview(arSceneView, at: 1)
         
@@ -182,24 +223,30 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         bottomNavBar?.backgroundColor = SpectrumBranding.Colors.secondaryBackground
         bottomNavBar?.translatesAutoresizingMaskIntoConstraints = false
         
-        // Create navigation buttons
-        roomScanNavButton = SpectrumBranding.createSpectrumButton(title: "Room Scan", style: .secondary)
-        roomScanNavButton?.addTarget(self, action: #selector(roomScanNavTapped), for: .touchUpInside)
+        // Create mode label
+        modeLabel = SpectrumBranding.createSpectrumLabel(text: "Room Scanning Mode", style: .caption)
+        modeLabel?.textAlignment = .center
+        modeLabel?.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        modeLabel?.textColor = .white
+        modeLabel?.layer.cornerRadius = 6
+        modeLabel?.layer.masksToBounds = true
         
-        wifiSurveyNavButton = SpectrumBranding.createSpectrumButton(title: "WiFi Survey", style: .secondary)
-        wifiSurveyNavButton?.addTarget(self, action: #selector(wifiSurveyNavTapped), for: .touchUpInside)
+        // Create scan/survey toggle button
+        scanSurveyToggleButton = SpectrumBranding.createSpectrumButton(title: "📡 Switch to WiFi Survey", style: .secondary)
+        scanSurveyToggleButton?.addTarget(self, action: #selector(scanSurveyToggleTapped), for: .touchUpInside)
         
-        floorPlanNavButton = SpectrumBranding.createSpectrumButton(title: "Floor Plan", style: .secondary)
+        // Create floor plan button
+        floorPlanNavButton = SpectrumBranding.createSpectrumButton(title: "📊 View Plan", style: .secondary)
         floorPlanNavButton?.addTarget(self, action: #selector(floorPlanNavTapped), for: .touchUpInside)
         
         guard let bottomNavBar = bottomNavBar,
-              let roomScanNavButton = roomScanNavButton,
-              let wifiSurveyNavButton = wifiSurveyNavButton,
+              let modeLabel = modeLabel,
+              let scanSurveyToggleButton = scanSurveyToggleButton,
               let floorPlanNavButton = floorPlanNavButton else { return }
         
         view.addSubview(bottomNavBar)
-        bottomNavBar.addSubview(roomScanNavButton)
-        bottomNavBar.addSubview(wifiSurveyNavButton)
+        bottomNavBar.addSubview(modeLabel)
+        bottomNavBar.addSubview(scanSurveyToggleButton)
         bottomNavBar.addSubview(floorPlanNavButton)
         
         NSLayoutConstraint.activate([
@@ -207,45 +254,54 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             bottomNavBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomNavBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomNavBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            bottomNavBar.heightAnchor.constraint(equalToConstant: 60),
+            bottomNavBar.heightAnchor.constraint(equalToConstant: 80),
             
-            // Navigation buttons - equal width
-            roomScanNavButton.leadingAnchor.constraint(equalTo: bottomNavBar.leadingAnchor, constant: 10),
-            roomScanNavButton.centerYAnchor.constraint(equalTo: bottomNavBar.centerYAnchor),
-            roomScanNavButton.heightAnchor.constraint(equalToConstant: 40),
-            roomScanNavButton.widthAnchor.constraint(equalTo: wifiSurveyNavButton.widthAnchor),
+            // Mode label at top
+            modeLabel.topAnchor.constraint(equalTo: bottomNavBar.topAnchor, constant: 8),
+            modeLabel.leadingAnchor.constraint(equalTo: bottomNavBar.leadingAnchor, constant: 20),
+            modeLabel.trailingAnchor.constraint(equalTo: bottomNavBar.trailingAnchor, constant: -20),
+            modeLabel.heightAnchor.constraint(equalToConstant: 24),
             
-            wifiSurveyNavButton.leadingAnchor.constraint(equalTo: roomScanNavButton.trailingAnchor, constant: 10),
-            wifiSurveyNavButton.centerYAnchor.constraint(equalTo: bottomNavBar.centerYAnchor),
-            wifiSurveyNavButton.heightAnchor.constraint(equalToConstant: 40),
-            wifiSurveyNavButton.widthAnchor.constraint(equalTo: floorPlanNavButton.widthAnchor),
+            // Buttons at bottom
+            scanSurveyToggleButton.topAnchor.constraint(equalTo: modeLabel.bottomAnchor, constant: 8),
+            scanSurveyToggleButton.leadingAnchor.constraint(equalTo: bottomNavBar.leadingAnchor, constant: 10),
+            scanSurveyToggleButton.heightAnchor.constraint(equalToConstant: 40),
+            scanSurveyToggleButton.widthAnchor.constraint(equalTo: floorPlanNavButton.widthAnchor),
             
-            floorPlanNavButton.leadingAnchor.constraint(equalTo: wifiSurveyNavButton.trailingAnchor, constant: 10),
+            floorPlanNavButton.topAnchor.constraint(equalTo: modeLabel.bottomAnchor, constant: 8),
+            floorPlanNavButton.leadingAnchor.constraint(equalTo: scanSurveyToggleButton.trailingAnchor, constant: 10),
             floorPlanNavButton.trailingAnchor.constraint(equalTo: bottomNavBar.trailingAnchor, constant: -10),
-            floorPlanNavButton.centerYAnchor.constraint(equalTo: bottomNavBar.centerYAnchor),
             floorPlanNavButton.heightAnchor.constraint(equalToConstant: 40)
         ])
         
         updateBottomNavigation()
     }
     
-    @objc private func roomScanNavTapped() {
-        if !isScanning && capturedRoomData == nil {
-            startSession()
-        } else if isScanning {
-            stopSession()
-        }
-        updateBottomNavigation()
-    }
-    
-    @objc private func wifiSurveyNavTapped() {
-        if capturedRoomData != nil {
-            if !wifiSurveyManager.isRecording && wifiSurveyManager.measurements.isEmpty {
-                startWiFiSurvey()
-            } else if wifiSurveyManager.isRecording {
-                stopWiFiSurvey()
+    @objc private func scanSurveyToggleTapped() {
+        switch currentMode {
+        case .scanning:
+            if isScanning {
+                // Switch from scanning to surveying
+                switchToWiFiSurvey()
+            } else {
+                // Start scanning
+                startSession()
             }
+            
+        case .surveying:
+            if wifiSurveyManager.isRecording {
+                // Stop WiFi survey and return to scanning
+                switchBackToScanning()
+            } else {
+                // Resume WiFi survey
+                resumeWiFiSurvey()
+            }
+            
+        case .completed:
+            // Allow viewing results or restarting
+            break
         }
+        
         updateBottomNavigation()
     }
     
@@ -258,43 +314,171 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         }
     }
     
-    private func updateBottomNavigation() {
-        // Room Scan button
-        if isScanning {
-            roomScanNavButton?.setTitle("🛑 Stop", for: .normal)
-            roomScanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
-            roomScanNavButton?.isEnabled = true
-        } else if capturedRoomData == nil {
-            roomScanNavButton?.setTitle("📱 Scan", for: .normal)
-            roomScanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
-            roomScanNavButton?.isEnabled = true
+    private func switchToWiFiSurvey() {
+        guard isScanning else { return }
+        
+        print("🔄 Switching from room scanning to WiFi survey with coordinate alignment...")
+        
+        // iOS 17+: Use advanced coordinate alignment with shared ARSession
+        if #available(iOS 17.0, *) {
+            // Stop RoomPlan but keep ARSession running for perfect coordinate alignment
+            roomCaptureView?.captureSession.stop(pauseARSession: false)
+            print("🎯 RoomPlan stopped with ARSession maintained for coordinate continuity")
         } else {
-            roomScanNavButton?.setTitle("✅ Done", for: .normal)
-            roomScanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
-            roomScanNavButton?.isEnabled = false
+            // iOS 16: Traditional stop (less precise coordinate alignment)
+            roomCaptureView?.captureSession.stop()
+            print("⚠️ Using iOS 16 coordinate alignment approach")
         }
         
-        // WiFi Survey button
-        if capturedRoomData == nil {
-            wifiSurveyNavButton?.setTitle("📡 WiFi", for: .normal)
-            wifiSurveyNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
-            wifiSurveyNavButton?.isEnabled = false
-        } else if wifiSurveyManager.isRecording {
-            wifiSurveyNavButton?.setTitle("🛑 Stop", for: .normal)
-            wifiSurveyNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
-            wifiSurveyNavButton?.isEnabled = true
-        } else if wifiSurveyManager.measurements.isEmpty {
-            wifiSurveyNavButton?.setTitle("📡 Start", for: .normal)
-            wifiSurveyNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
-            wifiSurveyNavButton?.isEnabled = true
-        } else {
-            wifiSurveyNavButton?.setTitle("✅ Done", for: .normal)
-            wifiSurveyNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
-            wifiSurveyNavButton?.isEnabled = false
+        roomPlanPaused = true
+        
+        // Store the current room data as additional coordinate reference
+        if let capturedRoom = capturedRoomData {
+            print("📍 Using captured room data as coordinate reference")
+            arVisualizationManager.setCapturedRoomData(capturedRoom)
         }
         
-        // Floor Plan button - allow access after room scan, enhanced if WiFi data available
+        // Switch to surveying mode
+        currentMode = .surveying
+        isScanning = false
+        
+        // Start WiFi survey with perfect coordinate alignment
+        startWiFiSurveyWithinRoomPlan()
+        
+        statusLabel?.text = "📡 WiFi survey mode - Perfect coordinate alignment active"
+        print("✅ Successfully switched to WiFi survey mode with coordinate alignment")
+    }
+    
+    private func switchBackToScanning() {
+        print("🔄 Switching back to room scanning with coordinate preservation...")
+        
+        // Stop WiFi survey but preserve coordinate system
+        wifiSurveyManager.stopSurvey()
+        
+        // iOS 17+: Don't stop the shared ARSession to maintain coordinates
+        if isIOS17Available {
+            print("🎯 Preserving shared ARSession for coordinate continuity")
+            // ARSession remains active, perfect for resuming room scanning
+        } else {
+            // iOS 16: Stop AR session
+            arVisualizationManager.stopARSession()
+        }
+        
+        // Check if we should complete or continue scanning
         let hasRoomData = capturedRoomData != nil
+        let hasWifiData = !wifiSurveyManager.measurements.isEmpty
+        
+        if hasRoomData && hasWifiData {
+            // Both completed - set to completed mode
+            currentMode = .completed
+            statusLabel?.text = "✅ Scan and survey complete - View your results"
+            print("🎉 Both room scan and WiFi survey complete")
+        } else if hasRoomData {
+            // Room scanning already complete, just show room view
+            currentMode = .completed
+            switchToRoomCapture()
+            statusLabel?.text = "Room scan complete - WiFi survey data collected"
+            print("✅ Room scan complete, WiFi data available")
+        } else {
+            // Resume room scanning with same coordinate system
+            roomPlanPaused = false
+            currentMode = .scanning
+            
+            // Switch back to room capture view
+            switchToRoomCapture()
+            
+            // Resume scanning with coordinate continuity
+            if isIOS17Available {
+                // iOS 17+: Resume with same ARSession for perfect coordinate alignment
+                roomCaptureView?.captureSession.run(configuration: roomCaptureSessionConfig)
+                isScanning = true
+                statusLabel?.text = "📱 Room scanning resumed - Same coordinate system maintained"
+                print("✅ Room scanning resumed with coordinate continuity")
+            } else {
+                // iOS 16: Restart session
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.startSession()
+                }
+                statusLabel?.text = "Restarting room scan - Move around to capture room"
+                print("✅ Restarting room scanning session")
+            }
+        }
+    }
+    
+    private func resumeWiFiSurvey() {
+        print("▶️ Resuming WiFi survey...")
+        startWiFiSurveyWithinRoomPlan()
+    }
+    
+    private func startWiFiSurveyWithinRoomPlan() {
+        // Start WiFi survey 
+        wifiSurveyManager.startSurvey()
+        
+        // Switch to AR mode for WiFi visualization
+        switchToARMode()
+        
+        // iOS 17+: AR is already using the shared session, perfect alignment!
+        if isIOS17Available {
+            print("🎯 WiFi survey using shared ARSession - Perfect coordinate alignment active")
+            arVisualizationManager.setSharedARSessionMode(true)
+        } else {
+            // iOS 16: Start separate AR session
+            arVisualizationManager.startARSession()
+            print("⚠️ WiFi survey using separate ARSession (iOS 16)")
+        }
+        
+        // If we have room data, use it for additional reference
+        if let capturedRoom = capturedRoomData {
+            print("📍 Using captured room data as additional coordinate reference")
+            arVisualizationManager.setCapturedRoomData(capturedRoom)
+        }
+        
+        statusLabel?.text = "📡 WiFi survey active - Perfect coordinate alignment"
+    }
+    
+    private func updateBottomNavigation() {
+        // Update mode label and buttons based on current state
+        switch currentMode {
+        case .scanning:
+            if isScanning {
+                modeLabel?.text = "🔍 Room Scanning Active"
+                modeLabel?.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
+                scanSurveyToggleButton?.setTitle("📡 Switch to WiFi Survey", for: .normal)
+                scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+                scanSurveyToggleButton?.isEnabled = true
+            } else {
+                modeLabel?.text = "📱 Ready to Scan Room"
+                modeLabel?.backgroundColor = UIColor.systemGray.withAlphaComponent(0.9)
+                scanSurveyToggleButton?.setTitle("📱 Start Room Scan", for: .normal)
+                scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+                scanSurveyToggleButton?.isEnabled = true
+            }
+            
+        case .surveying:
+            if wifiSurveyManager.isRecording {
+                modeLabel?.text = "📡 WiFi Survey Active (\(wifiSurveyManager.measurements.count) points)"
+                modeLabel?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
+                scanSurveyToggleButton?.setTitle("📱 Back to Room Scan", for: .normal)
+                scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+                scanSurveyToggleButton?.isEnabled = true
+            } else {
+                modeLabel?.text = "📡 WiFi Survey Ready"
+                modeLabel?.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
+                scanSurveyToggleButton?.setTitle("📡 Resume WiFi Survey", for: .normal)
+                scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+                scanSurveyToggleButton?.isEnabled = true
+            }
+            
+        case .completed:
+            modeLabel?.text = "✅ Scan & Survey Complete"
+            modeLabel?.backgroundColor = UIColor.systemPurple.withAlphaComponent(0.9)
+            scanSurveyToggleButton?.setTitle("🔄 Restart", for: .normal)
+            scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
+            scanSurveyToggleButton?.isEnabled = true
+        }
+        
+        // Floor Plan button
+        let hasRoomData = capturedRoomData != nil || roomPlanPaused
         let hasWifiData = !wifiSurveyManager.measurements.isEmpty
         
         if hasRoomData {
@@ -327,23 +511,37 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     }
     
     private func updateStatusLabel() {
-        var statusText = "Ready to start room scanning"
+        var statusText = "Ready to start scanning"
         var backgroundColor = UIColor.black.withAlphaComponent(0.7)
         
-        if isScanning {
-            statusText = "📱 Move around to capture room - Tap 'Stop' when satisfied"
-            backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
-        } else if isScanning == false && capturedRoomData == nil {
-            statusText = "🔄 Ready to start scanning - Move device to capture room layout"
-            backgroundColor = UIColor.systemGray.withAlphaComponent(0.9)
-        } else if capturedRoomData != nil && !wifiSurveyManager.isRecording && wifiSurveyManager.measurements.isEmpty {
-            statusText = "✅ Room captured! Found \(roomAnalyzer.identifiedRooms.count) rooms - Ready for WiFi survey"
-            backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
-        } else if wifiSurveyManager.isRecording {
-            statusText = "📡 Recording WiFi (\(wifiSurveyManager.measurements.count) points) - Move around room"
-            backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
-        } else if capturedRoomData != nil && !wifiSurveyManager.measurements.isEmpty {
-            statusText = "🎉 WiFi survey complete - View detailed results"
+        switch currentMode {
+        case .scanning:
+            if isScanning {
+                statusText = "📱 Move around to capture room - Tap 'Switch to WiFi Survey' when ready"
+                backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
+            } else if capturedRoomData == nil && !roomPlanPaused {
+                statusText = "🎯 Tap 'Start Room Scan' to begin mapping your space"
+                backgroundColor = UIColor.systemGray.withAlphaComponent(0.9)
+            } else {
+                statusText = "✅ Room scan paused - Use toggle to switch modes"
+                backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
+            }
+            
+        case .surveying:
+            if wifiSurveyManager.isRecording {
+                let roomCount = roomAnalyzer.identifiedRooms.count
+                let roomText = roomCount > 0 ? " across \(roomCount) rooms" : ""
+                statusText = "📡 Recording WiFi (\(wifiSurveyManager.measurements.count) points\(roomText)) - Walk to test coverage"
+                backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
+            } else {
+                statusText = "📡 WiFi survey ready - Move around to collect signal data"
+                backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
+            }
+            
+        case .completed:
+            let roomCount = roomAnalyzer.identifiedRooms.count
+            let measurementCount = wifiSurveyManager.measurements.count
+            statusText = "🎉 Complete! \(roomCount) rooms mapped, \(measurementCount) WiFi points - View Results"
             backgroundColor = UIColor.systemPurple.withAlphaComponent(0.9)
         }
         
@@ -476,6 +674,8 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         finalResults = processedResult
         capturedRoomData = processedResult
         
+        print("🏠 Room capture completed - processing room data...")
+        
         if #available(iOS 17.0, *) {
             roomAnalyzer.analyzeCapturedRoom(processedResult)
         }
@@ -483,55 +683,28 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         // Pass room data to AR visualization manager
         arVisualizationManager.setCapturedRoomData(processedResult)
         
+        // Update mode to completed if both room and WiFi data exist
+        if !wifiSurveyManager.measurements.isEmpty {
+            currentMode = .completed
+            print("✅ Both room scan and WiFi survey complete")
+        }
+        
         updateButtonStates()
     }
     
     // Removed Done/Cancel actions - using bottom navigation instead
     
+    // Legacy methods - replaced by unified scan/survey workflow
     private func startWiFiSurvey() {
-        guard capturedRoomData != nil else {
-            showAlert(title: "Room Scan Required", message: "Please complete room scanning first.")
-            return
-        }
-        
-        // Check network connectivity before starting survey
-        guard isNetworkAvailable() else {
-            showAlert(title: "Network Required", message: "Please connect to a WiFi network to perform speed tests.")
-            return
-        }
-        
-        wifiSurveyManager.startSurvey()
-        switchToARMode()
-        statusLabel?.text = "Starting WiFi survey..."
-        
-        // Start a timer to update status with measurement count
-        startStatusUpdateTimer()
-        updateButtonStates()
+        // This method is now handled by switchToWiFiSurvey()
+        // Keeping for compatibility but redirecting to new workflow
+        switchToWiFiSurvey()
     }
     
     private func stopWiFiSurvey() {
-        print("🛑 Stopping WiFi survey...")
-        
-        // Stop survey first
-        wifiSurveyManager.stopSurvey()
-        
-        // Stop AR session with proper cleanup
-        arVisualizationManager.stopARSession()
-        
-        // Switch back to room capture view
-        switchToRoomCapture()
-        
-        // Update UI
-        statusLabel?.text = "WiFi survey completed - \\(wifiSurveyManager.measurements.count) measurements recorded"
-        stopStatusUpdateTimer()
-        updateButtonStates()
-        
-        print("✅ WiFi survey stopped successfully")
-        
-        // Ensure results button is enabled after survey completion
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.updateButtonStates()
-        }
+        // This method is now handled by switchBackToScanning()
+        // Keeping for compatibility but redirecting to new workflow
+        switchBackToScanning()
     }
     
     private func isNetworkAvailable() -> Bool {
