@@ -107,8 +107,8 @@ class OnboardingViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         
-        // Reduce splash screen delay to improve perceived loading time
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        // Skip splash screen entirely for better user experience
+        DispatchQueue.main.async {
             self.transitionToRoomCapture()
         }
     }

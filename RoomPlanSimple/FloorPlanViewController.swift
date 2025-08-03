@@ -524,9 +524,9 @@ class FloorPlanRenderer: UIView {
         }
         path.closeSubpath()
         
-        // Verify path is valid before rendering
-        if path.isEmpty {
-            print("⚠️ Room \(room.type.rawValue) generated empty path, using rectangular fallback")
+        // Verify path is valid before rendering to prevent assertion failures
+        if path.isEmpty || !isValidPathForRendering(path) {
+            print("⚠️ Room \(room.type.rawValue) generated invalid path, using rectangular fallback")
             drawRectangularRoom(context: context, room: room, scale: scale, offset: offset)
             return
         }
@@ -606,6 +606,26 @@ class FloorPlanRenderer: UIView {
         
         // Should be at least 1 pixel wide and tall
         return width > 1.0 && height > 1.0
+    }
+    
+    private func isValidPathForRendering(_ path: CGPath) -> Bool {
+        // Check if path has valid bounding box to prevent assertion failures
+        let boundingBox = path.boundingBox
+        
+        // Validate bounding box dimensions
+        if !boundingBox.width.isFinite || !boundingBox.height.isFinite ||
+           boundingBox.width <= 0 || boundingBox.height <= 0 {
+            print("⚠️ Path has invalid bounding box: \(boundingBox)")
+            return false
+        }
+        
+        // Check for reasonable size limits to prevent memory issues
+        if boundingBox.width > 10000 || boundingBox.height > 10000 {
+            print("⚠️ Path bounding box too large: \(boundingBox)")
+            return false
+        }
+        
+        return true
     }
     
     private func drawRectangularRoom(context: CGContext, room: RoomAnalyzer.IdentifiedRoom, scale: CGFloat, offset: CGPoint) {

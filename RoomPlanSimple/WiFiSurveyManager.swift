@@ -387,42 +387,55 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     private func generateInterpolatedCoverageMap() -> [simd_float3: Double] {
         var coverageMap: [simd_float3: Double] = [:]
         
-        // Calculate room bounds from measurements
+        // Calculate bounds from actual measurements, not arbitrary rectangles
         let positions = measurements.map { $0.location }
         let minX = positions.map { $0.x }.min() ?? 0
         let maxX = positions.map { $0.x }.max() ?? 0
         let minZ = positions.map { $0.z }.min() ?? 0
         let maxZ = positions.map { $0.z }.max() ?? 0
         
-        // Ensure reasonable grid size
-        let roomWidth = max(maxX - minX, 1.0)
-        let roomDepth = max(maxZ - minZ, 1.0)
+        // Add reasonable padding around measurement area (not full rectangular coverage)
+        let padding: Float = 2.0 // 2 meter padding around actual measurements
+        let boundedMinX = minX - padding
+        let boundedMaxX = maxX + padding
+        let boundedMinZ = minZ - padding
+        let boundedMaxZ = maxZ + padding
         
-        // Create interpolation grid (0.3m resolution for smooth coverage)
-        let gridResolution: Float = 0.3
-        let gridWidth = Int(ceil(roomWidth / gridResolution))
-        let gridDepth = Int(ceil(roomDepth / gridResolution))
+        // Create interpolation grid (0.5m resolution to reduce noise)
+        let gridResolution: Float = 0.5
+        let gridWidth = Int(ceil((boundedMaxX - boundedMinX) / gridResolution))
+        let gridDepth = Int(ceil((boundedMaxZ - boundedMinZ) / gridResolution))
         
-        print("📐 Creating \(gridWidth)x\(gridDepth) interpolation grid")
+        print("📐 Creating \(gridWidth)x\(gridDepth) constrained interpolation grid")
+        print("   Measurement bounds: (\(String(format: "%.1f", minX)), \(String(format: "%.1f", minZ))) to (\(String(format: "%.1f", maxX)), \(String(format: "%.1f", maxZ)))")
+        print("   Interpolation bounds: (\(String(format: "%.1f", boundedMinX)), \(String(format: "%.1f", boundedMinZ))) to (\(String(format: "%.1f", boundedMaxX)), \(String(format: "%.1f", boundedMaxZ)))")
         
         // Generate coverage for each grid point using inverse distance weighting
         for x in 0...gridWidth {
             for z in 0...gridDepth {
                 let gridPoint = simd_float3(
-                    minX + Float(x) * gridResolution,
+                    boundedMinX + Float(x) * gridResolution,
                     0, // Floor level
-                    minZ + Float(z) * gridResolution
+                    boundedMinZ + Float(z) * gridResolution
                 )
                 
-                let interpolatedStrength = interpolateSignalStrength(at: gridPoint)
-                let normalizedSignal = Double(interpolatedStrength + 100) / 100.0
+                // Only interpolate points that are reasonably close to actual measurements
+                let nearestMeasurementDistance = measurements.map { simd_distance(gridPoint, $0.location) }.min() ?? Float.infinity
                 
-                // Only include points with reasonable signal strength
-                if interpolatedStrength > -120 { // Exclude extremely weak signals
-                    coverageMap[gridPoint] = max(0, min(1, normalizedSignal))
+                // Skip interpolation for points too far from any actual measurement
+                if nearestMeasurementDistance <= 4.0 { // Max 4m from any measurement
+                    let interpolatedStrength = interpolateSignalStrength(at: gridPoint)
+                    let normalizedSignal = Double(interpolatedStrength + 100) / 100.0
+                    
+                    // Only include points with reasonable signal strength
+                    if interpolatedStrength > -120 { // Exclude extremely weak signals
+                        coverageMap[gridPoint] = max(0, min(1, normalizedSignal))
+                    }
                 }
             }
         }
+        
+        print("   Generated \(coverageMap.count) valid interpolation points (excluding distant areas)")
         
         return coverageMap
     }

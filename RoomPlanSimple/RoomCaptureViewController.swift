@@ -597,6 +597,10 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     override func viewWillDisappear(_ flag: Bool) {
         super.viewWillDisappear(flag)
         stopSession()
+        
+        // Ensure all timers are stopped
+        stopTrackingStateMonitoring()
+        stopStatusUpdateTimer()
     }
     
     private func startSession() {
@@ -622,6 +626,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         // Start monitoring WiFi network info during room scanning
         startWiFiMonitoring()
         
+        // Start tracking state monitoring for better user experience
+        startTrackingStateMonitoring()
+        
         setActiveNavBar()
         updateButtonStates()
     }
@@ -631,6 +638,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         isScanning = false
         roomCaptureView?.captureSession.stop()
         stopWiFiMonitoring()
+        
+        // Stop tracking state monitoring
+        stopTrackingStateMonitoring()
         
         setCompleteNavBar()
         updateButtonStates()
@@ -864,6 +874,334 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             self.doneButton?.tintColor = .systemBlue
             self.exportButton?.alpha = 1.0
         }
+    }
+    
+    // MARK: - Navigation Methods
+    
+    private func navigateToFloorPlan() {
+        // Allow floor plan access if room data exists, even without WiFi measurements
+        if capturedRoomData != nil {
+            viewResults()
+        } else {
+            showAlert(title: "Room Scan Required", message: "Please complete room scanning first to view the floor plan.")
+        }
+    }
+    
+    private func switchToRoomMode() {
+        isARMode = false
+        roomCaptureView.isHidden = false
+        arSceneView.isHidden = true
+        updateButtonStates()
+    }
+    
+    // MARK: - Tracking State Management
+    
+    private var trackingStateTimer: Timer?
+    private var poorTrackingStartTime: Date?
+    private let poorTrackingThreshold: TimeInterval = 3.0 // seconds
+    
+    private func startTrackingStateMonitoring() {
+        stopTrackingStateMonitoring()
+        
+        trackingStateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.monitorTrackingState()
+        }
+        
+        print("📱 Started real-time tracking state monitoring")
+    }
+    
+    private func stopTrackingStateMonitoring() {
+        trackingStateTimer?.invalidate()
+        trackingStateTimer = nil
+        poorTrackingStartTime = nil
+        print("📱 Stopped tracking state monitoring")
+    }
+    
+    private func monitorTrackingState() {
+        guard isScanning else { return }
+        
+        let trackingGood = isTrackingStateGood()
+        let currentTime = Date()
+        
+        if !trackingGood {
+            if poorTrackingStartTime == nil {
+                poorTrackingStartTime = currentTime
+            } else if let startTime = poorTrackingStartTime,
+                      currentTime.timeIntervalSince(startTime) > poorTrackingThreshold {
+                // Poor tracking for too long - show guidance
+                handlePoorTracking()
+                poorTrackingStartTime = currentTime // Reset timer
+            }
+        } else {
+            // Good tracking - reset timer
+            poorTrackingStartTime = nil
+        }
+    }
+    
+    private func handlePoorTracking() {
+        guard isScanning else { return }
+        
+        print("⚠️ Poor tracking detected - providing user guidance")
+        
+        // Get specific tracking issue
+        let trackingMessage = getTrackingStateMessage()
+        
+        // Show contextual guidance without stopping the session
+        statusLabel?.text = "⚠️ \(trackingMessage)"
+        statusLabel?.backgroundColor = UIColor.systemRed.withAlphaComponent(0.9)
+        
+        // Optionally show alert for severe issues
+        let alert = UIAlertController(
+            title: "Camera Tracking Issues",
+            message: trackingMessage + "\n\nTip: If your phone is lying flat, pick it up and point the camera toward the room.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Continue", style: .default))
+        alert.addAction(UIAlertAction(title: "Restart Scan", style: .default) { _ in
+            self.restartScanWithGuidance()
+        })
+        
+        present(alert, animated: true)
+    }
+    
+    private func getTrackingStateMessage() -> String {
+        guard let arSession = roomCaptureView?.captureSession.arSession,
+              let trackingState = arSession.currentFrame?.camera.trackingState else {
+            return "Unable to determine camera tracking state"
+        }
+        
+        switch trackingState {
+        case .normal:
+            return "Camera tracking is working well"
+        case .limited(.initializing):
+            return "Camera is initializing - move device slowly"
+        case .limited(.relocalizing):
+            return "Camera lost tracking - return to a previously scanned area"
+        case .limited(.excessiveMotion):
+            return "Moving too fast - slow down your movements"  
+        case .limited(.insufficientFeatures):
+            return "Not enough visual detail - point camera at walls/furniture"
+        case .notAvailable:
+            return "Camera tracking unavailable - check device orientation"
+        default:
+            return "Camera tracking needs attention"
+        }
+    }
+    
+    private func restartScanWithGuidance() {
+        print("🔄 Restarting scan with user guidance...")
+        
+        // Stop current session
+        stopSession()
+        
+        // Show enhanced guidance
+        showEnhancedTrackingGuidance()
+    }
+    
+    private func showEnhancedTrackingGuidance() {
+        let alert = UIAlertController(
+            title: "Optimal Camera Setup",
+            message: "For successful room scanning:\n\n📱 Hold phone upright (not flat)\n👀 Point camera toward room surfaces\n🚶‍♂️ Walk slowly around the space\n💡 Ensure good lighting\n🏠 Start from a corner or wall\n\nThis will ensure the best scanning results.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Start Scanning", style: .default) { _ in
+            // Wait a moment for user to position phone correctly
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.startSession()
+            }
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func isTrackingStateGood() -> Bool {
+        guard let arSession = roomCaptureView?.captureSession.arSession else { return false }
+        
+        switch arSession.currentFrame?.camera.trackingState {
+        case .normal:
+            return true
+        case .limited(.initializing), .limited(.relocalizing):
+            return false
+        case .limited(.excessiveMotion), .limited(.insufficientFeatures):
+            return false
+        case .notAvailable:
+            return false
+        default:
+            return false
+        }
+    }
+    
+    private func showTrackingGuidance() {
+        showEnhancedTrackingGuidance()
+    }
+}
+
+// MARK: - RoomCaptureSessionDelegate
+
+extension RoomCaptureViewController {
+    
+    func captureSession(_ session: RoomCaptureSession, didFailWithError error: Error) {
+        print("❌ Room capture session failed with error: \(error.localizedDescription)")
+        
+        // Handle specific error types
+        if let roomCaptureError = error as? RoomCaptureSession.CaptureError {
+            handleCaptureError(roomCaptureError)
+        } else {
+            // Generic error handling
+            handleGenericCaptureError(error)
+        }
+    }
+    
+    func captureSession(_ session: RoomCaptureSession, didAdd room: CapturedRoom.Surface) {
+        print("📐 Added room surface: \(room)")
+        
+        // Update progress indicator as surfaces are detected
+        DispatchQueue.main.async {
+            self.updateButtonStates()
+        }
+    }
+    
+    func captureSession(_ session: RoomCaptureSession, didChange room: CapturedRoom.Surface) {
+        print("📐 Updated room surface: \(room)")
+        
+        DispatchQueue.main.async {
+            self.updateButtonStates()
+        }
+    }
+    
+    func captureSession(_ session: RoomCaptureSession, didRemove room: CapturedRoom.Surface) {
+        print("📐 Removed room surface: \(room)")
+        
+        DispatchQueue.main.async {
+            self.updateButtonStates()
+        }
+    }
+    
+    func captureSession(_ session: RoomCaptureSession, didEndWith data: CapturedRoomData, error: Error?) {
+        print("🏁 Room capture session ended")
+        
+        if let error = error {
+            print("⚠️ Session ended with error: \(error.localizedDescription)")
+            handleSessionEndError(error)
+        } else {
+            print("✅ Session ended successfully with data")
+            // Continue with normal processing
+        }
+    }
+    
+    // MARK: - Error Handling
+    
+    private func handleCaptureError(_ error: RoomCaptureSession.CaptureError) {
+        DispatchQueue.main.async {
+            // Handle all RoomCaptureSession errors generically since
+            // the specific enum cases may vary by iOS version
+            self.handleGenericCaptureError(error)
+        }
+    }
+    
+    private func handleGenericCaptureError(_ error: Error) {
+        print("⚠️ Capture error: \(error.localizedDescription)")
+        
+        statusLabel?.text = "⚠️ Scanning error - Tap restart to try again"
+        statusLabel?.backgroundColor = UIColor.systemRed.withAlphaComponent(0.9)
+        
+        // Check if this looks like a tracking issue (common with phone positioning problems)
+        let errorDescription = error.localizedDescription.lowercased()
+        let isTrackingError = errorDescription.contains("tracking") || 
+                             errorDescription.contains("motion") || 
+                             errorDescription.contains("features")
+        
+        let alert = UIAlertController(
+            title: isTrackingError ? "Camera Tracking Issues" : "Scanning Error",
+            message: isTrackingError ? 
+                "Camera tracking failed. This often happens when:\n\n• Phone is lying flat or facing down\n• Moving too quickly\n• Poor lighting conditions\n• Not enough visual detail\n\nWould you like guidance on positioning?" :
+                "There was an issue with room scanning: \(error.localizedDescription)\n\nWould you like to try again?",
+            preferredStyle: .alert
+        )
+        
+        if isTrackingError {
+            alert.addAction(UIAlertAction(title: "Get Positioning Help", style: .default) { _ in
+                self.retryWithGuidance()
+            })
+        }
+        
+        alert.addAction(UIAlertAction(title: "Retry", style: .default) { _ in
+            self.retryRoomCapture()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func handleSessionEndError(_ error: Error) {
+        print("⚠️ Session end error: \(error.localizedDescription)")
+        
+        DispatchQueue.main.async {
+            self.statusLabel?.text = "⚠️ Session ended with issues"
+            self.statusLabel?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
+            
+            let alert = UIAlertController(
+                title: "Scanning Incomplete",
+                message: "The room scan ended with issues: \(error.localizedDescription)\n\nYou can try scanning again or proceed with the current results.",
+                preferredStyle: .alert
+            )
+            
+            alert.addAction(UIAlertAction(title: "Retry Scan", style: .default) { _ in
+                self.retryRoomCapture()
+            })
+            
+            alert.addAction(UIAlertAction(title: "Use Current Results", style: .default) { _ in
+                // Continue with whatever data we have
+                self.updateButtonStates()
+            })
+            
+            self.present(alert, animated: true)
+        }
+    }
+    
+    // MARK: - Retry Logic
+    
+    private func retryRoomCapture() {
+        print("🔄 Retrying room capture...")
+        
+        // Stop current session cleanly
+        if isScanning {
+            stopSession()
+        }
+        
+        // Wait a moment for cleanup
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.statusLabel?.text = "🔄 Restarting room scan..."
+            self.statusLabel?.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
+            
+            // Clear any previous data to start fresh
+            self.capturedRoomData = nil
+            self.finalResults = nil
+            
+            // Restart the session
+            self.startSession()
+        }
+    }
+    
+    private func retryWithGuidance() {
+        print("🔄 Retrying room capture with user guidance...")
+        
+        // Stop current session cleanly
+        if isScanning {
+            stopSession()
+        }
+        
+        // Clear any previous data
+        capturedRoomData = nil
+        finalResults = nil
+        
+        // Show enhanced guidance before retrying
+        showEnhancedTrackingGuidance()
     }
 }
 
