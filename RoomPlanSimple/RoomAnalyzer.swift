@@ -103,23 +103,36 @@ class RoomAnalyzer: ObservableObject {
         var rooms: [IdentifiedRoom] = []
         let mainSurface = capturedRoom.floors.first!
         
+        // Extract actual wall geometry from RoomPlan instead of creating rectangles
+        let actualWallPoints = extractWallPoints(from: mainSurface, capturedRoom: capturedRoom)
+        let floorBoundary = extractFloorBoundary(from: mainSurface)
+        
+        print("   🏗️ Using RoomPlan geometry: \(actualWallPoints.count) wall points, \(capturedRoom.walls.count) wall surfaces")
+        
         for (index, group) in furnitureGroups.enumerated() {
-            // Create a room for each furniture cluster
-            let roomBounds = calculateBoundsFromFurniture(group)
             let roomCenter = calculateCenterFromFurniture(group)
             let roomType = classifyRoomFromFurnitureGroup(group)
             
-            // Create wall points that encompass the furniture
-            let wallPoints = createWallPointsFromBounds(roomBounds, expandBy: 1.0) // 1m padding
+            // Create room-specific wall segments based on furniture cluster location and actual walls
+            let roomWallPoints = segmentWallsForRoom(
+                furnitureGroup: group, 
+                allWallPoints: actualWallPoints,
+                floorBoundary: floorBoundary,
+                capturedRoom: capturedRoom
+            )
+            
+            // Calculate actual area from wall points instead of furniture bounds
+            let roomArea = calculateAreaFromWallPoints(roomWallPoints)
+            let doorways = findDoorways(for: mainSurface, capturedRoom: capturedRoom)
             
             let room = IdentifiedRoom(
                 type: roomType,
-                bounds: mainSurface, // Use main surface as base
+                bounds: mainSurface, // Use actual RoomPlan surface data
                 center: roomCenter,
-                area: calculateAreaFromBounds(roomBounds),
+                area: roomArea, // Use calculated area from actual geometry
                 confidence: calculateConfidenceFromFurniture(group, roomType: roomType),
-                wallPoints: wallPoints,
-                doorways: []
+                wallPoints: roomWallPoints, // Use actual wall geometry
+                doorways: doorways
             )
             
             rooms.append(room)
@@ -133,6 +146,144 @@ class RoomAnalyzer: ObservableObject {
         }
         
         return rooms
+    }
+    
+    // MARK: - RoomPlan Geometry Extraction Methods
+    
+    private func extractFloorBoundary(from surface: CapturedRoom.Surface) -> [simd_float2] {
+        // Extract actual floor boundary from RoomPlan surface data
+        let center = calculateSurfaceCenter(surface)
+        let dimensions = surface.dimensions
+        
+        // Get transform to get proper orientation
+        let transform = surface.transform
+        let rotation = atan2(transform.columns.0.z, transform.columns.0.x) // Rotation around Y axis
+        
+        // Create boundary points considering rotation
+        let halfWidth = dimensions.x / 2
+        let halfDepth = dimensions.z / 2
+        
+        let corners = [
+            simd_float2(-halfWidth, -halfDepth),
+            simd_float2(halfWidth, -halfDepth),
+            simd_float2(halfWidth, halfDepth),
+            simd_float2(-halfWidth, halfDepth)
+        ]
+        
+        // Apply rotation and translation
+        return corners.map { corner in
+            let rotatedX = corner.x * cos(rotation) - corner.y * sin(rotation)
+            let rotatedZ = corner.x * sin(rotation) + corner.y * cos(rotation)
+            return simd_float2(center.x + rotatedX, center.z + rotatedZ)
+        }
+    }
+    
+    private func segmentWallsForRoom(
+        furnitureGroup: [CapturedRoom.Object], 
+        allWallPoints: [simd_float2],
+        floorBoundary: [simd_float2],
+        capturedRoom: CapturedRoom
+    ) -> [simd_float2] {
+        
+        let furnitureCenter = calculateCenterFromFurniture(furnitureGroup)
+        let furnitureCenter2D = simd_float2(furnitureCenter.x, furnitureCenter.z)
+        
+        // Find walls that are closest to this furniture cluster
+        let maxDistance: Float = 4.0 // Maximum distance to consider a wall part of this room
+        
+        // For now, use a subset of the floor boundary that's closest to the furniture
+        // This is a simplified approach - in a full implementation, you'd analyze wall connectivity
+        var roomWalls = floorBoundary
+        
+        // Filter wall points that are within reasonable distance of furniture cluster
+        let furnitureBounds = calculateBoundsFromFurniture(furnitureGroup)
+        let expandedBounds = (
+            min: simd_float3(furnitureBounds.min.x - 2.0, furnitureBounds.min.y, furnitureBounds.min.z - 2.0),
+            max: simd_float3(furnitureBounds.max.x + 2.0, furnitureBounds.max.y, furnitureBounds.max.z + 2.0)
+        )
+        
+        // Create a room-specific boundary based on furniture area and nearby walls
+        roomWalls = createRoomBoundaryFromFurnitureAndWalls(
+            furnitureGroup: furnitureGroup,
+            floorBoundary: floorBoundary,
+            walls: capturedRoom.walls
+        )
+        
+        return roomWalls
+    }
+    
+    private func createRoomBoundaryFromFurnitureAndWalls(
+        furnitureGroup: [CapturedRoom.Object],
+        floorBoundary: [simd_float2],
+        walls: [CapturedRoom.Surface]
+    ) -> [simd_float2] {
+        
+        let furnitureCenter = calculateCenterFromFurniture(furnitureGroup)
+        let furnitureCenter2D = simd_float2(furnitureCenter.x, furnitureCenter.z)
+        
+        // Find the closest portion of the floor boundary to this furniture cluster
+        let maxRoomRadius: Float = 3.0 // Maximum room radius from furniture center
+        
+        var roomBoundary: [simd_float2] = []
+        
+        // Use actual wall positions where available
+        for wall in walls {
+            let wallCenter = calculateSurfaceCenter(wall)
+            let wallCenter2D = simd_float2(wallCenter.x, wallCenter.z)
+            let distanceToFurniture = length(wallCenter2D - furnitureCenter2D)
+            
+            if distanceToFurniture <= maxRoomRadius {
+                // This wall is close to our furniture cluster, include it
+                let wallPoints = extractWallEndpoints(from: wall)
+                roomBoundary.append(contentsOf: wallPoints)
+            }
+        }
+        
+        // If no walls found nearby, fall back to furniture-based boundary
+        if roomBoundary.isEmpty {
+            let bounds = calculateBoundsFromFurniture(furnitureGroup)
+            roomBoundary = createWallPointsFromBounds(bounds, expandBy: 1.0)
+        }
+        
+        return roomBoundary
+    }
+    
+    private func extractWallEndpoints(from wall: CapturedRoom.Surface) -> [simd_float2] {
+        let center = calculateSurfaceCenter(wall)
+        let dimensions = wall.dimensions
+        let transform = wall.transform
+        
+        // For walls, dimensions.x is typically length, dimensions.z is thickness
+        let halfLength = dimensions.x / 2
+        let rotation = atan2(transform.columns.0.z, transform.columns.0.x)
+        
+        // Calculate wall endpoints
+        let endpoint1 = simd_float2(
+            center.x + halfLength * cos(rotation),
+            center.z + halfLength * sin(rotation)
+        )
+        let endpoint2 = simd_float2(
+            center.x - halfLength * cos(rotation),
+            center.z - halfLength * sin(rotation)
+        )
+        
+        return [endpoint1, endpoint2]
+    }
+    
+    private func calculateAreaFromWallPoints(_ wallPoints: [simd_float2]) -> Float {
+        guard wallPoints.count >= 3 else { return 0.0 }
+        
+        // Calculate area using shoelace formula
+        var area: Float = 0.0
+        let n = wallPoints.count
+        
+        for i in 0..<n {
+            let j = (i + 1) % n
+            area += wallPoints[i].x * wallPoints[j].y
+            area -= wallPoints[j].x * wallPoints[i].y
+        }
+        
+        return abs(area) / 2.0
     }
     
     private func clusterFurnitureByProximity(_ objects: [CapturedRoom.Object]) -> [[CapturedRoom.Object]] {

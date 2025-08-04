@@ -12,6 +12,7 @@ class FloorPlanViewController: UIViewController {
     private var customHeaderView: UIView!
     private var floorPlanView: UIView!
     private var heatmapToggle: UISwitch!
+    private var heatmapLabel: UILabel!
     private var legendView: UIView!
     private var exportButton: UIButton!
     private var measurementsList: UITableView!
@@ -41,12 +42,17 @@ class FloorPlanViewController: UIViewController {
         heatmapToggle = UISwitch()
         heatmapToggle.translatesAutoresizingMaskIntoConstraints = false
         
+        heatmapLabel = SpectrumBranding.createSpectrumLabel(text: "Show WiFi Heatmap", style: .body)
+        heatmapLabel.textAlignment = .right
+        
         legendView = UIView()
         legendView.backgroundColor = .systemBackground
         legendView.layer.cornerRadius = 8
         legendView.translatesAutoresizingMaskIntoConstraints = false
         
-        exportButton = SpectrumBranding.createSpectrumButton(title: "Export Report", style: .primary)
+        exportButton = SpectrumBranding.createSpectrumButton(title: "Export Report", style: .accent)
+        exportButton.layer.borderWidth = 2
+        exportButton.layer.borderColor = UIColor.white.cgColor
         
         measurementsList = UITableView()
         measurementsList.translatesAutoresizingMaskIntoConstraints = false
@@ -54,6 +60,7 @@ class FloorPlanViewController: UIViewController {
         // Add to view hierarchy
         view.addSubview(floorPlanView)
         view.addSubview(heatmapToggle)
+        view.addSubview(heatmapLabel)
         view.addSubview(legendView)
         view.addSubview(exportButton)
         view.addSubview(measurementsList)
@@ -75,6 +82,10 @@ class FloorPlanViewController: UIViewController {
             
             heatmapToggle.topAnchor.constraint(equalTo: floorPlanView.bottomAnchor, constant: 10),
             heatmapToggle.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            
+            heatmapLabel.centerYAnchor.constraint(equalTo: heatmapToggle.centerYAnchor),
+            heatmapLabel.trailingAnchor.constraint(equalTo: heatmapToggle.leadingAnchor, constant: -10),
+            heatmapLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 20),
             
             legendView.topAnchor.constraint(equalTo: heatmapToggle.bottomAnchor, constant: 10),
             legendView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
@@ -1346,11 +1357,32 @@ class FloorPlanRenderer: UIView {
     private func calculateScale(rect: CGRect) -> CGFloat {
         guard !rooms.isEmpty else { return 50.0 }
         
-        // Calculate the bounding box of all rooms
-        let minX = rooms.map { $0.center.x - $0.bounds.dimensions.x/2 }.min() ?? 0
-        let maxX = rooms.map { $0.center.x + $0.bounds.dimensions.x/2 }.max() ?? 1
-        let minZ = rooms.map { $0.center.z - $0.bounds.dimensions.z/2 }.min() ?? 0
-        let maxZ = rooms.map { $0.center.z + $0.bounds.dimensions.z/2 }.max() ?? 1
+        // Calculate the bounding box using actual wall points from all rooms
+        var allWallPoints: [simd_float2] = []
+        for room in rooms {
+            allWallPoints.append(contentsOf: room.wallPoints)
+        }
+        
+        // If no wall points, fall back to room centers
+        if allWallPoints.isEmpty {
+            let minX = rooms.map { $0.center.x }.min() ?? 0
+            let maxX = rooms.map { $0.center.x }.max() ?? 1
+            let minZ = rooms.map { $0.center.z }.min() ?? 0
+            let maxZ = rooms.map { $0.center.z }.max() ?? 1
+            
+            let totalWidth = maxX - minX + 4.0 // Add padding
+            let totalHeight = maxZ - minZ + 4.0 // Add padding
+            let maxDimension = max(totalWidth, totalHeight)
+            
+            let margin: CGFloat = 40
+            return min(rect.width - margin, rect.height - margin) / CGFloat(maxDimension)
+        }
+        
+        // Calculate actual bounds from wall points
+        let minX = allWallPoints.map { $0.x }.min() ?? 0
+        let maxX = allWallPoints.map { $0.x }.max() ?? 1
+        let minZ = allWallPoints.map { $0.y }.min() ?? 0
+        let maxZ = allWallPoints.map { $0.y }.max() ?? 1
         
         let totalWidth = maxX - minX
         let totalHeight = maxZ - minZ
@@ -1363,14 +1395,34 @@ class FloorPlanRenderer: UIView {
     private func calculateOffset(rect: CGRect) -> CGPoint {
         guard !rooms.isEmpty else { return CGPoint(x: rect.width / 2, y: rect.height / 2) }
         
-        // Calculate the center of the bounding box
-        let minX = rooms.map { $0.center.x - $0.bounds.dimensions.x/2 }.min() ?? 0
-        let maxX = rooms.map { $0.center.x + $0.bounds.dimensions.x/2 }.max() ?? 1
-        let minZ = rooms.map { $0.center.z - $0.bounds.dimensions.z/2 }.min() ?? 0
-        let maxZ = rooms.map { $0.center.z + $0.bounds.dimensions.z/2 }.max() ?? 1
+        // Calculate the center using actual wall points from all rooms
+        var allWallPoints: [simd_float2] = []
+        for room in rooms {
+            allWallPoints.append(contentsOf: room.wallPoints)
+        }
         
-        let centerX = (minX + maxX) / 2
-        let centerZ = (minZ + maxZ) / 2
+        let centerX: Float
+        let centerZ: Float
+        
+        if allWallPoints.isEmpty {
+            // Fall back to room centers
+            let minX = rooms.map { $0.center.x }.min() ?? 0
+            let maxX = rooms.map { $0.center.x }.max() ?? 1
+            let minZ = rooms.map { $0.center.z }.min() ?? 0
+            let maxZ = rooms.map { $0.center.z }.max() ?? 1
+            
+            centerX = (minX + maxX) / 2
+            centerZ = (minZ + maxZ) / 2
+        } else {
+            // Calculate center from actual wall points
+            let minX = allWallPoints.map { $0.x }.min() ?? 0
+            let maxX = allWallPoints.map { $0.x }.max() ?? 1
+            let minZ = allWallPoints.map { $0.y }.min() ?? 0
+            let maxZ = allWallPoints.map { $0.y }.max() ?? 1
+            
+            centerX = (minX + maxX) / 2
+            centerZ = (minZ + maxZ) / 2
+        }
         
         let scale = calculateScale(rect: rect)
         
