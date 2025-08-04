@@ -54,16 +54,33 @@ class RoomAnalyzer: ObservableObject {
         
         print("🏠 Analyzing \(capturedRoom.floors.count) floor surfaces and \(capturedRoom.objects.count) objects")
         
+        // Check for invalid surface dimensions that indicate segmentation needed
+        let hasInvalidDimensions = capturedRoom.floors.contains { surface in
+            surface.dimensions.x <= 0 || surface.dimensions.z <= 0 ||
+            !surface.dimensions.x.isFinite || !surface.dimensions.z.isFinite
+        }
+        
         // Use Apple's intended approach: process each floor surface directly
-        if capturedRoom.floors.count == 1 && capturedRoom.objects.count > 5 {
-            print("🔍 Single floor with furniture - segmenting into logical rooms")
+        if capturedRoom.floors.count == 1 && (capturedRoom.objects.count > 5 || hasInvalidDimensions) {
+            print("🔍 Single floor with furniture or invalid dimensions - segmenting into logical rooms")
             rooms = segmentSingleFloorIntoRooms(capturedRoom: capturedRoom)
         } else {
             // Multiple floors detected - process each separately
             for surface in capturedRoom.floors {
+                // Skip surfaces with invalid dimensions
+                if surface.dimensions.x <= 0 || surface.dimensions.z <= 0 {
+                    print("⚠️ Skipping surface with invalid dimensions: \(surface.dimensions.x) x \(surface.dimensions.z)")
+                    continue
+                }
                 let room = createRoomFromRoomPlanSurface(surface: surface, capturedRoom: capturedRoom)
                 rooms.append(room)
             }
+        }
+        
+        // If no valid rooms were created, force segmentation
+        if rooms.isEmpty && !capturedRoom.floors.isEmpty {
+            print("🔧 No valid rooms found, forcing furniture-based segmentation")
+            rooms = segmentSingleFloorIntoRooms(capturedRoom: capturedRoom)
         }
         
         print("✅ Identified \(rooms.count) rooms: \(rooms.map { $0.type.rawValue }.joined(separator: ", "))")
@@ -124,10 +141,10 @@ class RoomAnalyzer: ObservableObject {
             print("   Room \(index + 1): \(roomType.rawValue) with \(group.count) furniture items")
         }
         
-        // Ensure at least one room exists
+        // Ensure at least one room exists - create multiple logical rooms if needed
         if rooms.isEmpty {
-            let fallbackRoom = createRoomFromRoomPlanSurface(surface: mainFloor, capturedRoom: capturedRoom)
-            rooms.append(fallbackRoom)
+            print("   No furniture clusters found, creating logical room divisions based on space analysis")
+            rooms = createLogicalRoomDivisions(capturedRoom: capturedRoom, mainFloor: mainFloor)
         }
         
         return rooms
@@ -318,6 +335,170 @@ class RoomAnalyzer: ObservableObject {
         }
         
         return resultClusters
+    }
+    
+    private func createLogicalRoomDivisions(capturedRoom: CapturedRoom, mainFloor: CapturedRoom.Surface) -> [IdentifiedRoom] {
+        var rooms: [IdentifiedRoom] = []
+        
+        // Analyze the space and furniture to create logical room divisions
+        let allObjects = capturedRoom.objects
+        let spaceCenter = extractSurfaceCenter(mainFloor)
+        
+        // Create rooms based on furniture distribution and typical home layout
+        if allObjects.count >= 3 {
+            // Kitchen area - look for kitchen-specific objects
+            let kitchenObjects = allObjects.compactMap { object in
+                [.refrigerator, .stove, .dishwasher, .sink].contains(object.category) ? object : nil
+            }
+            
+            if kitchenObjects.count >= 1 {
+                let kitchenRoom = createRoomFromObjectGroup(
+                    objects: kitchenObjects,
+                    fallbackObjects: Array(allObjects.prefix(3)),
+                    roomType: .kitchen,
+                    baseFloor: mainFloor,
+                    capturedRoom: capturedRoom
+                )
+                rooms.append(kitchenRoom)
+            }
+            
+            // Living area - look for living room furniture
+            let livingObjects = allObjects.compactMap { object in
+                [.sofa, .chair, .table, .television].contains(object.category) ? object : nil
+            }
+            
+            if livingObjects.count >= 1 {
+                let livingRoom = createRoomFromObjectGroup(
+                    objects: livingObjects,
+                    fallbackObjects: Array(allObjects.dropFirst(3).prefix(3)),
+                    roomType: .livingRoom,
+                    baseFloor: mainFloor,
+                    capturedRoom: capturedRoom
+                )
+                rooms.append(livingRoom)
+            }
+            
+            // Dining area - look for dining furniture not already in living room
+            let diningObjects = allObjects.compactMap { object in
+                let isDiningFurniture = [.table, .chair].contains(object.category)
+                let notInLiving = !livingObjects.contains(where: { $0.id == object.id })
+                return (isDiningFurniture && notInLiving) ? object : nil
+            }
+            
+            if diningObjects.count >= 1 {
+                let diningRoom = createRoomFromObjectGroup(
+                    objects: diningObjects,
+                    fallbackObjects: Array(allObjects.suffix(3)),
+                    roomType: .diningRoom,
+                    baseFloor: mainFloor,
+                    capturedRoom: capturedRoom
+                )
+                rooms.append(diningRoom)
+            }
+        }
+        
+        // If no specific rooms were created, create a reasonable default layout
+        if rooms.isEmpty {
+            rooms = createDefaultRoomLayout(capturedRoom: capturedRoom, mainFloor: mainFloor)
+        }
+        
+        return rooms
+    }
+    
+    private func createRoomFromObjectGroup(
+        objects: [CapturedRoom.Object],
+        fallbackObjects: [CapturedRoom.Object],
+        roomType: RoomType,
+        baseFloor: CapturedRoom.Surface,
+        capturedRoom: CapturedRoom
+    ) -> IdentifiedRoom {
+        let roomObjects = objects.isEmpty ? fallbackObjects : objects
+        let roomCenter = calculateCenterFromFurniture(roomObjects)
+        let roomBoundary = createRoomBoundaryFromFurnitureCluster(roomObjects, floor: baseFloor)
+        let roomArea = calculateAreaFromWallPoints(roomBoundary)
+        let doorways = extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+        
+        return IdentifiedRoom(
+            type: roomType,
+            bounds: baseFloor,
+            center: roomCenter,
+            area: roomArea,
+            confidence: objects.isEmpty ? 0.3 : 0.7,
+            wallPoints: roomBoundary,
+            doorways: doorways
+        )
+    }
+    
+    private func createDefaultRoomLayout(capturedRoom: CapturedRoom, mainFloor: CapturedRoom.Surface) -> [IdentifiedRoom] {
+        let spaceCenter = extractSurfaceCenter(mainFloor)
+        let allObjects = capturedRoom.objects
+        
+        // Create a reasonable default layout with multiple rooms
+        var rooms: [IdentifiedRoom] = []
+        
+        // Use the overall space bounds but create logical divisions
+        let totalObjects = allObjects.count
+        
+        // Living room (main area)
+        let livingCenter = simd_float3(spaceCenter.x - 2.0, spaceCenter.y, spaceCenter.z)
+        let livingBoundary = createRectangularBoundary(center: simd_float2(livingCenter.x, livingCenter.z), width: 4.0, depth: 4.0)
+        
+        let livingRoom = IdentifiedRoom(
+            type: .livingRoom,
+            bounds: mainFloor,
+            center: livingCenter,
+            area: 16.0,
+            confidence: 0.4,
+            wallPoints: livingBoundary,
+            doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+        )
+        rooms.append(livingRoom)
+        
+        // Kitchen area
+        let kitchenCenter = simd_float3(spaceCenter.x + 2.0, spaceCenter.y, spaceCenter.z - 2.0)
+        let kitchenBoundary = createRectangularBoundary(center: simd_float2(kitchenCenter.x, kitchenCenter.z), width: 3.0, depth: 3.0)
+        
+        let kitchen = IdentifiedRoom(
+            type: .kitchen,
+            bounds: mainFloor,
+            center: kitchenCenter,
+            area: 9.0,
+            confidence: 0.4,
+            wallPoints: kitchenBoundary,
+            doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+        )
+        rooms.append(kitchen)
+        
+        // Dining area (if enough objects)
+        if totalObjects >= 6 {
+            let diningCenter = simd_float3(spaceCenter.x, spaceCenter.y, spaceCenter.z + 2.0)
+            let diningBoundary = createRectangularBoundary(center: simd_float2(diningCenter.x, diningCenter.z), width: 3.0, depth: 3.0)
+            
+            let diningRoom = IdentifiedRoom(
+                type: .diningRoom,
+                bounds: mainFloor,
+                center: diningCenter,
+                area: 9.0,
+                confidence: 0.4,
+                wallPoints: diningBoundary,
+                doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+            )
+            rooms.append(diningRoom)
+        }
+        
+        return rooms
+    }
+    
+    private func createRectangularBoundary(center: simd_float2, width: Float, depth: Float) -> [simd_float2] {
+        let halfWidth = width / 2
+        let halfDepth = depth / 2
+        
+        return [
+            simd_float2(center.x - halfWidth, center.y - halfDepth), // bottom-left
+            simd_float2(center.x + halfWidth, center.y - halfDepth), // bottom-right
+            simd_float2(center.x + halfWidth, center.y + halfDepth), // top-right
+            simd_float2(center.x - halfWidth, center.y + halfDepth)  // top-left
+        ]
     }
     
     private func classifyRoomFromFurnitureGroup(_ furniture: [CapturedRoom.Object]) -> RoomType {
