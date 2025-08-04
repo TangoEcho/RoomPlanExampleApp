@@ -56,8 +56,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     @IBOutlet var exportButton: UIButton?
     
-    @IBOutlet var doneButton: UIBarButtonItem?
-    @IBOutlet var cancelButton: UIBarButtonItem?
+    // Removed unused Done/Cancel buttons - using corner controls instead
     
     private var isScanning: Bool = false
     private var isSimulatorMode: Bool {
@@ -264,60 +263,53 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     }
     
     private func setupBottomNavigation() {
-        // Create bottom navigation bar
-        bottomNavBar = UIView()
-        bottomNavBar?.backgroundColor = SpectrumBranding.Colors.secondaryBackground
-        bottomNavBar?.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Create mode label
+        // Create mode label in top-left corner
         modeLabel = SpectrumBranding.createSpectrumLabel(text: "Room Scanning Mode", style: .caption)
-        modeLabel?.textAlignment = .center
-        modeLabel?.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        modeLabel?.textAlignment = .left
+        modeLabel?.backgroundColor = UIColor.black.withAlphaComponent(0.8)
         modeLabel?.textColor = .white
-        modeLabel?.layer.cornerRadius = 6
+        modeLabel?.layer.cornerRadius = 8
         modeLabel?.layer.masksToBounds = true
+        modeLabel?.translatesAutoresizingMaskIntoConstraints = false
         
-        // Create scan/survey toggle button
+        // Create scan/survey toggle button in bottom-left corner
         scanSurveyToggleButton = SpectrumBranding.createSpectrumButton(title: "📡 Switch to WiFi Survey", style: .secondary)
         scanSurveyToggleButton?.addTarget(self, action: #selector(scanSurveyToggleTapped), for: .touchUpInside)
+        scanSurveyToggleButton?.translatesAutoresizingMaskIntoConstraints = false
+        scanSurveyToggleButton?.layer.cornerRadius = 8
         
-        // Create floor plan button
+        // Create floor plan button in bottom-right corner
         floorPlanNavButton = SpectrumBranding.createSpectrumButton(title: "📊 View Plan", style: .secondary)
         floorPlanNavButton?.addTarget(self, action: #selector(floorPlanNavTapped), for: .touchUpInside)
+        floorPlanNavButton?.translatesAutoresizingMaskIntoConstraints = false
+        floorPlanNavButton?.layer.cornerRadius = 8
         
-        guard let bottomNavBar = bottomNavBar,
-              let modeLabel = modeLabel,
+        guard let modeLabel = modeLabel,
               let scanSurveyToggleButton = scanSurveyToggleButton,
               let floorPlanNavButton = floorPlanNavButton else { return }
         
-        view.addSubview(bottomNavBar)
-        bottomNavBar.addSubview(modeLabel)
-        bottomNavBar.addSubview(scanSurveyToggleButton)
-        bottomNavBar.addSubview(floorPlanNavButton)
+        view.addSubview(modeLabel)
+        view.addSubview(scanSurveyToggleButton)
+        view.addSubview(floorPlanNavButton)
         
         NSLayoutConstraint.activate([
-            // Bottom nav bar
-            bottomNavBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            bottomNavBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomNavBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            bottomNavBar.heightAnchor.constraint(equalToConstant: 80),
+            // Mode label in top-left corner
+            modeLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 80), // Below status label
+            modeLabel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            modeLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
+            modeLabel.heightAnchor.constraint(equalToConstant: 32),
             
-            // Mode label at top
-            modeLabel.topAnchor.constraint(equalTo: bottomNavBar.topAnchor, constant: 8),
-            modeLabel.leadingAnchor.constraint(equalTo: bottomNavBar.leadingAnchor, constant: 20),
-            modeLabel.trailingAnchor.constraint(equalTo: bottomNavBar.trailingAnchor, constant: -20),
-            modeLabel.heightAnchor.constraint(equalToConstant: 24),
+            // Scan/survey toggle in bottom-left corner
+            scanSurveyToggleButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            scanSurveyToggleButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            scanSurveyToggleButton.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
+            scanSurveyToggleButton.heightAnchor.constraint(equalToConstant: 44),
             
-            // Buttons at bottom
-            scanSurveyToggleButton.topAnchor.constraint(equalTo: modeLabel.bottomAnchor, constant: 8),
-            scanSurveyToggleButton.leadingAnchor.constraint(equalTo: bottomNavBar.leadingAnchor, constant: 10),
-            scanSurveyToggleButton.heightAnchor.constraint(equalToConstant: 40),
-            scanSurveyToggleButton.widthAnchor.constraint(equalTo: floorPlanNavButton.widthAnchor),
-            
-            floorPlanNavButton.topAnchor.constraint(equalTo: modeLabel.bottomAnchor, constant: 8),
-            floorPlanNavButton.leadingAnchor.constraint(equalTo: scanSurveyToggleButton.trailingAnchor, constant: 10),
-            floorPlanNavButton.trailingAnchor.constraint(equalTo: bottomNavBar.trailingAnchor, constant: -10),
-            floorPlanNavButton.heightAnchor.constraint(equalToConstant: 40)
+            // Floor plan button in bottom-right corner
+            floorPlanNavButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            floorPlanNavButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            floorPlanNavButton.widthAnchor.constraint(equalToConstant: 100),
+            floorPlanNavButton.heightAnchor.constraint(equalToConstant: 44)
         ])
         
         updateBottomNavigation()
@@ -1026,8 +1018,6 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     private func setActiveNavBar() {
         UIView.animate(withDuration: 1.0, animations: {
-            self.cancelButton?.tintColor = .white
-            self.doneButton?.tintColor = .white
             self.exportButton?.alpha = 0.0
         }, completion: { complete in
             self.exportButton?.isHidden = true
@@ -1037,8 +1027,6 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private func setCompleteNavBar() {
         self.exportButton?.isHidden = false
         UIView.animate(withDuration: 1.0) {
-            self.cancelButton?.tintColor = .systemBlue
-            self.doneButton?.tintColor = .systemBlue
             self.exportButton?.alpha = 1.0
         }
     }
