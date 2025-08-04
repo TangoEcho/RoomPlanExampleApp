@@ -136,7 +136,7 @@ class RoomAnalyzer: ObservableObject {
     }
     
     private func clusterFurnitureByProximity(_ objects: [CapturedRoom.Object]) -> [[CapturedRoom.Object]] {
-        let clusterDistance: Float = 4.0 // 4 meters max distance for same room
+        let clusterDistance: Float = 2.5 // 2.5 meters max distance for same room (reduced to better separate adjacent rooms)
         var clusters: [[CapturedRoom.Object]] = []
         var unprocessed = objects
         
@@ -167,7 +167,68 @@ class RoomAnalyzer: ObservableObject {
             clusters.append(currentCluster)
         }
         
-        return clusters.filter { $0.count >= 2 } // Only clusters with 2+ items
+        let filteredClusters = clusters.filter { $0.count >= 2 } // Only clusters with 2+ items
+        
+        // Split clusters that have conflicting room types (e.g., bedroom + bathroom furniture in same cluster)
+        return splitConflictingClusters(filteredClusters)
+    }
+    
+    private func splitConflictingClusters(_ clusters: [[CapturedRoom.Object]]) -> [[CapturedRoom.Object]] {
+        var resultClusters: [[CapturedRoom.Object]] = []
+        
+        for cluster in clusters {
+            // Check if cluster contains conflicting room types
+            let hasBedroomFurniture = cluster.contains { $0.category == .bed }
+            let hasBathroomFurniture = cluster.contains { $0.category == .toilet || $0.category == .bathtub }
+            let hasKitchenFurniture = cluster.contains { $0.category == .refrigerator || $0.category == .oven || $0.category == .dishwasher }
+            
+            // If cluster has conflicting furniture types, split it
+            if (hasBedroomFurniture && hasBathroomFurniture) || 
+               (hasBedroomFurniture && hasKitchenFurniture) ||
+               (hasBathroomFurniture && hasKitchenFurniture) {
+                
+                print("   🔄 Splitting conflicting cluster with \(cluster.count) items")
+                
+                // Separate by dominant furniture types
+                var bedroomItems: [CapturedRoom.Object] = []
+                var bathroomItems: [CapturedRoom.Object] = []
+                var kitchenItems: [CapturedRoom.Object] = []
+                var otherItems: [CapturedRoom.Object] = []
+                
+                for item in cluster {
+                    switch item.category {
+                    case .bed:
+                        bedroomItems.append(item)
+                    case .toilet, .bathtub:
+                        bathroomItems.append(item)
+                    case .refrigerator, .oven, .dishwasher:
+                        kitchenItems.append(item)
+                    case .sink:
+                        // Sinks can be in kitchen or bathroom, assign to nearest group
+                        if !kitchenItems.isEmpty {
+                            kitchenItems.append(item)
+                        } else if !bathroomItems.isEmpty {
+                            bathroomItems.append(item)
+                        } else {
+                            otherItems.append(item)
+                        }
+                    default:
+                        otherItems.append(item)
+                    }
+                }
+                
+                // Add non-empty clusters
+                if bedroomItems.count >= 1 { resultClusters.append(bedroomItems + otherItems.prefix(otherItems.count / max(1, [bedroomItems, bathroomItems, kitchenItems].filter { !$0.isEmpty }.count))) }
+                if bathroomItems.count >= 1 { resultClusters.append(bathroomItems) }
+                if kitchenItems.count >= 1 { resultClusters.append(kitchenItems) }
+                
+            } else {
+                // No conflicts, keep cluster as is
+                resultClusters.append(cluster)
+            }
+        }
+        
+        return resultClusters
     }
     
     private func classifyRoomFromFurnitureGroup(_ furniture: [CapturedRoom.Object]) -> RoomType {

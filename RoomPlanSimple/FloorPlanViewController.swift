@@ -9,6 +9,7 @@ protocol FloorPlanInteractionDelegate: AnyObject {
 }
 
 class FloorPlanViewController: UIViewController {
+    private var customHeaderView: UIView!
     private var floorPlanView: UIView!
     private var heatmapToggle: UISwitch!
     private var legendView: UIView!
@@ -25,6 +26,7 @@ class FloorPlanViewController: UIViewController {
         setupViews()
         setupFloorPlanRenderer()
         setupUI()
+        setupConstraints()
         setupTableView()
     }
     
@@ -55,10 +57,18 @@ class FloorPlanViewController: UIViewController {
         view.addSubview(legendView)
         view.addSubview(exportButton)
         view.addSubview(measurementsList)
+    }
+    
+    private func setupConstraints() {
+        let topConstraint: NSLayoutConstraint
+        if customHeaderView != nil {
+            topConstraint = floorPlanView.topAnchor.constraint(equalTo: customHeaderView.bottomAnchor, constant: 10)
+        } else {
+            topConstraint = floorPlanView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10)
+        }
         
-        // Setup constraints
         NSLayoutConstraint.activate([
-            floorPlanView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
+            topConstraint,
             floorPlanView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
             floorPlanView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
             floorPlanView.heightAnchor.constraint(equalToConstant: 300),
@@ -102,12 +112,51 @@ class FloorPlanViewController: UIViewController {
         // Configure navigation bar with Spectrum branding
         if let navigationBar = navigationController?.navigationBar {
             SpectrumBranding.configureNavigationBar(navigationBar)
+        } else {
+            // Add custom header with navigation for modal presentation
+            setupCustomHeader()
         }
         
         setupLegend()
         
         heatmapToggle.addTarget(self, action: #selector(toggleHeatmap), for: .valueChanged)
         exportButton.addTarget(self, action: #selector(exportReport), for: .touchUpInside)
+    }
+    
+    private func setupCustomHeader() {
+        customHeaderView = UIView()
+        customHeaderView.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+        customHeaderView.translatesAutoresizingMaskIntoConstraints = false
+        
+        let titleLabel = SpectrumBranding.createSpectrumLabel(text: "Spectrum WiFi Analysis", style: .headline)
+        titleLabel.textAlignment = .center
+        titleLabel.font = UIFont.boldSystemFont(ofSize: 18)
+        
+        let newScanButton = SpectrumBranding.createSpectrumButton(title: "New Scan", style: .secondary)
+        newScanButton.addTarget(self, action: #selector(startNewScan), for: .touchUpInside)
+        
+        view.addSubview(customHeaderView)
+        customHeaderView.addSubview(titleLabel)
+        customHeaderView.addSubview(newScanButton)
+        
+        NSLayoutConstraint.activate([
+            customHeaderView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            customHeaderView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            customHeaderView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            customHeaderView.heightAnchor.constraint(equalToConstant: 60),
+            
+            titleLabel.centerXAnchor.constraint(equalTo: customHeaderView.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: customHeaderView.centerYAnchor),
+            
+            newScanButton.trailingAnchor.constraint(equalTo: customHeaderView.trailingAnchor, constant: -16),
+            newScanButton.centerYAnchor.constraint(equalTo: customHeaderView.centerYAnchor),
+            newScanButton.widthAnchor.constraint(equalToConstant: 80),
+            newScanButton.heightAnchor.constraint(equalToConstant: 32)
+        ])
+    }
+    
+    @objc private func startNewScan() {
+        dismiss(animated: true, completion: nil)
     }
     
     private func setupTableView() {
@@ -241,7 +290,7 @@ extension FloorPlanViewController: UITableViewDataSource, UITableViewDelegate {
         let measurement = measurements[indexPath.row]
         
         let roomName = measurement.roomType?.rawValue ?? "Unknown"
-        cell.textLabel?.text = "\(roomName): \(measurement.signalStrength)dBm, \(String(format: "%.1f", measurement.speed))Mbps"
+        cell.textLabel?.text = "\(roomName): \(measurement.signalStrength)dBm, \(Int(round(measurement.speed)))Mbps"
         cell.detailTextLabel?.text = measurement.frequency
         
         let signalColor = signalStrengthColor(measurement.signalStrength)
@@ -1228,7 +1277,7 @@ class FloorPlanRenderer: UIView {
                 context.strokePath()
                 
                 // Show measurement details
-                let detailText = "\(measurement.signalStrength)dBm\n\(String(format: "%.1f", measurement.speed))Mbps"
+                let detailText = "\(measurement.signalStrength)dBm\n\(Int(round(measurement.speed)))Mbps"
                 drawMeasurementDetail(context: context, text: detailText, at: center)
             }
         }
