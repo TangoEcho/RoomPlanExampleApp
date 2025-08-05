@@ -635,7 +635,29 @@ if #available(iOS 17.0, *) {
 }
 ```
 
+**Problem**: `CapturedRoom.Confidence` type conversion errors
+**Solution**: RoomPlan's Confidence is an enum (.high, .medium, .low), not a Float:
+```swift
+private func confidenceToFloat(_ confidence: CapturedRoom.Confidence) -> Float {
+    switch confidence {
+    case .high: return 0.9
+    case .medium: return 0.6  
+    case .low: return 0.3
+    }
+}
+```
+
 #### Runtime Issues
+
+**Problem**: App crashes on launch with NSUnknownKeyException (Fixed)
+**Root Cause**: Broken storyboard outlet connections to non-existent properties
+**Error**: `'[<RoomCaptureViewController> setValue:forUndefinedKey:]: this class is not key value coding-compliant for the key cancelButton'`
+**Solution**: Remove broken outlet connections in Main.storyboard:
+```xml
+<!-- Remove these broken connections -->
+<outlet property="cancelButton" destination="6LV-FR-JQF" id="oID-mD-Z4l"/>
+<outlet property="doneButton" destination="MQz-pc-UhC" id="5nF-0P-w1J"/>
+```
 
 **Problem**: App crashes on simulator (Legacy Issue - Now Fixed)
 **Root Cause**: ARKit and LiDAR not available on simulator
