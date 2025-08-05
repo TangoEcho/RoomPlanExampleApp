@@ -24,6 +24,7 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - **Enhanced Error Handling**: Graceful handling of tracking failures and device positioning issues
 - **Real-time Guidance**: Contextual user guidance for optimal camera positioning
 - **📳 Tactile Feedback**: Scanner-like haptic patterns that respond to discovery events
+- **📍 Test Point Visualization**: Visual markers showing where WiFi tests have been conducted
 
 ## 🎯 User Experience
 
@@ -31,7 +32,7 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 1. **Start Room Scan** → User-controlled scanning with real-time feedback
 2. **Seamless Mode Switch** → Unified toggle between scanning and surveying
 3. **Perfect Coordinate Alignment** → iOS 17+ shared ARSession maintains spatial context
-4. **WiFi Survey** → AR-guided WiFi measurement collection with perfect positioning
+4. **WiFi Survey** → AR-guided WiFi measurement collection with visual test point markers
 5. **Professional Results** → Architectural-style floor plans and reports
 
 ### Visual Design
@@ -77,10 +78,12 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - AR overlay system with performance optimizations
 - Room outline preservation for spatial context
 - WiFi measurement visualization with 3D nodes
+- **Test Point Visualization**: Persistent markers showing survey coverage
 - **Optimization Features:**
   - Node pooling for memory efficiency
   - Reduced AR complexity for better performance
   - Limited node count (20 max) for smooth operation
+  - Separate test point markers (50 max) for survey guidance
 
 #### `FloorPlanViewController`
 - Professional architectural-style floor plan rendering
@@ -105,10 +108,13 @@ RoomPlanSimple/
 ├── RoomCaptureViewController.swift    # Main UI coordinator and state management
 ├── RoomAnalyzer.swift                 # Room type classification and furniture detection
 ├── WiFiSurveyManager.swift           # Network testing and measurement collection
-├── ARVisualizationManager.swift      # 3D AR rendering and node management
+├── ARVisualizationManager.swift      # 3D AR rendering and test point visualization
 ├── FloorPlanViewController.swift     # 2D architectural floor plan rendering
 ├── SpectrumBranding.swift           # Corporate design system and UI components
 └── WiFiReportGenerator.swift        # HTML report generation and export
+
+Documentation/
+├── TEST_POINT_VISUALIZATION.md      # Implementation plan for survey coverage indicators
 ```
 
 ### Key Design Decisions and Rationale
@@ -497,6 +503,13 @@ This enhanced documentation provides complete context for future development wor
 - **📳 Scanning Patterns**: Rapid pulse sequences simulating scanner beam movement
 - **📳 Intelligent Throttling**: Prevents haptic overload with 0.5s minimum intervals
 
+### Test Point Visualization System
+- **📍 Persistent AR Markers**: Color-coded floor indicators showing where tests were conducted
+- **🎨 Signal Quality Colors**: Green (excellent) → Yellow (good) → Orange (fair) → Red (poor)
+- **📊 Coverage Analysis**: Visual indication of survey completeness and gaps
+- **🔄 Memory Efficient**: Separate from measurement nodes with 50-marker limit
+- **📱 Floor Plan Integration**: Test points displayed on 2D architectural plans
+
 ## 📊 Performance Optimizations
 
 ### AR Rendering
@@ -551,6 +564,12 @@ print("🎯 Room confidence breakdown - Surface: 0.92, Furniture: 0.80, Objects:
 - **Advanced Analytics**: Machine learning for optimal router placement
 - **Multi-Floor Support**: Handle complex building layouts
 - **Professional Reporting**: PDF generation with detailed technical specifications
+
+### Test Point Visualization Roadmap
+- **Survey Guidance**: Real-time suggestions for optimal test point placement
+- **Coverage Gap Detection**: Automatic identification of untested areas
+- **Test Point Clustering**: Smart grouping of nearby measurements
+- **Survey Completeness Scoring**: Percentage-based coverage assessment
 
 ### Integration Opportunities
 - **Spectrum Systems**: Connect with customer service and technical support
