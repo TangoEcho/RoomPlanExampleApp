@@ -61,7 +61,8 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - **Algorithm Features:**
   - Object-based scoring (refrigerator → kitchen, bed → bedroom)
   - Size-based fallback (small rooms → bathroom, large → living room)
-  - Confidence metrics for classification accuracy
+  - **RoomPlan Confidence Integration**: Uses Apple's confidence scores for surfaces and objects
+  - **Weighted Confidence Calculation**: 40% surface + 40% furniture relevance + 20% object detection
 
 #### `WiFiSurveyManager`
 - Real-time WiFi speed testing with progress tracking
@@ -527,6 +528,8 @@ print("📍 WiFi measurement #\(measurements.count) recorded at (\(location.x), 
 print("🎯 Adding AR visualization for measurement at (\(position.x), \(position.y), \(position.z))")
 print("📳 Scanning haptic triggered for surface detection")
 print("🧹 Trimmed 15 old measurements to maintain memory bounds (now 500/500)")
+print("📦 Object bed detected with confidence: 0.85")
+print("🎯 Room confidence breakdown - Surface: 0.92, Furniture: 0.80, Objects: 0.85, Combined: 0.87")
 ```
 
 ### Debug Information
@@ -536,6 +539,8 @@ print("🧹 Trimmed 15 old measurements to maintain memory bounds (now 500/500)"
 - Speed test progress and results
 - Haptic feedback events and throttling
 - Memory management and bounds checking operations
+- **RoomPlan confidence scoring** and weighted calculations
+- **Object detection confidence** for individual furniture items
 
 ## 🚀 Future Enhancements
 
@@ -773,6 +778,8 @@ Use these filters in Xcode console to isolate relevant logs:
 - `📡` - Network and speed testing
 - `📳` - Haptic feedback events and patterns
 - `🧹` - Memory management and cleanup operations
+- `📦` - Object detection and confidence scoring
+- `🎯` - Room confidence calculations and breakdowns
 
 #### Common Log Messages and Meanings
 ```
@@ -799,6 +806,12 @@ Use these filters in Xcode console to isolate relevant logs:
 
 "🧹 RoomCaptureViewController deallocating - performing final cleanup"
 → Controller cleanup ensuring no memory leaks on exit
+
+"📦 Object bed detected with confidence: 0.85"
+→ RoomPlan detected furniture with 85% confidence score
+
+"🎯 Room confidence breakdown - Surface: 0.92, Furniture: 0.80, Objects: 0.85, Combined: 0.87"
+→ Weighted confidence calculation showing all components and final score
 ```
 
 #### Memory Leak Detection
