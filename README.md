@@ -23,6 +23,7 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - **Seamless Mode Transitions**: Instant switching between room scanning and WiFi surveying
 - **Enhanced Error Handling**: Graceful handling of tracking failures and device positioning issues
 - **Real-time Guidance**: Contextual user guidance for optimal camera positioning
+- **📳 Tactile Feedback**: Scanner-like haptic patterns that respond to discovery events
 
 ## 🎯 User Experience
 
@@ -51,6 +52,7 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
   - User-controlled start/stop scanning
   - Real-time status updates with visual feedback
   - Seamless transition between scanning modes
+  - Tactile haptic feedback for discovery events
 
 #### `RoomAnalyzer`
 - Intelligent room type classification using object detection
@@ -487,6 +489,13 @@ This enhanced documentation provides complete context for future development wor
 - **📡 Measuring**: WiFi survey in progress with point count
 - **🎉 Finished**: Survey complete with results available
 
+### Haptic Feedback System
+- **📳 Surface Detection**: Light double-pulse when walls/floors discovered
+- **📳 Object Recognition**: Medium triple-pulse when furniture identified
+- **📳 Major Discovery**: Heavy confirmation pattern for room completion
+- **📳 Scanning Patterns**: Rapid pulse sequences simulating scanner beam movement
+- **📳 Intelligent Throttling**: Prevents haptic overload with 0.5s minimum intervals
+
 ## 📊 Performance Optimizations
 
 ### AR Rendering
@@ -513,6 +522,7 @@ This enhanced documentation provides complete context for future development wor
 print("🏠 Classifying room with \(nearbyObjects.count) nearby objects")
 print("📍 WiFi measurement #\(measurements.count) recorded at (\(location.x), \(location.y), \(location.z))")
 print("🎯 Adding AR visualization for measurement at (\(position.x), \(position.y), \(position.z))")
+print("📳 Scanning haptic triggered for surface detection")
 ```
 
 ### Debug Information
@@ -520,6 +530,7 @@ print("🎯 Adding AR visualization for measurement at (\(position.x), \(positio
 - WiFi measurement collection with location tracking  
 - AR node creation and positioning
 - Speed test progress and results
+- Haptic feedback events and throttling
 
 ## 🚀 Future Enhancements
 
@@ -755,6 +766,7 @@ Use these filters in Xcode console to isolate relevant logs:
 - `🎯` - AR visualization creation
 - `⚠️` - Warnings and validation errors
 - `📡` - Network and speed testing
+- `📳` - Haptic feedback events and patterns
 
 #### Common Log Messages and Meanings
 ```
@@ -769,6 +781,12 @@ Use these filters in Xcode console to isolate relevant logs:
 
 "Skipping integration due to poor slam"
 → AR tracking quality degraded, reduce AR complexity
+
+"📳 Scanning haptic triggered for surface detection"
+→ Wall/floor discovered, light haptic feedback provided
+
+"📳 [Simulator] Would trigger scanning haptic for object detection"
+→ Simulator mode logging for haptic events (no actual vibration)
 ```
 
 #### Memory Leak Detection
