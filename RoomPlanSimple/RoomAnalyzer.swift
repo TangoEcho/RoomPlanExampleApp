@@ -379,9 +379,13 @@ class RoomAnalyzer: ObservableObject {
             }
             
             // Dining area - look for dining furniture not already in living room
-            let diningObjects = allObjects.compactMap { object in
+            let diningObjects = allObjects.compactMap { object -> CapturedRoom.Object? in
                 let isDiningFurniture = [.table, .chair].contains(object.category)
-                let notInLiving = !livingObjects.contains(where: { $0.id == object.id })
+                let objectPos = simd_float3(object.transform.columns.3.x, object.transform.columns.3.y, object.transform.columns.3.z)
+                let notInLiving = !livingObjects.contains { livingObj in
+                    let livingPos = simd_float3(livingObj.transform.columns.3.x, livingObj.transform.columns.3.y, livingObj.transform.columns.3.z)
+                    return simd_distance(objectPos, livingPos) < 0.1 // Same object if within 10cm
+                }
                 return (isDiningFurniture && notInLiving) ? object : nil
             }
             
@@ -582,7 +586,7 @@ class RoomAnalyzer: ObservableObject {
         
         // Weight by both relevance AND RoomPlan's confidence in detecting those objects
         let relevanceScore = Float(relevantObjects.count) / Float(furniture.count)
-        let avgRelevantObjectConfidence = relevantObjects.map { $0.confidence }.reduce(0, +) / Float(relevantObjects.count)
+        let avgRelevantObjectConfidence = relevantObjects.map { confidenceToFloat($0.confidence) }.reduce(0, +) / Float(relevantObjects.count)
         
         // Combine relevance with object detection confidence
         return (relevanceScore * 0.7) + (avgRelevantObjectConfidence * 0.3)
@@ -590,7 +594,7 @@ class RoomAnalyzer: ObservableObject {
     
     private func calculateRoomTypeConfidence(roomType: RoomType, objects: [CapturedRoom.Object], surface: CapturedRoom.Surface) -> Float {
         // Enhanced confidence calculation using RoomPlan's built-in scores
-        let surfaceConfidence = surface.confidence // RoomPlan's surface confidence
+        let surfaceConfidence = confidenceToFloat(surface.confidence) // Convert RoomPlan's surface confidence to Float
         let furnitureConfidence = calculateConfidenceFromFurniture(objects, roomType: roomType)
         let objectConfidence = calculateObjectConfidenceAverage(objects)
         
@@ -605,8 +609,21 @@ class RoomAnalyzer: ObservableObject {
     private func calculateObjectConfidenceAverage(_ objects: [CapturedRoom.Object]) -> Float {
         guard !objects.isEmpty else { return 0.0 }
         
-        let totalConfidence = objects.map { $0.confidence }.reduce(0, +)
+        let totalConfidence = objects.map { confidenceToFloat($0.confidence) }.reduce(0, +)
         return totalConfidence / Float(objects.count)
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func confidenceToFloat(_ confidence: CapturedRoom.Confidence) -> Float {
+        switch confidence {
+        case .high:
+            return 0.9
+        case .medium:
+            return 0.6
+        case .low:
+            return 0.3
+        }
     }
     
     // MARK: - Room Containment
@@ -665,11 +682,11 @@ class RoomAnalyzer: ObservableObject {
                 position: simd_float3(object.transform.columns.3.x, object.transform.columns.3.y, object.transform.columns.3.z),
                 dimensions: object.dimensions,
                 roomId: nil, // Could be assigned based on containment
-                confidence: roomPlanConfidence // Use RoomPlan's actual confidence
+                confidence: confidenceToFloat(roomPlanConfidence) // Use RoomPlan's actual confidence converted to Float
             )
             furniture.append(item)
             
-            print("📦 Object \(object.category) detected with confidence: \(String(format: "%.2f", roomPlanConfidence))")
+            print("📦 Object \(object.category) detected with confidence: \(String(format: "%.2f", confidenceToFloat(roomPlanConfidence)))")
         }
         
         DispatchQueue.main.async {

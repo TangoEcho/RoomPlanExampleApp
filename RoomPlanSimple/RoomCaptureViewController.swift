@@ -468,6 +468,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     }
     
     private func startWiFiSurveyWithinRoomPlan() {
+        // Clear any existing test point markers from previous survey
+        arVisualizationManager.clearTestPointMarkers()
+        
         // Start WiFi survey 
         wifiSurveyManager.startSurvey()
         

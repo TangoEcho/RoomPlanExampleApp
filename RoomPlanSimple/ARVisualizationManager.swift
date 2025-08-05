@@ -25,6 +25,11 @@ class ARVisualizationManager: NSObject, ObservableObject {
     private var nodePool: [SCNNode] = []
     private let maxNodes = 20 // Reduce max nodes for better performance
     
+    // Test Point Visualization - Persistent markers showing where tests were conducted
+    private var testPointMarkers: [SCNNode] = []
+    private var testPointNodePool: [SCNNode] = []
+    private let maxTestPoints = 50 // Memory limit for persistent test point markers
+    
     // Performance optimization: Update throttling
     private var lastUpdateTime: TimeInterval = 0
     private let updateInterval: TimeInterval = 2.0 // Update every 2 seconds to reduce load
@@ -33,6 +38,185 @@ class ARVisualizationManager: NSObject, ObservableObject {
         print("🧹 ARVisualizationManager deallocating - cleaning up AR session")
         stopARSession()
         clearAllVisualizations()
+        clearTestPointMarkers()
+    }
+    
+    // MARK: - Signal Quality Color Coding
+    
+    private func getSignalQualityColor(signalStrength: Int) -> UIColor {
+        switch signalStrength {
+        case -30...0:       // Excellent signal
+            return UIColor.systemGreen
+        case -60...(-31):   // Good signal  
+            return UIColor.systemYellow
+        case -80...(-61):   // Fair signal
+            return UIColor.systemOrange
+        default:            // Poor signal (< -80 dBm)
+            return UIColor.systemRed
+        }
+    }
+    
+    private func getSignalQualityName(signalStrength: Int) -> String {
+        switch signalStrength {
+        case -30...0:       return "Excellent"
+        case -60...(-31):   return "Good"
+        case -80...(-61):   return "Fair"
+        default:            return "Poor"
+        }
+    }
+    
+    // MARK: - Test Point Visualization Methods
+    
+    private func createTestPointMarker(for measurement: WiFiMeasurement) -> SCNNode {
+        let testPoint = SCNNode()
+        
+        // Main floor disk - larger and more visible than regular measurement circles
+        let diskGeometry = SCNCylinder(radius: 0.2, height: 0.015) // 40cm diameter, 1.5cm thick
+        let diskMaterial = SCNMaterial()
+        
+        let signalColor = getSignalQualityColor(signalStrength: measurement.signalStrength)
+        diskMaterial.diffuse.contents = signalColor
+        diskMaterial.emission.contents = signalColor.withAlphaComponent(0.4)
+        diskMaterial.transparency = 0.85
+        diskMaterial.writesToDepthBuffer = false // Ensure visibility through walls
+        
+        diskGeometry.materials = [diskMaterial]
+        testPoint.geometry = diskGeometry
+        
+        // Height indicator - vertical line showing measurement height
+        let heightLineGeometry = SCNCylinder(radius: 0.005, height: 1.5) // Thin pole 1.5m high
+        let heightLineMaterial = SCNMaterial()
+        
+        heightLineMaterial.diffuse.contents = signalColor.withAlphaComponent(0.6)
+        heightLineMaterial.emission.contents = signalColor.withAlphaComponent(0.3)
+        heightLineMaterial.transparency = 0.7
+        
+        heightLineGeometry.materials = [heightLineMaterial]
+        
+        let heightIndicator = SCNNode(geometry: heightLineGeometry)
+        heightIndicator.position = SCNVector3(0, 0.75, 0) // Center the pole above the disk
+        testPoint.addChildNode(heightIndicator)
+        
+        // Signal strength badge - small text showing dBm value
+        let badgeText = SCNText(string: "\(measurement.signalStrength)", extrusionDepth: 0.002)
+        badgeText.font = UIFont.boldSystemFont(ofSize: 0.03)
+        badgeText.materials.first?.diffuse.contents = UIColor.white
+        
+        let badgeNode = SCNNode(geometry: badgeText)
+        badgeNode.position = SCNVector3(-0.015, 0.02, -0.015) // Center on disk
+        badgeNode.scale = SCNVector3(0.01, 0.01, 0.01)
+        
+        let badgeBillboard = SCNBillboardConstraint()
+        badgeBillboard.freeAxes = [.Y]
+        badgeNode.constraints = [badgeBillboard]
+        
+        testPoint.addChildNode(badgeNode)
+        
+        // Subtle pulse animation to indicate active test point
+        let pulseAnimation = CABasicAnimation(keyPath: "opacity")
+        pulseAnimation.fromValue = 0.85
+        pulseAnimation.toValue = 1.0
+        pulseAnimation.duration = 2.5
+        pulseAnimation.repeatCount = .infinity
+        pulseAnimation.autoreverses = true
+        pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        testPoint.addAnimation(pulseAnimation, forKey: "testPointPulse")
+        
+        return testPoint
+    }
+    
+    func addTestPointMarker(at position: simd_float3, measurement: WiFiMeasurement) {
+        guard let sceneView = sceneView else { return }
+        
+        // Apply coordinate transformation to align with room coordinates
+        let alignedPosition = transformARToRoomCoordinates(position)
+        
+        // Create persistent test point marker
+        let testPointMarker = getOrCreateTestPointMarker(for: measurement)
+        testPointMarker.position = SCNVector3(alignedPosition.x, alignedPosition.y - 1.5, alignedPosition.z) // Place on floor
+        
+        sceneView.scene.rootNode.addChildNode(testPointMarker)
+        testPointMarkers.append(testPointMarker)
+        
+        // Maintain memory bounds
+        maintainTestPointBounds()
+        
+        print("📍 Added test point marker #\(testPointMarkers.count) at (\(String(format: "%.2f", alignedPosition.x)), \(String(format: "%.2f", alignedPosition.z))) - \(getSignalQualityName(signalStrength: measurement.signalStrength)) signal")
+    }
+    
+    private func getOrCreateTestPointMarker(for measurement: WiFiMeasurement) -> SCNNode {
+        // Try to reuse a node from the test point pool
+        if let reusableMarker = testPointNodePool.popLast() {
+            updateTestPointMarker(reusableMarker, for: measurement)
+            return reusableMarker
+        } else {
+            return createTestPointMarker(for: measurement)
+        }
+    }
+    
+    private func updateTestPointMarker(_ marker: SCNNode, for measurement: WiFiMeasurement) {
+        // Update the disk material color
+        if let cylinder = marker.geometry as? SCNCylinder,
+           let material = cylinder.materials.first {
+            let signalColor = getSignalQualityColor(signalStrength: measurement.signalStrength)
+            material.diffuse.contents = signalColor
+            material.emission.contents = signalColor.withAlphaComponent(0.4)
+        }
+        
+        // Update height indicator color
+        if let heightIndicator = marker.childNodes.first(where: { $0.geometry is SCNCylinder && $0.position.y > 0 }) {
+            if let heightGeometry = heightIndicator.geometry as? SCNCylinder,
+               let heightMaterial = heightGeometry.materials.first {
+                let signalColor = getSignalQualityColor(signalStrength: measurement.signalStrength)
+                heightMaterial.diffuse.contents = signalColor.withAlphaComponent(0.6)
+                heightMaterial.emission.contents = signalColor.withAlphaComponent(0.3)
+            }
+        }
+        
+        // Update signal strength badge text
+        if let badgeNode = marker.childNodes.first(where: { $0.geometry is SCNText }) {
+            if let badgeText = badgeNode.geometry as? SCNText {
+                badgeText.string = "\(measurement.signalStrength)"
+            }
+        }
+        
+        // Re-add pulse animation
+        let pulseAnimation = CABasicAnimation(keyPath: "opacity")
+        pulseAnimation.fromValue = 0.85
+        pulseAnimation.toValue = 1.0
+        pulseAnimation.duration = 2.5
+        pulseAnimation.repeatCount = .infinity
+        pulseAnimation.autoreverses = true
+        pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        marker.addAnimation(pulseAnimation, forKey: "testPointPulse")
+    }
+    
+    private func maintainTestPointBounds() {
+        // Remove oldest test point markers if exceeding limit
+        if testPointMarkers.count > maxTestPoints {
+            let excess = testPointMarkers.count - maxTestPoints
+            for _ in 0..<excess {
+                let oldMarker = testPointMarkers.removeFirst()
+                oldMarker.removeFromParentNode()
+                
+                // Clean up and return to pool for reuse
+                oldMarker.removeAllAnimations()
+                testPointNodePool.append(oldMarker)
+            }
+            print("🧹 Trimmed \(excess) old test point markers to maintain memory bounds (now \(testPointMarkers.count)/\(maxTestPoints))")
+        }
+    }
+    
+    func clearTestPointMarkers() {
+        // Remove all test point markers from scene
+        testPointMarkers.forEach { $0.removeFromParentNode() }
+        testPointMarkers.removeAll()
+        
+        // Clear the node pool
+        testPointNodePool.forEach { $0.removeFromParentNode() }
+        testPointNodePool.removeAll()
+        
+        print("🧹 Cleared all test point markers for new survey session")
     }
     
     func configure(sceneView: ARSCNView, wifiManager: WiFiSurveyManager, roomAnalyzer: RoomAnalyzer) {
@@ -403,6 +587,7 @@ class ARVisualizationManager: NSObject, ObservableObject {
         clearRouterPlacementNodes()
         clearCoverageOverlayNodes()
         clearRoomOutlines()
+        clearTestPointMarkers()
     }
     
     private func clearMeasurementNodes() {
@@ -737,7 +922,12 @@ extension ARVisualizationManager: ARSCNViewDelegate {
                let lastMeasurement = wifiManager.measurements.last {
                 print("🎯 Adding AR visualization for measurement at aligned position (\(alignedPosition.x), \(alignedPosition.y), \(alignedPosition.z))")
                 print("   Original AR position: (\(position.x), \(position.y), \(position.z))")
+                
+                // Add floating measurement node (existing behavior)
                 addWiFiMeasurementVisualization(at: position, measurement: lastMeasurement)
+                
+                // Add persistent test point marker (new behavior)
+                addTestPointMarker(at: position, measurement: lastMeasurement)
             }
         }
     }
