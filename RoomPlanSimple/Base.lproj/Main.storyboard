@@ -111,8 +111,6 @@ You can see a preview of your scan at the bottom of the screen so you can make s
                     </navigationItem>
                     <simulatedToolbarMetrics key="simulatedBottomBarMetrics"/>
                     <connections>
-                        <outlet property="cancelButton" destination="6LV-FR-JQF" id="oID-mD-Z4l"/>
-                        <outlet property="doneButton" destination="MQz-pc-UhC" id="5nF-0P-w1J"/>
                         <outlet property="exportButton" destination="OzX-Pp-2Ee" id="b0k-6y-wHv"/>
                     </connections>
                 </viewController>
