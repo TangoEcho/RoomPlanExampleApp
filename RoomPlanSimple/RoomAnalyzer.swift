@@ -557,7 +557,9 @@ class RoomAnalyzer: ObservableObject {
     }
     
     private func calculateConfidenceFromFurniture(_ furniture: [CapturedRoom.Object], roomType: RoomType) -> Float {
-        let relevantCount = furniture.filter { item in
+        guard !furniture.isEmpty else { return 0.3 }
+        
+        let relevantObjects = furniture.filter { item in
             switch roomType {
             case .kitchen:
                 return [.refrigerator, .oven, .dishwasher, .sink].contains(item.category)
@@ -572,13 +574,39 @@ class RoomAnalyzer: ObservableObject {
             default:
                 return false
             }
-        }.count
+        }
         
-        return furniture.isEmpty ? 0.3 : Float(relevantCount) / Float(furniture.count)
+        if relevantObjects.isEmpty {
+            return 0.3 // Fallback for rooms without relevant furniture
+        }
+        
+        // Weight by both relevance AND RoomPlan's confidence in detecting those objects
+        let relevanceScore = Float(relevantObjects.count) / Float(furniture.count)
+        let avgRelevantObjectConfidence = relevantObjects.map { $0.confidence }.reduce(0, +) / Float(relevantObjects.count)
+        
+        // Combine relevance with object detection confidence
+        return (relevanceScore * 0.7) + (avgRelevantObjectConfidence * 0.3)
     }
     
     private func calculateRoomTypeConfidence(roomType: RoomType, objects: [CapturedRoom.Object], surface: CapturedRoom.Surface) -> Float {
-        return calculateConfidenceFromFurniture(objects, roomType: roomType)
+        // Enhanced confidence calculation using RoomPlan's built-in scores
+        let surfaceConfidence = surface.confidence // RoomPlan's surface confidence
+        let furnitureConfidence = calculateConfidenceFromFurniture(objects, roomType: roomType)
+        let objectConfidence = calculateObjectConfidenceAverage(objects)
+        
+        // Weighted combination: 40% surface + 40% furniture relevance + 20% object detection
+        let combinedConfidence = (surfaceConfidence * 0.4) + (furnitureConfidence * 0.4) + (objectConfidence * 0.2)
+        
+        print("🎯 Room confidence breakdown - Surface: \(String(format: "%.2f", surfaceConfidence)), Furniture: \(String(format: "%.2f", furnitureConfidence)), Objects: \(String(format: "%.2f", objectConfidence)), Combined: \(String(format: "%.2f", combinedConfidence))")
+        
+        return combinedConfidence
+    }
+    
+    private func calculateObjectConfidenceAverage(_ objects: [CapturedRoom.Object]) -> Float {
+        guard !objects.isEmpty else { return 0.0 }
+        
+        let totalConfidence = objects.map { $0.confidence }.reduce(0, +)
+        return totalConfidence / Float(objects.count)
     }
     
     // MARK: - Room Containment
@@ -629,14 +657,19 @@ class RoomAnalyzer: ObservableObject {
         var furniture: [FurnitureItem] = []
         
         for object in capturedRoom.objects {
+            // Extract RoomPlan's confidence score for this object
+            let roomPlanConfidence = object.confidence
+            
             let item = FurnitureItem(
                 category: object.category,
                 position: simd_float3(object.transform.columns.3.x, object.transform.columns.3.y, object.transform.columns.3.z),
                 dimensions: object.dimensions,
                 roomId: nil, // Could be assigned based on containment
-                confidence: 1.0
+                confidence: roomPlanConfidence // Use RoomPlan's actual confidence
             )
             furniture.append(item)
+            
+            print("📦 Object \(object.category) detected with confidence: \(String(format: "%.2f", roomPlanConfidence))")
         }
         
         DispatchQueue.main.async {
