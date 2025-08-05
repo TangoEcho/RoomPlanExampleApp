@@ -48,6 +48,10 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     private var lastMeasurementPosition: simd_float3?
     private let measurementDistanceThreshold: Float = 0.3048 // ~1 foot in meters
     
+    // Memory management limits
+    private let maxMeasurements = 500 // Prevent unlimited measurement growth
+    private let maxPositionHistory = 50 // Limit position tracking history
+    
     // Movement detection for smart WiFi scanning
     private var positionHistory: [(position: simd_float3, timestamp: TimeInterval)] = []
     private var lastMovementTime: TimeInterval = 0
@@ -168,6 +172,9 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         )
         
         measurements.append(measurement)
+        
+        // Prevent unlimited memory growth by limiting measurement count
+        maintainMeasurementBounds()
         
         // Debug logging
         print("📍 WiFi measurement #\(measurements.count) recorded at (\(String(format: "%.2f", location.x)), \(String(format: "%.2f", location.y)), \(String(format: "%.2f", location.z))) in \(roomType?.rawValue ?? "Unknown room")")
@@ -571,6 +578,9 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         // Add new position to history
         positionHistory.append((position: location, timestamp: timestamp))
         
+        // Maintain position history bounds
+        maintainPositionHistoryBounds()
+        
         // Limit history size
         if positionHistory.count > positionHistorySize {
             positionHistory.removeFirst(positionHistory.count - positionHistorySize)
@@ -647,5 +657,36 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         }
         
         return true
+    }
+    
+    // MARK: - Memory Management
+    
+    private func maintainMeasurementBounds() {
+        // Remove oldest measurements if we exceed the limit
+        if measurements.count > maxMeasurements {
+            let excess = measurements.count - maxMeasurements
+            measurements.removeFirst(excess)
+            print("🧹 Trimmed \(excess) old measurements to maintain memory bounds (now \(measurements.count)/\(maxMeasurements))")
+        }
+    }
+    
+    private func maintainPositionHistoryBounds() {
+        // Remove oldest position history if we exceed the limit
+        if positionHistory.count > maxPositionHistory {
+            let excess = positionHistory.count - maxPositionHistory
+            positionHistory.removeFirst(excess)
+            print("🧹 Trimmed \(excess) old position entries to maintain memory bounds (now \(positionHistory.count)/\(maxPositionHistory))")
+        }
+    }
+    
+    func clearMeasurementData() {
+        // Clean up all measurement data to free memory
+        measurements.removeAll()
+        positionHistory.removeAll()
+        lastMeasurementPosition = nil
+        lastMeasurementTime = 0
+        lastMovementTime = 0
+        
+        print("🧹 Cleared all measurement data to free memory")
     }
 }

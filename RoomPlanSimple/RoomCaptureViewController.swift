@@ -687,6 +687,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         stopScanningProgressHaptics()
         simulatorTimer?.invalidate()
         simulatorTimer = nil
+        
+        // Clean up measurement data to prevent memory leaks
+        wifiSurveyManager.clearMeasurementData()
     }
     
     private func startSession() {
