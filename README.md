@@ -486,9 +486,9 @@ This enhanced documentation provides complete context for future development wor
 
 ### Status Indicators
 - **📱 Scanning**: Move around to capture room layout
-- **✅ Complete**: Room captured with count of identified rooms
+- **📊 Ready for Results**: Data collected and available for analysis
 - **📡 Measuring**: WiFi survey in progress with point count
-- **🎉 Finished**: Survey complete with results available
+- **📊 Data Available**: Survey data collected and ready to view
 
 ### Haptic Feedback System
 - **📳 Surface Detection**: Light double-pulse when walls/floors discovered
@@ -506,8 +506,9 @@ This enhanced documentation provides complete context for future development wor
 - **Update Throttling**: 2-second intervals to reduce processing load
 
 ### WiFi Testing
-- **Distance-Based**: Only test every foot of movement
-- **Progress Tracking**: Visual feedback during 10+ second speed tests
+- **Distance-Based**: Test every 2 feet of movement for optimal coverage
+- **Immediate Response**: 300ms trigger time for responsive speed testing
+- **Progress Tracking**: Visual feedback during speed tests
 - **Error Handling**: Graceful fallback when network tests fail
 - **Background Processing**: Non-blocking network operations
 
@@ -630,9 +631,9 @@ if !RoomCaptureSession.isSupported {
 #endif
 ```
 
-**Problem**: Room scanning appears to hang
-**Root Cause**: User waiting for automatic completion that doesn't exist
-**Solution**: User must manually tap "Stop Room Scan" when satisfied with capture
+**Problem**: Not sure when scanning is "complete"
+**Root Cause**: No automatic completion detection in RoomPlan
+**Solution**: User decides completion based on their needs - app shows "Ready for Results" when data is available
 
 **Problem**: WiFi measurements not appearing in AR
 **Root Cause**: AR session not starting properly
