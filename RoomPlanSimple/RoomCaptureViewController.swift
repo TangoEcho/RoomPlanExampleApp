@@ -72,6 +72,16 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     private var finalResults: CapturedRoom?
     
+    // Haptic feedback generators
+    private var lightHapticGenerator = UIImpactFeedbackGenerator(style: .light)
+    private var mediumHapticGenerator = UIImpactFeedbackGenerator(style: .medium)
+    private var heavyHapticGenerator = UIImpactFeedbackGenerator(style: .heavy)
+    
+    // Tracking for haptic feedback throttling
+    private var lastSurfaceHapticTime: Date = Date.distantPast
+    private var lastObjectHapticTime: Date = Date.distantPast
+    private let hapticThrottleInterval: TimeInterval = 0.5 // Minimum time between haptics
+    
     // Simulator mode properties
     private var simulatorTimer: Timer?
     private var simulatorProgress: Float = 0.0
@@ -83,6 +93,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         setupARView()
         setupWiFiSurvey()
         setupBottomNavigation()
+        setupHapticFeedback()
         updateButtonStates()
     }
     
@@ -802,6 +813,22 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         
         print("🏠 Room capture completed - processing room data...")
         
+        // Trigger major discovery haptic for room completion
+        triggerMajorDiscoveryHaptic()
+        
+        // Trigger object detection haptics for discovered furniture
+        let objectCount = processedResult.objects.count
+        if objectCount > 0 {
+            print("📦 Discovered \(objectCount) objects - triggering object haptics")
+            
+            // Stagger haptic feedback for multiple objects to create scanning sensation
+            for i in 0..<min(objectCount, 5) { // Limit to first 5 objects to avoid overwhelming
+                DispatchQueue.main.asyncAfter(deadline: .now() + TimeInterval(i) * 0.2) {
+                    self.triggerObjectDetectionHaptic()
+                }
+            }
+        }
+        
         roomAnalyzer.analyzeCapturedRoom(processedResult)
         
         // Pass room data to AR visualization manager
@@ -1355,6 +1382,9 @@ extension RoomCaptureViewController {
     func captureSession(_ session: RoomCaptureSession, didAdd room: CapturedRoom.Surface) {
         print("📐 Added room surface: \(room)")
         
+        // Trigger scanning haptic for new surface detection
+        triggerSurfaceDetectionHaptic()
+        
         // Update progress indicator as surfaces are detected
         DispatchQueue.main.async {
             self.updateButtonStates()
@@ -1363,6 +1393,13 @@ extension RoomCaptureViewController {
     
     func captureSession(_ session: RoomCaptureSession, didChange room: CapturedRoom.Surface) {
         print("📐 Updated room surface: \(room)")
+        
+        // Trigger lighter haptic for surface updates (less frequent)
+        let now = Date()
+        if now.timeIntervalSince(lastSurfaceHapticTime) >= hapticThrottleInterval * 2 {
+            triggerScanningPattern(intensity: .light, duration: .short)
+            lastSurfaceHapticTime = now
+        }
         
         DispatchQueue.main.async {
             self.updateButtonStates()
@@ -1498,6 +1535,141 @@ extension RoomCaptureViewController {
         
         // Show enhanced guidance before retrying
         showEnhancedTrackingGuidance()
+    }
+    
+    // MARK: - Haptic Feedback Setup
+    
+    private func setupHapticFeedback() {
+        // Prepare haptic generators for faster response
+        lightHapticGenerator.prepare()
+        mediumHapticGenerator.prepare()
+        heavyHapticGenerator.prepare()
+        
+        print("📳 Haptic feedback system initialized")
+    }
+    
+    private func triggerSurfaceDetectionHaptic() {
+        let now = Date()
+        
+        // Throttle haptic feedback to prevent overwhelming vibration
+        guard now.timeIntervalSince(lastSurfaceHapticTime) >= hapticThrottleInterval else {
+            return
+        }
+        
+        lastSurfaceHapticTime = now
+        
+        // Skip haptics in simulator mode
+        guard !isSimulatorMode else {
+            print("📳 [Simulator] Would trigger scanning haptic for surface detection")
+            return
+        }
+        
+        // Create scanning sensation for wall/surface detection
+        triggerScanningPattern(intensity: .light, duration: .short)
+        print("📳 Scanning haptic triggered for surface detection")
+    }
+    
+    private func triggerObjectDetectionHaptic() {
+        let now = Date()
+        
+        // Throttle haptic feedback
+        guard now.timeIntervalSince(lastObjectHapticTime) >= hapticThrottleInterval else {
+            return
+        }
+        
+        lastObjectHapticTime = now
+        
+        // Skip haptics in simulator mode
+        guard !isSimulatorMode else {
+            print("📳 [Simulator] Would trigger scanning haptic for object detection")
+            return
+        }
+        
+        // Create more detailed scanning sensation for objects
+        triggerScanningPattern(intensity: .medium, duration: .medium)
+        print("📳 Scanning haptic triggered for object detection")
+    }
+    
+    private func triggerMajorDiscoveryHaptic() {
+        // Skip haptics in simulator mode
+        guard !isSimulatorMode else {
+            print("📳 [Simulator] Would trigger discovery haptic for major discovery")
+            return
+        }
+        
+        // Create discovery confirmation pattern
+        triggerDiscoveryPattern()
+        print("📳 Discovery haptic triggered for major discovery")
+    }
+    
+    // MARK: - Scanner-like Haptic Patterns
+    
+    private enum ScanIntensity {
+        case light, medium, heavy
+    }
+    
+    private enum ScanDuration {
+        case short, medium, long
+    }
+    
+    private func triggerScanningPattern(intensity: ScanIntensity, duration: ScanDuration) {
+        let generator: UIImpactFeedbackGenerator
+        let pulseCount: Int
+        let pulseInterval: TimeInterval
+        
+        switch intensity {
+        case .light:
+            generator = lightHapticGenerator
+        case .medium:
+            generator = mediumHapticGenerator
+        case .heavy:
+            generator = heavyHapticGenerator
+        }
+        
+        switch duration {
+        case .short:
+            pulseCount = 2
+            pulseInterval = 0.08 // Quick double-tap like scanner beam
+        case .medium:
+            pulseCount = 3
+            pulseInterval = 0.06 // Rapid triple pulse like scanning over object
+        case .long:
+            pulseCount = 4
+            pulseInterval = 0.05 // Extended scanning sensation
+        }
+        
+        // Create scanning pulse pattern
+        for i in 0..<pulseCount {
+            DispatchQueue.main.asyncAfter(deadline: .now() + TimeInterval(i) * pulseInterval) {
+                generator.impactOccurred()
+            }
+        }
+    }
+    
+    private func triggerDiscoveryPattern() {
+        // Success pattern: medium -> pause -> heavy (like scanner confirmation)
+        mediumHapticGenerator.impactOccurred()
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            self.heavyHapticGenerator.impactOccurred()
+        }
+    }
+    
+    private func triggerActiveScanningFeedback() {
+        // Continuous subtle feedback while actively scanning
+        // Very light, rhythmic pulse to indicate scanning is active
+        guard !isSimulatorMode else { return }
+        
+        let generator = lightHapticGenerator
+        
+        // Gentle rhythmic pulse every 1.5 seconds while scanning
+        let pulsePattern = [0.0, 0.05, 0.1] // Triple micro-pulse
+        
+        for delay in pulsePattern {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                generator.impactOccurred(intensity: 0.3) // Very subtle
+            }
+        }
     }
 }
 
