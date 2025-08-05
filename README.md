@@ -514,6 +514,9 @@ This enhanced documentation provides complete context for future development wor
 - **Cleanup Methods**: Proper removal of AR nodes and listeners
 - **Weak References**: Prevent retain cycles in callbacks
 - **Efficient Data Structures**: Optimized for large measurement datasets
+- **Bounds Checking**: Automatic limits on measurements (500) and position history (50)
+- **Memory Cleanup**: Comprehensive deallocation cleanup in deinit methods
+- **Haptic Management**: Proper cleanup and re-initialization of haptic generators
 
 ## 🔍 Debugging and Logging
 
@@ -523,6 +526,7 @@ print("🏠 Classifying room with \(nearbyObjects.count) nearby objects")
 print("📍 WiFi measurement #\(measurements.count) recorded at (\(location.x), \(location.y), \(location.z))")
 print("🎯 Adding AR visualization for measurement at (\(position.x), \(position.y), \(position.z))")
 print("📳 Scanning haptic triggered for surface detection")
+print("🧹 Trimmed 15 old measurements to maintain memory bounds (now 500/500)")
 ```
 
 ### Debug Information
@@ -531,6 +535,7 @@ print("📳 Scanning haptic triggered for surface detection")
 - AR node creation and positioning
 - Speed test progress and results
 - Haptic feedback events and throttling
+- Memory management and bounds checking operations
 
 ## 🚀 Future Enhancements
 
@@ -767,6 +772,7 @@ Use these filters in Xcode console to isolate relevant logs:
 - `⚠️` - Warnings and validation errors
 - `📡` - Network and speed testing
 - `📳` - Haptic feedback events and patterns
+- `🧹` - Memory management and cleanup operations
 
 #### Common Log Messages and Meanings
 ```
@@ -787,6 +793,12 @@ Use these filters in Xcode console to isolate relevant logs:
 
 "📳 [Simulator] Would trigger scanning haptic for object detection"
 → Simulator mode logging for haptic events (no actual vibration)
+
+"🧹 Trimmed 15 old measurements to maintain memory bounds (now 500/500)"
+→ Automatic cleanup removed old data to prevent memory growth
+
+"🧹 RoomCaptureViewController deallocating - performing final cleanup"
+→ Controller cleanup ensuring no memory leaks on exit
 ```
 
 #### Memory Leak Detection
