@@ -292,6 +292,8 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         scanSurveyToggleButton?.addTarget(self, action: #selector(scanSurveyToggleTapped), for: .touchUpInside)
         scanSurveyToggleButton?.translatesAutoresizingMaskIntoConstraints = false
         scanSurveyToggleButton?.layer.cornerRadius = 8
+        scanSurveyToggleButton?.titleLabel?.adjustsFontSizeToFitWidth = true
+        scanSurveyToggleButton?.titleLabel?.minimumScaleFactor = 0.8
         
         // Create floor plan button in bottom-right corner
         floorPlanNavButton = SpectrumBranding.createSpectrumButton(title: "📊 View Plan", style: .secondary)
@@ -314,16 +316,16 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             modeLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
             modeLabel.heightAnchor.constraint(equalToConstant: 32),
             
-            // Scan/survey toggle in bottom-left corner
-            scanSurveyToggleButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            // Scan/survey toggle in bottom-left corner (moved further up to avoid RoomPlan model)
+            scanSurveyToggleButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -80),
             scanSurveyToggleButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            scanSurveyToggleButton.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
+            scanSurveyToggleButton.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
             scanSurveyToggleButton.heightAnchor.constraint(equalToConstant: 44),
             
-            // Floor plan button in bottom-right corner
-            floorPlanNavButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            // Floor plan button in bottom-right corner (moved further up to avoid RoomPlan model)
+            floorPlanNavButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -80),
             floorPlanNavButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            floorPlanNavButton.widthAnchor.constraint(equalToConstant: 100),
+            floorPlanNavButton.widthAnchor.constraint(equalToConstant: 120),
             floorPlanNavButton.heightAnchor.constraint(equalToConstant: 44)
         ])
         
@@ -426,16 +428,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         let hasWifiData = !wifiSurveyManager.measurements.isEmpty
         
         if hasRoomData && hasWifiData {
-            // Both data collected - ready for results
-            currentMode = .completed
-            statusLabel?.text = "📊 Room and WiFi data collected - Ready to view results"
-            print("📊 Room scan and WiFi survey data collected")
+            // Both data collected - but user decides when to view results
+            print("📊 Room scan and WiFi survey data collected - awaiting user action")
         } else if hasRoomData {
-            // Room scanning already complete, just show room view
-            currentMode = .completed
+            // Room scanning already complete, show room view but don't mark as completed
             switchToRoomCapture()
-            statusLabel?.text = "Room scan data available - WiFi survey data collected"
-            print("✅ Room scan complete, WiFi data available")
+            print("✅ Room scan complete, WiFi data available - awaiting user action")
         } else {
             // Resume room scanning with same coordinate system
             roomPlanPaused = false
@@ -599,10 +597,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             }
             
         case .completed:
-            let roomCount = roomAnalyzer.identifiedRooms.count
-            let measurementCount = wifiSurveyManager.measurements.count
-            statusText = "🎉 Complete! \(roomCount) rooms mapped, \(measurementCount) WiFi points - View Results"
-            backgroundColor = UIColor.systemPurple.withAlphaComponent(0.9)
+            // Never show automatic completion - user must explicitly decide when ready
+            statusText = "📊 Data available - Use 'Results' button when you're ready to view analysis"
+            backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
         }
         
         statusLabel?.text = statusText
@@ -865,10 +862,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         // Pass room data to AR visualization manager
         arVisualizationManager.setCapturedRoomData(processedResult)
         
-        // Update mode to completed if both room and WiFi data exist
+        // Check if both room and WiFi data exist (but don't auto-complete)
         if !wifiSurveyManager.measurements.isEmpty {
-            currentMode = .completed
-            print("✅ Both room scan and WiFi survey complete")
+            print("✅ Both room scan and WiFi survey data available - user can view results when ready")
         }
         
         updateButtonStates()
@@ -937,6 +933,10 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     
     @objc private func viewResults() {
+        // User has explicitly chosen to view results - now we can set completed mode
+        currentMode = .completed
+        print("📊 User requested results view - setting completed mode")
+        
         // In simulator mode, allow viewing results with mock data even without captured room data
         if isSimulatorMode {
             viewSimulatorResults()
@@ -944,6 +944,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         }
         
         guard capturedRoomData != nil else {
+            currentMode = .scanning // Reset if no data
             showAlert(title: "No Room Data", message: "Please complete room scanning first.")
             return
         }
@@ -1729,7 +1730,7 @@ extension RoomCaptureViewController {
         
         for delay in pulsePattern {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                generator.impactOccurred(intensity: 0.3) // Very subtle
+                generator.impactOccurred() // Very subtle using light generator
             }
         }
         

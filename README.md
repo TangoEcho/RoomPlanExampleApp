@@ -25,6 +25,8 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - **Real-time Guidance**: Contextual user guidance for optimal camera positioning
 - **📳 Tactile Feedback**: Scanner-like haptic patterns that respond to discovery events
 - **📍 Test Point Visualization**: Visual markers showing where WiFi tests have been conducted
+- **🎛️ User-Controlled Completion**: Only user can declare survey complete - no premature system completion
+- **🔧 Optimized UI Layout**: Buttons positioned to avoid obstructing RoomPlan 3D model
 
 ## 🎯 User Experience
 
@@ -591,6 +593,20 @@ print("🎯 Room confidence breakdown - Surface: 0.92, Furniture: 0.80, Objects:
 ### Configuration
 **Device**: Set the run destination to an iOS 17+ device with a LiDAR Scanner for full functionality.  
 **Simulator**: iOS Simulator is now supported for UI testing with mock data (no hardware required).
+
+### Recent UI Improvements (Latest Version)
+
+#### User Experience Enhancements
+- **Unobstructed 3D View**: Repositioned bottom navigation buttons 64 points higher to prevent obstruction of RoomPlan 3D model
+- **Button Text Visibility**: Fixed WiFi survey button text truncation with adaptive font sizing and increased width constraints
+- **User-Controlled Completion**: Removed premature "survey complete" messages - only user can declare completion via explicit "Results" button tap
+- **Clear Status Messages**: Status label now shows "📊 Data available - Use 'Results' button when you're ready to view analysis" instead of automatic completion
+
+#### Technical Implementation
+- Button positioning: Moved from `bottomAnchor.constraint(constant: -16)` to `constant: -80`
+- Button width: Increased scan/survey toggle from 180pt to 200pt maximum width
+- Font adaptation: Added `adjustsFontSizeToFitWidth = true` with `minimumScaleFactor = 0.8`
+- Mode transitions: Removed automatic `.completed` mode setting - only occurs on explicit user action
 
 ## 🔧 Development Guide and Troubleshooting
 
