@@ -82,6 +82,10 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var lastObjectHapticTime: Date = Date.distantPast
     private let hapticThrottleInterval: TimeInterval = 0.5 // Minimum time between haptics
     
+    // Progress scanning haptic timer
+    private var scanningProgressTimer: Timer?
+    private let progressHapticInterval: TimeInterval = 3.0 // Every 3 seconds while scanning
+    
     // Simulator mode properties
     private var simulatorTimer: Timer?
     private var simulatorProgress: Float = 0.0
@@ -668,6 +672,21 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         // Ensure all timers are stopped
         stopTrackingStateMonitoring()
         stopStatusUpdateTimer()
+        stopScanningProgressHaptics()
+        
+        // Clean up haptic generators to free memory
+        cleanupHapticGenerators()
+    }
+    
+    deinit {
+        // Final cleanup to ensure no memory leaks
+        print("🧹 RoomCaptureViewController deallocating - performing final cleanup")
+        cleanupHapticGenerators()
+        stopTrackingStateMonitoring()
+        stopStatusUpdateTimer()
+        stopScanningProgressHaptics()
+        simulatorTimer?.invalidate()
+        simulatorTimer = nil
     }
     
     private func startSession() {
@@ -700,6 +719,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         
         // Start tracking state monitoring for better user experience
         startTrackingStateMonitoring()
+        
+        // Start periodic scanning progress haptics
+        startScanningProgressHaptics()
         
         setActiveNavBar()
         updateButtonStates()
@@ -782,6 +804,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         }
         
         stopWiFiMonitoring()
+        
+        // Stop scanning progress haptics
+        stopScanningProgressHaptics()
         
         setCompleteNavBar()
         updateButtonStates()
@@ -1548,6 +1573,28 @@ extension RoomCaptureViewController {
         print("📳 Haptic feedback system initialized")
     }
     
+    private func cleanupHapticGenerators() {
+        // Release haptic generators to free memory
+        // Note: UIImpactFeedbackGenerator doesn't have an explicit cleanup method,
+        // but setting them to new instances releases the old prepared state
+        lightHapticGenerator = UIImpactFeedbackGenerator(style: .light)
+        mediumHapticGenerator = UIImpactFeedbackGenerator(style: .medium)
+        heavyHapticGenerator = UIImpactFeedbackGenerator(style: .heavy)
+        
+        // Reset throttling timestamps
+        lastSurfaceHapticTime = Date.distantPast
+        lastObjectHapticTime = Date.distantPast
+        
+        print("🧹 Haptic generators cleaned up and reset")
+    }
+    
+    private func ensureHapticGeneratorsReady() {
+        // Re-prepare generators if they were cleaned up (lazy re-initialization)
+        lightHapticGenerator.prepare()
+        mediumHapticGenerator.prepare()  
+        heavyHapticGenerator.prepare()
+    }
+    
     private func triggerSurfaceDetectionHaptic() {
         let now = Date()
         
@@ -1563,6 +1610,9 @@ extension RoomCaptureViewController {
             print("📳 [Simulator] Would trigger scanning haptic for surface detection")
             return
         }
+        
+        // Ensure generators are ready
+        ensureHapticGeneratorsReady()
         
         // Create scanning sensation for wall/surface detection
         triggerScanningPattern(intensity: .light, duration: .short)
@@ -1658,11 +1708,17 @@ extension RoomCaptureViewController {
     private func triggerActiveScanningFeedback() {
         // Continuous subtle feedback while actively scanning
         // Very light, rhythmic pulse to indicate scanning is active
-        guard !isSimulatorMode else { return }
+        guard !isSimulatorMode else { 
+            print("📳 [Simulator] Would trigger active scanning feedback")
+            return 
+        }
+        
+        // Ensure generators are ready
+        ensureHapticGeneratorsReady()
         
         let generator = lightHapticGenerator
         
-        // Gentle rhythmic pulse every 1.5 seconds while scanning
+        // Gentle rhythmic pulse - triple micro-pulse pattern
         let pulsePattern = [0.0, 0.05, 0.1] // Triple micro-pulse
         
         for delay in pulsePattern {
@@ -1670,6 +1726,28 @@ extension RoomCaptureViewController {
                 generator.impactOccurred(intensity: 0.3) // Very subtle
             }
         }
+        
+        print("📳 Progress scanning haptic triggered")
+    }
+    
+    // MARK: - Scanning Progress Haptics
+    
+    private func startScanningProgressHaptics() {
+        // Stop any existing timer
+        stopScanningProgressHaptics()
+        
+        // Start periodic subtle haptics to indicate ongoing scanning
+        scanningProgressTimer = Timer.scheduledTimer(withTimeInterval: progressHapticInterval, repeats: true) { [weak self] _ in
+            self?.triggerActiveScanningFeedback()
+        }
+        
+        print("📳 Started scanning progress haptics (every \(progressHapticInterval)s)")
+    }
+    
+    private func stopScanningProgressHaptics() {
+        scanningProgressTimer?.invalidate()
+        scanningProgressTimer = nil
+        print("📳 Stopped scanning progress haptics")
     }
 }
 
