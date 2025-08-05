@@ -426,15 +426,15 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         let hasWifiData = !wifiSurveyManager.measurements.isEmpty
         
         if hasRoomData && hasWifiData {
-            // Both completed - set to completed mode
+            // Both data collected - ready for results
             currentMode = .completed
-            statusLabel?.text = "✅ Scan and survey complete - View your results"
-            print("🎉 Both room scan and WiFi survey complete")
+            statusLabel?.text = "📊 Room and WiFi data collected - Ready to view results"
+            print("📊 Room scan and WiFi survey data collected")
         } else if hasRoomData {
             // Room scanning already complete, just show room view
             currentMode = .completed
             switchToRoomCapture()
-            statusLabel?.text = "Room scan complete - WiFi survey data collected"
+            statusLabel?.text = "Room scan data available - WiFi survey data collected"
             print("✅ Room scan complete, WiFi data available")
         } else {
             // Resume room scanning with same coordinate system
@@ -527,7 +527,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             }
             
         case .completed:
-            modeLabel?.text = "✅ Scan & Survey Complete"
+            modeLabel?.text = "📊 Ready for Results"
             modeLabel?.backgroundColor = UIColor.systemPurple.withAlphaComponent(0.9)
             scanSurveyToggleButton?.setTitle("🔄 Restart", for: .normal)
             scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
@@ -787,7 +787,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         // Mock captured room data (set a flag to indicate mock data exists)
         capturedRoomData = nil // We'll use the room analyzer data instead
         
-        statusLabel?.text = "✅ Mock Room Scan Complete - \(roomAnalyzer.identifiedRooms.count) rooms detected"
+        statusLabel?.text = "📱 Room scan data generated - \(roomAnalyzer.identifiedRooms.count) rooms detected"
         statusLabel?.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
         
         updateButtonStates()

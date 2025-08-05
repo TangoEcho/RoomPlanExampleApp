@@ -46,7 +46,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     private var speedTestTimer: Timer?
     private var lastMeasurementTime: TimeInterval = 0
     private var lastMeasurementPosition: simd_float3?
-    private let measurementDistanceThreshold: Float = 0.3048 // ~1 foot in meters
+    private let measurementDistanceThreshold: Float = 0.6096 // ~2 feet in meters for better coverage without overwhelming data
     
     // Memory management limits
     private let maxMeasurements = 500 // Prevent unlimited measurement growth
@@ -55,8 +55,8 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     // Movement detection for smart WiFi scanning
     private var positionHistory: [(position: simd_float3, timestamp: TimeInterval)] = []
     private var lastMovementTime: TimeInterval = 0
-    private let movementStopThreshold: TimeInterval = 1.0 // Reduced to 1 second for more responsive measurement
-    private let positionHistorySize = 5 // Reduced to 5 positions for faster detection
+    private let movementStopThreshold: TimeInterval = 0.3 // Very responsive - 300ms for immediate testing
+    private let positionHistorySize = 3 // Minimal history for immediate response
     private var isFirstMeasurement = true
     
     override init() {
@@ -612,9 +612,9 @@ class WiFiSurveyManager: NSObject, ObservableObject {
             return true
         }
         
-        // If we don't have enough history, allow measurement
-        guard positionHistory.count >= 3 else { 
-            print("📍 Not enough position history, allowing measurement")
+        // Very permissive - allow measurement with minimal history
+        guard positionHistory.count >= 2 else { 
+            print("📍 Minimal position history - allowing immediate measurement")
             return true 
         }
         
@@ -622,8 +622,8 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         let timeSinceLastMovement = currentTime - lastMovementTime
         let hasStoppedMoving = timeSinceLastMovement >= movementStopThreshold
         
-        // Simplified stability check - just check if recent positions are reasonably close
-        let recentPositions = positionHistory.suffix(3) // Only check last 3 positions
+        // Very simplified stability check - just check last 2 positions 
+        let recentPositions = positionHistory.suffix(2) // Only check last 2 positions for speed
         let isStable = isPositionStable(positions: Array(recentPositions))
         
         // Be more permissive - allow measurement if either condition is met
