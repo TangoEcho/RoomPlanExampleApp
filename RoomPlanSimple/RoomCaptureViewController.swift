@@ -397,11 +397,16 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     }
     
     @objc private func floorPlanNavTapped() {
-        // Allow floor plan access if room data exists, even without WiFi measurements
-        if capturedRoomData != nil {
+        // Only allow floor plan access after both room scan and WiFi survey are completed
+        let hasRoomData = capturedRoomData != nil || roomPlanPaused
+        let hasWifiData = !wifiSurveyManager.measurements.isEmpty
+        
+        if hasRoomData && hasWifiData {
             viewResults()
-        } else {
-            showAlert(title: "Room Scan Required", message: "Please complete room scanning first to view the floor plan.")
+        } else if !hasRoomData {
+            showAlert(title: "Room Scan Required", message: "Please complete room scanning first, then WiFi survey to view results.")
+        } else if !hasWifiData {
+            showAlert(title: "WiFi Survey Required", message: "Please complete WiFi survey after room scanning to view results.")
         }
     }
     
@@ -690,23 +695,19 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             scanSurveyToggleButton?.isEnabled = true
         }
         
-        // Floor Plan button
+        // Floor Plan button - only show results after both room scan AND WiFi survey are completed
         let hasRoomData = capturedRoomData != nil || roomPlanPaused
         let hasWifiData = !wifiSurveyManager.measurements.isEmpty
         
-        if hasRoomData {
-            if hasWifiData {
-                floorPlanNavButton?.setTitle("📊 Results", for: .normal)
-                floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
-                floorPlanNavButton?.setTitleColor(.white, for: .normal)
-            } else {
-                floorPlanNavButton?.setTitle("📊 Plan", for: .normal)
-                floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
-                floorPlanNavButton?.setTitleColor(.white, for: .normal)
-            }
+        if hasRoomData && hasWifiData {
+            // Both room scan and WiFi survey completed - show Results button
+            floorPlanNavButton?.setTitle("📊 Results", for: .normal)
+            floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+            floorPlanNavButton?.setTitleColor(.white, for: .normal)
             floorPlanNavButton?.isEnabled = true
         } else {
-            floorPlanNavButton?.setTitle("📊 Plan", for: .normal)
+            // Either room scan or WiFi survey (or both) not completed - disable button
+            floorPlanNavButton?.setTitle("📊 Results", for: .normal)
             floorPlanNavButton?.backgroundColor = UIColor.systemGray
             floorPlanNavButton?.setTitleColor(.white, for: .normal)
             floorPlanNavButton?.isEnabled = false
@@ -1445,9 +1446,16 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     // MARK: - Mock Data for Simulator
     
     private func createMockRoomAnalysis() -> [RoomAnalyzer.IdentifiedRoom] {
-        // Use the working mock data from SimulatorMockData
-        print("🎭 createMockRoomAnalysis: Loading mock rooms with wall points for floor plan rendering")
-        return SimulatorMockData.createMockRoomAnalysis()
+        print("🎭 createMockRoomAnalysis: Using SimulatorMockData for mock room analysis")
+        
+        #if targetEnvironment(simulator)
+        let mockRooms = SimulatorMockData.createMockRoomAnalysis()
+        print("🎭 Created \(mockRooms.count) mock rooms for simulator testing")
+        return mockRooms
+        #else
+        print("🎭 Real device mode: Cannot create mock room analysis")
+        return []
+        #endif
     }
     
     private func createMockWiFiMeasurements() -> [WiFiMeasurement] {
