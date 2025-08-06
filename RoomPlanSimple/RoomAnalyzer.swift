@@ -434,6 +434,7 @@ class RoomAnalyzer: ObservableObject {
     
     private func createDefaultRoomLayout(capturedRoom: CapturedRoom, mainFloor: CapturedRoom.Surface) -> [IdentifiedRoom] {
         let allObjects = capturedRoom.objects
+        let spaceCenter = extractSurfaceCenter(mainFloor)
         
         // Create a reasonable default layout with multiple rooms
         var rooms: [IdentifiedRoom] = []
@@ -620,6 +621,8 @@ class RoomAnalyzer: ObservableObject {
         case .medium:
             return 0.6
         case .low:
+            return 0.3
+        @unknown default:
             return 0.3
         }
     }

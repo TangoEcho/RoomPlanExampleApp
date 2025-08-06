@@ -717,7 +717,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         routerPlacementButton?.isHidden = !showRouterButton
         
         // Update button text based on placement status
-        if let router = networkDeviceManager.router {
+        if networkDeviceManager.router != nil {
             routerPlacementButton?.setTitle("📡 Router Placed", for: .normal)
             routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
             routerPlacementButton?.setTitleColor(.white, for: .normal)
