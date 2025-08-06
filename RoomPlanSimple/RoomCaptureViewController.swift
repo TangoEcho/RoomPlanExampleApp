@@ -1445,10 +1445,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     // MARK: - Mock Data for Simulator
     
     private func createMockRoomAnalysis() -> [RoomAnalyzer.IdentifiedRoom] {
-        // For now, return empty array until we can properly mock CapturedRoom.Surface
-        // This at least prevents the app from crashing and we can see debug output
-        print("🎭 createMockRoomAnalysis: Returning empty array due to CapturedRoom.Surface mocking complexity")
-        return []
+        // Use the working mock data from SimulatorMockData
+        print("🎭 createMockRoomAnalysis: Loading mock rooms with wall points for floor plan rendering")
+        return SimulatorMockData.createMockRoomAnalysis()
     }
     
     private func createMockWiFiMeasurements() -> [WiFiMeasurement] {

@@ -111,7 +111,7 @@ class FloorPlanViewController: UIViewController {
             topConstraint,
             floorPlanView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
             floorPlanView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
-            floorPlanView.heightAnchor.constraint(equalToConstant: 300),
+            floorPlanView.heightAnchor.constraint(equalToConstant: 500),
             
             heatmapToggle.topAnchor.constraint(equalTo: floorPlanView.bottomAnchor, constant: 10),
             heatmapToggle.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
