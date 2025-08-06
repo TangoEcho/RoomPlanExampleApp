@@ -21,6 +21,10 @@ class ARVisualizationManager: NSObject, ObservableObject {
     private var coverageOverlayNodes: [SCNNode] = []
     private var roomOutlineNodes: [SCNNode] = []
     
+    // Network Device Visualization
+    private var networkDeviceNodes: [UUID: SCNNode] = [:] // Maps device ID to AR node
+    private var networkDeviceManager: NetworkDeviceManager?
+    
     // Performance optimization: Node pooling
     private var nodePool: [SCNNode] = []
     private let maxNodes = 20 // Reduce max nodes for better performance
@@ -971,5 +975,236 @@ extension ARVisualizationManager: ARSCNViewDelegate {
         }
         
         return isInRoom
+    }
+    
+    // MARK: - Network Device Visualization
+    
+    func setNetworkDeviceManager(_ manager: NetworkDeviceManager) {
+        self.networkDeviceManager = manager
+        print("📡 Network device manager set for AR visualization")
+    }
+    
+    func addNetworkDevice(_ device: NetworkDeviceManager.NetworkDevice) {
+        guard let sceneView = sceneView else {
+            print("⚠️ Cannot add network device: AR scene not active")
+            return
+        }
+        
+        // Remove existing device node if it exists
+        removeNetworkDevice(device.id)
+        
+        // Create 3D model for the device
+        let deviceNode = NetworkDevice3DModels.createDeviceModel(for: device.type, withLabel: true)
+        deviceNode.name = "NetworkDevice_\(device.id)"
+        
+        // Position device in AR space
+        let position = SCNVector3(device.position.x, device.position.y, device.position.z)
+        deviceNode.position = position
+        
+        // Add device to scene
+        sceneView.scene.rootNode.addChildNode(deviceNode)
+        networkDeviceNodes[device.id] = deviceNode
+        
+        // Add visual effects
+        addDeviceVisualEffects(deviceNode, device: device)
+        
+        print("\(device.type.emoji) \(device.type.rawValue) added to AR at position (\(String(format: "%.2f", device.position.x)), \(String(format: "%.2f", device.position.y)), \(String(format: "%.2f", device.position.z)))")
+        
+        // If this is a router, add placement indicator
+        if device.type == .router && device.isUserPlaced {
+            addRouterPlacementIndicator(at: position)
+        }
+    }
+    
+    func removeNetworkDevice(_ deviceId: UUID) {
+        if let deviceNode = networkDeviceNodes[deviceId] {
+            deviceNode.removeFromParentNode()
+            networkDeviceNodes.removeValue(forKey: deviceId)
+            print("📡 Network device removed from AR")
+        }
+    }
+    
+    func updateNetworkDevices(_ devices: [NetworkDeviceManager.NetworkDevice]) {
+        // Clear existing devices
+        clearNetworkDevices()
+        
+        // Add all current devices
+        for device in devices {
+            addNetworkDevice(device)
+        }
+    }
+    
+    func clearNetworkDevices() {
+        for (_, deviceNode) in networkDeviceNodes {
+            deviceNode.removeFromParentNode()
+        }
+        networkDeviceNodes.removeAll()
+        print("🧹 All network devices cleared from AR")
+    }
+    
+    private func addDeviceVisualEffects(_ deviceNode: SCNNode, device: NetworkDeviceManager.NetworkDevice) {
+        // Add glow effect around device
+        let glowRadius: Float = device.type == .router ? 0.5 : 0.3
+        let glowNode = createGlowEffect(radius: glowRadius, color: device.type == .router ? UIColor.systemBlue : UIColor.systemGreen)
+        glowNode.position = SCNVector3(0, -0.1, 0) // Slightly below device
+        deviceNode.addChildNode(glowNode)
+        
+        // Add confidence indicator if not user-placed
+        if !device.isUserPlaced {
+            let confidenceColor = getConfidenceColor(device.confidence)
+            let confidenceIndicator = createConfidenceIndicator(confidence: device.confidence, color: confidenceColor)
+            confidenceIndicator.position = SCNVector3(0, 0.2, 0)
+            deviceNode.addChildNode(confidenceIndicator)
+        }
+        
+        // Add device-specific effects
+        if device.type == .extender {
+            addExtenderConnectionLine(deviceNode, device: device)
+        }
+    }
+    
+    private func createGlowEffect(radius: Float, color: UIColor) -> SCNNode {
+        let glowGeometry = SCNCylinder(radius: CGFloat(radius), height: 0.01)
+        let glowNode = SCNNode(geometry: glowGeometry)
+        
+        let glowMaterial = SCNMaterial()
+        glowMaterial.diffuse.contents = color.withAlphaComponent(0.3)
+        glowMaterial.emission.contents = color.withAlphaComponent(0.2)
+        glowMaterial.transparency = 0.6
+        glowGeometry.materials = [glowMaterial]
+        
+        // Add pulsing animation
+        let pulseAction = SCNAction.sequence([
+            SCNAction.scale(to: 1.2, duration: 2.0),
+            SCNAction.scale(to: 0.8, duration: 2.0)
+        ])
+        glowNode.runAction(SCNAction.repeatForever(pulseAction))
+        
+        return glowNode
+    }
+    
+    private func createConfidenceIndicator(confidence: Float, color: UIColor) -> SCNNode {
+        let indicatorGeometry = SCNSphere(radius: 0.03)
+        let indicatorNode = SCNNode(geometry: indicatorGeometry)
+        
+        let material = SCNMaterial()
+        material.diffuse.contents = color
+        material.emission.contents = color.withAlphaComponent(0.5)
+        indicatorGeometry.materials = [material]
+        
+        // Add confidence text
+        let textGeometry = SCNText(string: String(format: "%.0f%%", confidence * 100), extrusionDepth: 0.001)
+        textGeometry.font = UIFont.systemFont(ofSize: 0.02)
+        let textNode = SCNNode(geometry: textGeometry)
+        textNode.position = SCNVector3(-0.02, -0.1, 0)
+        textNode.scale = SCNVector3(1, 1, 0.5)
+        
+        let textMaterial = SCNMaterial()
+        textMaterial.diffuse.contents = UIColor.white
+        textGeometry.materials = [textMaterial]
+        
+        indicatorNode.addChildNode(textNode)
+        indicatorNode.constraints = [SCNBillboardConstraint()]
+        
+        return indicatorNode
+    }
+    
+    private func getConfidenceColor(_ confidence: Float) -> UIColor {
+        switch confidence {
+        case 0.8...1.0:
+            return UIColor.systemGreen
+        case 0.6...0.79:
+            return UIColor.systemYellow
+        case 0.4...0.59:
+            return UIColor.systemOrange
+        default:
+            return UIColor.systemRed
+        }
+    }
+    
+    private func addExtenderConnectionLine(_ extenderNode: SCNNode, device: NetworkDeviceManager.NetworkDevice) {
+        guard let router = networkDeviceManager?.router else { return }
+        
+        // Create connection line between router and extender
+        let routerPos = router.position
+        let extenderPos = device.position
+        
+        let distance = simd_distance(routerPos, extenderPos)
+        let midpoint = (routerPos + extenderPos) / 2
+        
+        // Create line geometry
+        let lineGeometry = SCNCylinder(radius: 0.005, height: CGFloat(distance))
+        let lineNode = SCNNode(geometry: lineGeometry)
+        
+        // Position and orient the line
+        lineNode.position = SCNVector3(midpoint.x, midpoint.y, midpoint.z)
+        let direction = normalize(extenderPos - routerPos)
+        lineNode.look(at: SCNVector3(extenderPos.x, extenderPos.y, extenderPos.z), up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 1, 0))
+        
+        // Line material (dashed effect would be nice but complex in SceneKit)
+        let lineMaterial = SCNMaterial()
+        lineMaterial.diffuse.contents = UIColor.systemBlue.withAlphaComponent(0.6)
+        lineMaterial.emission.contents = UIColor.systemBlue.withAlphaComponent(0.2)
+        lineMaterial.transparency = 0.7
+        lineGeometry.materials = [lineMaterial]
+        
+        // Add flowing animation
+        let flowAction = SCNAction.sequence([
+            SCNAction.fadeOpacity(to: 0.3, duration: 1.5),
+            SCNAction.fadeOpacity(to: 1.0, duration: 1.5)
+        ])
+        lineNode.runAction(SCNAction.repeatForever(flowAction))
+        
+        extenderNode.addChildNode(lineNode)
+        print("📶 Connection line added between router and extender")
+    }
+    
+    private func addRouterPlacementIndicator(at position: SCNVector3) {
+        let indicatorGeometry = SCNTorus(ringRadius: 0.3, pipeRadius: 0.02)
+        let indicatorNode = SCNNode(geometry: indicatorGeometry)
+        indicatorNode.position = SCNVector3(position.x, position.y - 0.1, position.z)
+        
+        let indicatorMaterial = SCNMaterial()
+        indicatorMaterial.diffuse.contents = UIColor.systemBlue
+        indicatorMaterial.emission.contents = UIColor.systemBlue.withAlphaComponent(0.5)
+        indicatorMaterial.transparency = 0.8
+        indicatorGeometry.materials = [indicatorMaterial]
+        
+        // Rotate around Y axis
+        let rotationAction = SCNAction.rotateBy(x: 0, y: CGFloat(Float.pi * 2), z: 0, duration: 4.0)
+        indicatorNode.runAction(SCNAction.repeatForever(rotationAction))
+        
+        sceneView?.scene.rootNode.addChildNode(indicatorNode)
+        routerPlacementNodes.append(indicatorNode)
+    }
+    
+    // MARK: - Network Device Interaction
+    
+    func handleDeviceTap(at position: simd_float3) -> Bool {
+        guard let networkDeviceManager = networkDeviceManager else { return false }
+        
+        if networkDeviceManager.isRouterPlacementMode {
+            // Place router at tapped position
+            networkDeviceManager.placeRouter(at: position)
+            return true
+        }
+        
+        return false
+    }
+    
+    func highlightDevice(_ deviceId: UUID, highlighted: Bool) {
+        guard let deviceNode = networkDeviceNodes[deviceId] else { return }
+        NetworkDevice3DModels.highlightDevice(deviceNode, highlighted: highlighted)
+    }
+    
+    func getDeviceAt(position: simd_float3, threshold: Float = 0.5) -> UUID? {
+        for (deviceId, deviceNode) in networkDeviceNodes {
+            let nodePosition = simd_float3(deviceNode.position.x, deviceNode.position.y, deviceNode.position.z)
+            let distance = simd_distance(position, nodePosition)
+            if distance <= threshold {
+                return deviceId
+            }
+        }
+        return nil
     }
 }

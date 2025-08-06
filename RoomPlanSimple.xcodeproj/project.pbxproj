@@ -21,6 +21,8 @@
 		B60C4857AAB4429B919CBF85 /* WiFiSurveyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88DBB66906604175836B05AF /* WiFiSurveyManager.swift */; };
 		C33000D823094C028CE2DDDF /* ARVisualizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E7EF368BF7C416A8F777AE1 /* ARVisualizationManager.swift */; };
 		SPECTRUM001100220033044 /* SpectrumBranding.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPECTRUM001100220033055 /* SpectrumBranding.swift */; };
+		NETWORK001100220033044 /* NetworkDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = NETWORK001100220033055 /* NetworkDeviceManager.swift */; };
+		NETWORK001100220033045 /* NetworkDevice3DModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = NETWORK001100220033056 /* NetworkDevice3DModels.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +45,8 @@
 		CD4891E2C9F3F7012DE25B49 /* LICENSE.txt */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = LICENSE.txt; sourceTree = "<group>"; };
 		FA98238F745C469C8D0DFFF1 /* RoomAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomAnalyzer.swift; sourceTree = "<group>"; };
 		SPECTRUM001100220033055 /* SpectrumBranding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectrumBranding.swift; sourceTree = "<group>"; };
+		NETWORK001100220033055 /* NetworkDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDeviceManager.swift; sourceTree = "<group>"; };
+		NETWORK001100220033056 /* NetworkDevice3DModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDevice3DModels.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -101,6 +105,8 @@
 				872C4060B5C54006A6D91234 /* WiFiReportGenerator.swift */,
 				88DBB66906604175836B05AF /* WiFiSurveyManager.swift */,
 				SPECTRUM001100220033055 /* SpectrumBranding.swift */,
+				NETWORK001100220033055 /* NetworkDeviceManager.swift */,
+				NETWORK001100220033056 /* NetworkDevice3DModels.swift */,
 			);
 			path = RoomPlanSimple;
 			sourceTree = "<group>";
@@ -196,6 +202,8 @@
 				9E8FD46BC00C4C19981BCB71 /* WiFiReportGenerator.swift in Sources */,
 				B60C4857AAB4429B919CBF85 /* WiFiSurveyManager.swift in Sources */,
 				SPECTRUM001100220033044 /* SpectrumBranding.swift in Sources */,
+				NETWORK001100220033044 /* NetworkDeviceManager.swift in Sources */,
+				NETWORK001100220033045 /* NetworkDevice3DModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

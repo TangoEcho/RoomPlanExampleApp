@@ -15,6 +15,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var roomAnalyzer = RoomAnalyzer()
     private var wifiSurveyManager = WiFiSurveyManager()
     private var arVisualizationManager = ARVisualizationManager()
+    private var networkDeviceManager = NetworkDeviceManager()
     private var arSceneView: ARSCNView!
     
     // iOS 17+ Custom ARSession for perfect coordinate alignment
@@ -39,6 +40,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var bottomNavBar: UIView?
     private var scanSurveyToggleButton: UIButton?
     private var floorPlanNavButton: UIButton?
+    private var routerPlacementButton: UIButton?
     private var modeLabel: UILabel?
     
     private var isARMode = false
@@ -191,6 +193,13 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             wifiManager: wifiSurveyManager,
             roomAnalyzer: roomAnalyzer
         )
+        
+        // Setup network device management integration
+        arVisualizationManager.setNetworkDeviceManager(networkDeviceManager)
+        
+        // Add tap gesture for router placement
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleARTap(_:)))
+        arSceneView.addGestureRecognizer(tapGesture)
     }
     
     private func setupWiFiSurvey() {
@@ -301,13 +310,22 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         floorPlanNavButton?.translatesAutoresizingMaskIntoConstraints = false
         floorPlanNavButton?.layer.cornerRadius = 8
         
+        // Create router placement button in bottom-center
+        routerPlacementButton = SpectrumBranding.createSpectrumButton(title: "📡 Place Router", style: .accent)
+        routerPlacementButton?.addTarget(self, action: #selector(routerPlacementTapped), for: .touchUpInside)
+        routerPlacementButton?.translatesAutoresizingMaskIntoConstraints = false
+        routerPlacementButton?.layer.cornerRadius = 8
+        routerPlacementButton?.isHidden = true // Initially hidden
+        
         guard let modeLabel = modeLabel,
               let scanSurveyToggleButton = scanSurveyToggleButton,
-              let floorPlanNavButton = floorPlanNavButton else { return }
+              let floorPlanNavButton = floorPlanNavButton,
+              let routerPlacementButton = routerPlacementButton else { return }
         
         view.addSubview(modeLabel)
         view.addSubview(scanSurveyToggleButton)
         view.addSubview(floorPlanNavButton)
+        view.addSubview(routerPlacementButton)
         
         NSLayoutConstraint.activate([
             // Mode label in top-left corner
@@ -326,7 +344,13 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             floorPlanNavButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -80),
             floorPlanNavButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
             floorPlanNavButton.widthAnchor.constraint(equalToConstant: 120),
-            floorPlanNavButton.heightAnchor.constraint(equalToConstant: 44)
+            floorPlanNavButton.heightAnchor.constraint(equalToConstant: 44),
+            
+            // Router placement button in bottom-center
+            routerPlacementButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -80),
+            routerPlacementButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            routerPlacementButton.widthAnchor.constraint(equalToConstant: 140),
+            routerPlacementButton.heightAnchor.constraint(equalToConstant: 44)
         ])
         
         updateBottomNavigation()
@@ -366,6 +390,80 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             viewResults()
         } else {
             showAlert(title: "Room Scan Required", message: "Please complete room scanning first to view the floor plan.")
+        }
+    }
+    
+    @objc private func routerPlacementTapped() {
+        if networkDeviceManager.isRouterPlacementMode {
+            // Cancel placement mode
+            networkDeviceManager.disableRouterPlacementMode()
+            routerPlacementButton?.setTitle("📡 Place Router", for: .normal)
+            routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
+        } else {
+            // Enter placement mode
+            guard isARMode else {
+                showAlert(title: "AR Mode Required", message: "Switch to WiFi Survey mode to place router in AR.")
+                return
+            }
+            
+            networkDeviceManager.enableRouterPlacementMode()
+            routerPlacementButton?.setTitle("❌ Cancel", for: .normal)
+            routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
+            
+            // Show instruction message
+            statusLabel?.text = "📡 Tap anywhere in AR to place router"
+            statusLabel?.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
+        }
+    }
+    
+    @objc private func handleARTap(_ gesture: UITapGestureRecognizer) {
+        guard networkDeviceManager.isRouterPlacementMode else { return }
+        
+        let location = gesture.location(in: arSceneView)
+        
+        // Perform hit test to find a surface
+        let hitTestResults = arSceneView.hitTest(location, types: [.existingPlaneUsingExtent, .estimatedHorizontalPlane])
+        
+        if let hitResult = hitTestResults.first {
+            let position = hitResult.worldTransform.columns.3
+            let routerPosition = simd_float3(position.x, position.y, position.z)
+            
+            // Handle router placement through AR visualization manager
+            if arVisualizationManager.handleDeviceTap(at: routerPosition) {
+                // Router was placed successfully
+                routerPlacementButton?.setTitle("📡 Place Router", for: .normal)
+                routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
+                
+                // Update AR visualization with the router
+                if let router = networkDeviceManager.router {
+                    arVisualizationManager.addNetworkDevice(router)
+                }
+                
+                // Trigger extender placement after router is placed
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.placeExtenderOnBestSurface()
+                }
+                
+                updateBottomNavigation()
+            }
+        }
+    }
+    
+    private func placeExtenderOnBestSurface() {
+        guard networkDeviceManager.router != nil else { return }
+        
+        // Place extender on best available surface
+        if let extender = networkDeviceManager.placeExtenderOnBestSurface() {
+            arVisualizationManager.addNetworkDevice(extender)
+            print("📶 Extender automatically placed on suitable surface")
+            
+            // Show success message
+            statusLabel?.text = "✅ Router and extender placed! Network optimized."
+            statusLabel?.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
+        } else {
+            // No suitable surfaces found
+            statusLabel?.text = "⚠️ Router placed, but no suitable surfaces found for extender"
+            statusLabel?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
         }
     }
     
@@ -552,6 +650,25 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             floorPlanNavButton?.setTitle("📊 Plan", for: .normal)
             floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
             floorPlanNavButton?.isEnabled = false
+        }
+        
+        // Router placement button - show in AR/surveying mode when room data exists
+        let showRouterButton = isARMode && hasRoomData && !networkDeviceManager.suitableSurfaces.isEmpty
+        routerPlacementButton?.isHidden = !showRouterButton
+        
+        // Update button text based on placement status
+        if let router = networkDeviceManager.router {
+            routerPlacementButton?.setTitle("📡 Router Placed", for: .normal)
+            routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+            routerPlacementButton?.isEnabled = false
+        } else if networkDeviceManager.isRouterPlacementMode {
+            routerPlacementButton?.setTitle("❌ Cancel", for: .normal)
+            routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
+            routerPlacementButton?.isEnabled = true
+        } else {
+            routerPlacementButton?.setTitle("📡 Place Router", for: .normal)
+            routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
+            routerPlacementButton?.isEnabled = true
         }
     }
     
@@ -859,6 +976,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         
         roomAnalyzer.analyzeCapturedRoom(processedResult)
         
+        // Analyze suitable surfaces for network device placement
+        networkDeviceManager.analyzeSuitableSurfaces(from: roomAnalyzer.furnitureItems)
+        
         // Pass room data to AR visualization manager
         arVisualizationManager.setCapturedRoomData(processedResult)
         
@@ -965,7 +1085,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                     print("✅ Results generated, navigating to floor plan...")
                     
                     let floorPlanVC = FloorPlanViewController()
-                    floorPlanVC.updateWithData(heatmapData: heatmapData, roomAnalyzer: self.roomAnalyzer)
+                    floorPlanVC.updateWithData(heatmapData: heatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager)
                     floorPlanVC.modalPresentationStyle = .fullScreen
                     self.present(floorPlanVC, animated: true)
                     
@@ -987,7 +1107,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                     coverageMap: [:],
                     optimalRouterPlacements: []
                 )
-                floorPlanVC.updateWithData(heatmapData: emptyHeatmapData, roomAnalyzer: self.roomAnalyzer)
+                floorPlanVC.updateWithData(heatmapData: emptyHeatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager)
                 floorPlanVC.modalPresentationStyle = .fullScreen
                 self.present(floorPlanVC, animated: true)
                 
@@ -1010,7 +1130,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 print("✅ Mock results generated, navigating to floor plan...")
                 
                 let floorPlanVC = FloorPlanViewController()
-                floorPlanVC.updateWithData(heatmapData: mockHeatmapData, roomAnalyzer: self.roomAnalyzer)
+                floorPlanVC.updateWithData(heatmapData: mockHeatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager)
                 floorPlanVC.modalPresentationStyle = .fullScreen
                 self.present(floorPlanVC, animated: true)
                 

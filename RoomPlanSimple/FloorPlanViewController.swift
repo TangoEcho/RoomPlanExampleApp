@@ -20,6 +20,7 @@ class FloorPlanViewController: UIViewController {
     private var floorPlanRenderer: FloorPlanRenderer!
     private var wifiHeatmapData: WiFiHeatmapData?
     private var roomAnalyzer: RoomAnalyzer?
+    private var networkDeviceManager: NetworkDeviceManager?
     private var measurements: [WiFiMeasurement] = []
     
     override func viewDidLoad() {
@@ -238,9 +239,10 @@ class FloorPlanViewController: UIViewController {
         return containerView
     }
     
-    func updateWithData(heatmapData: WiFiHeatmapData, roomAnalyzer: RoomAnalyzer) {
+    func updateWithData(heatmapData: WiFiHeatmapData, roomAnalyzer: RoomAnalyzer, networkDeviceManager: NetworkDeviceManager? = nil) {
         self.wifiHeatmapData = heatmapData
         self.roomAnalyzer = roomAnalyzer
+        self.networkDeviceManager = networkDeviceManager
         self.measurements = heatmapData.measurements
         
         DispatchQueue.main.async {
@@ -248,7 +250,8 @@ class FloorPlanViewController: UIViewController {
                 rooms: roomAnalyzer.identifiedRooms,
                 furniture: roomAnalyzer.furnitureItems,
                 heatmapData: heatmapData,
-                showHeatmap: self.heatmapToggle.isOn
+                showHeatmap: self.heatmapToggle.isOn,
+                networkDevices: self.networkDeviceManager?.getAllDevices() ?? []
             )
             self.measurementsList.reloadData()
         }
@@ -262,7 +265,8 @@ class FloorPlanViewController: UIViewController {
             rooms: roomAnalyzer.identifiedRooms,
             furniture: roomAnalyzer.furnitureItems,
             heatmapData: heatmapData,
-            showHeatmap: heatmapToggle.isOn
+            showHeatmap: heatmapToggle.isOn,
+            networkDevices: networkDeviceManager?.getAllDevices() ?? []
         )
     }
     
@@ -316,6 +320,7 @@ class FloorPlanRenderer: UIView {
     private var furniture: [RoomAnalyzer.FurnitureItem] = []
     private var heatmapData: WiFiHeatmapData?
     private var showHeatmap = false
+    private var networkDevices: [NetworkDeviceManager.NetworkDevice] = []
     
     // Interactive features
     weak var delegate: FloorPlanInteractionDelegate?
@@ -468,11 +473,13 @@ class FloorPlanRenderer: UIView {
     func renderFloorPlan(rooms: [RoomAnalyzer.IdentifiedRoom], 
                         furniture: [RoomAnalyzer.FurnitureItem],
                         heatmapData: WiFiHeatmapData,
-                        showHeatmap: Bool) {
+                        showHeatmap: Bool,
+                        networkDevices: [NetworkDeviceManager.NetworkDevice] = []) {
         self.rooms = rooms
         self.furniture = furniture
         self.heatmapData = heatmapData
         self.showHeatmap = showHeatmap
+        self.networkDevices = networkDevices
         
         // Debug logging
         print("🏠 Rendering floor plan with \(rooms.count) rooms, \(furniture.count) furniture items")
@@ -503,6 +510,7 @@ class FloorPlanRenderer: UIView {
         
         drawMeasurementPoints(context: context, rect: rect)
         drawOptimalRouterPlacements(context: context, rect: rect)
+        drawNetworkDevices(context: context, rect: rect)
     }
     
     private func drawRooms(context: CGContext, rect: CGRect) {
@@ -1351,6 +1359,191 @@ class FloorPlanRenderer: UIView {
             )
             
             routerLabel.draw(in: textRect, withAttributes: attributes)
+        }
+    }
+    
+    // MARK: - Network Device Drawing
+    
+    private func drawNetworkDevices(context: CGContext, rect: CGRect) {
+        guard !networkDevices.isEmpty else { return }
+        
+        let scale = calculateScale(rect: rect)
+        let offset = calculateOffset(rect: rect)
+        
+        print("📡 Drawing \(networkDevices.count) network devices on floor plan")
+        
+        for device in networkDevices {
+            let center = CGPoint(
+                x: CGFloat(device.position.x) * scale + offset.x,
+                y: CGFloat(device.position.z) * scale + offset.y  // Note: Z axis for floor plan
+            )
+            
+            drawNetworkDeviceSymbol(context: context, device: device, at: center, scale: scale)
+        }
+        
+        // Draw connection lines between router and extenders
+        drawDeviceConnections(context: context, scale: scale, offset: offset)
+    }
+    
+    private func drawNetworkDeviceSymbol(context: CGContext, device: NetworkDeviceManager.NetworkDevice, at center: CGPoint, scale: CGFloat) {
+        context.saveGState()
+        
+        let deviceSize: CGFloat = 30 * (scale / 50) // Scale with floor plan
+        let radius = deviceSize / 2
+        
+        // Device background circle
+        let deviceColor: UIColor
+        let deviceEmoji: String
+        
+        switch device.type {
+        case .router:
+            deviceColor = UIColor.systemBlue
+            deviceEmoji = "📡"
+        case .extender:
+            deviceColor = UIColor.systemGreen  
+            deviceEmoji = "📶"
+        }
+        
+        // Background circle with device color
+        context.setFillColor(deviceColor.withAlphaComponent(0.8).cgColor)
+        context.setStrokeColor(UIColor.white.cgColor)
+        context.setLineWidth(3.0)
+        
+        let deviceCircle = CGRect(x: center.x - radius, y: center.y - radius, width: deviceSize, height: deviceSize)
+        context.addEllipse(in: deviceCircle)
+        context.drawPath(using: .fillStroke)
+        
+        // Device emoji symbol
+        let emojiSize: CGFloat = deviceSize * 0.6
+        let emojiAttributes = [
+            NSAttributedString.Key.font: UIFont.systemFont(ofSize: emojiSize)
+        ]
+        let emojiTextSize = deviceEmoji.size(withAttributes: emojiAttributes)
+        let emojiRect = CGRect(
+            x: center.x - emojiTextSize.width / 2,
+            y: center.y - emojiTextSize.height / 2,
+            width: emojiTextSize.width,
+            height: emojiTextSize.height
+        )
+        deviceEmoji.draw(in: emojiRect, withAttributes: emojiAttributes)
+        
+        // Device label
+        let labelText = device.type.rawValue
+        drawDeviceLabel(context: context, text: labelText, at: CGPoint(x: center.x, y: center.y + radius + 8), textColor: deviceColor)
+        
+        // Confidence indicator for non-user-placed devices
+        if !device.isUserPlaced {
+            drawConfidenceIndicator(context: context, confidence: device.confidence, at: CGPoint(x: center.x + radius - 5, y: center.y - radius + 5))
+        }
+        
+        context.restoreGState()
+    }
+    
+    private func drawDeviceLabel(context: CGContext, text: String, at center: CGPoint, textColor: UIColor) {
+        let labelAttributes = [
+            NSAttributedString.Key.font: UIFont.systemFont(ofSize: 10, weight: .medium),
+            NSAttributedString.Key.foregroundColor: textColor
+        ]
+        let labelSize = text.size(withAttributes: labelAttributes)
+        
+        // Background for better readability
+        let backgroundRect = CGRect(
+            x: center.x - labelSize.width / 2 - 4,
+            y: center.y - labelSize.height / 2 - 2,
+            width: labelSize.width + 8,
+            height: labelSize.height + 4
+        )
+        
+        context.setFillColor(UIColor.systemBackground.withAlphaComponent(0.9).cgColor)
+        context.setStrokeColor(textColor.withAlphaComponent(0.5).cgColor)
+        context.setLineWidth(1.0)
+        let roundedPath = CGPath(roundedRect: backgroundRect, cornerWidth: 3, cornerHeight: 3, transform: nil)
+        context.addPath(roundedPath)
+        context.drawPath(using: .fillStroke)
+        
+        let labelRect = CGRect(
+            x: center.x - labelSize.width / 2,
+            y: center.y - labelSize.height / 2,
+            width: labelSize.width,
+            height: labelSize.height
+        )
+        text.draw(in: labelRect, withAttributes: labelAttributes)
+    }
+    
+    private func drawConfidenceIndicator(context: CGContext, confidence: Float, at center: CGPoint) {
+        let size: CGFloat = 12
+        let confidenceColor = getConfidenceColor(confidence)
+        
+        context.setFillColor(confidenceColor.cgColor)
+        context.setStrokeColor(UIColor.white.cgColor)
+        context.setLineWidth(1.0)
+        
+        let indicatorCircle = CGRect(x: center.x - size/2, y: center.y - size/2, width: size, height: size)
+        context.addEllipse(in: indicatorCircle)
+        context.drawPath(using: .fillStroke)
+        
+        // Confidence percentage
+        let confidenceText = String(format: "%.0f%%", confidence * 100)
+        let attributes = [
+            NSAttributedString.Key.font: UIFont.systemFont(ofSize: 8, weight: .bold),
+            NSAttributedString.Key.foregroundColor: UIColor.white
+        ]
+        let textSize = confidenceText.size(withAttributes: attributes)
+        let textRect = CGRect(
+            x: center.x - textSize.width / 2,
+            y: center.y - textSize.height / 2,
+            width: textSize.width,
+            height: textSize.height
+        )
+        confidenceText.draw(in: textRect, withAttributes: attributes)
+    }
+    
+    private func getConfidenceColor(_ confidence: Float) -> UIColor {
+        switch confidence {
+        case 0.8...1.0:
+            return UIColor.systemGreen
+        case 0.6...0.79:
+            return UIColor.systemYellow
+        case 0.4...0.59:
+            return UIColor.systemOrange
+        default:
+            return UIColor.systemRed
+        }
+    }
+    
+    private func drawDeviceConnections(context: CGContext, scale: CGFloat, offset: CGPoint) {
+        guard networkDevices.count > 1 else { return }
+        
+        // Find router
+        guard let router = networkDevices.first(where: { $0.type == .router }) else { return }
+        
+        let routerCenter = CGPoint(
+            x: CGFloat(router.position.x) * scale + offset.x,
+            y: CGFloat(router.position.z) * scale + offset.y
+        )
+        
+        // Draw lines from router to all extenders
+        let extenders = networkDevices.filter { $0.type == .extender }
+        
+        for extender in extenders {
+            let extenderCenter = CGPoint(
+                x: CGFloat(extender.position.x) * scale + offset.x,
+                y: CGFloat(extender.position.z) * scale + offset.y
+            )
+            
+            // Draw connection line
+            context.setStrokeColor(UIColor.systemBlue.withAlphaComponent(0.6).cgColor)
+            context.setLineWidth(2.0)
+            context.setLineDash(phase: 0, lengths: [5, 3]) // Dashed line
+            
+            context.move(to: routerCenter)
+            context.addLine(to: extenderCenter)
+            context.strokePath()
+            
+            // Reset line dash
+            context.setLineDash(phase: 0, lengths: [])
+            
+            print("📶 Drew connection line from router to extender")
         }
     }
     
