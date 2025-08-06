@@ -16,6 +16,8 @@ class FloorPlanViewController: UIViewController {
     private var legendView: UIView!
     private var exportButton: UIButton!
     private var measurementsList: UITableView!
+    private var devicePlacementButton: UIButton!
+    private var deviceStatusLabel: UILabel!
     
     private var floorPlanRenderer: FloorPlanRenderer!
     private var wifiHeatmapData: WiFiHeatmapData?
@@ -51,19 +53,42 @@ class FloorPlanViewController: UIViewController {
         legendView.layer.cornerRadius = 8
         legendView.translatesAutoresizingMaskIntoConstraints = false
         
-        exportButton = SpectrumBranding.createSpectrumButton(title: "Export Report", style: .accent)
-        // Remove white border for better readability - accent style already has good contrast
-        exportButton.layer.borderWidth = 0
-        exportButton.layer.borderColor = UIColor.clear.cgColor
+        exportButton = UIButton(type: .system)
+        exportButton.setTitle("Export Report", for: .normal)
+        exportButton.setTitleColor(.white, for: .normal)
+        exportButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
+        exportButton.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+        exportButton.layer.cornerRadius = 8
+        exportButton.layer.shadowColor = UIColor.black.cgColor
+        exportButton.layer.shadowOffset = CGSize(width: 0, height: 2)
+        exportButton.layer.shadowOpacity = 0.2
+        exportButton.layer.shadowRadius = 4
         
         measurementsList = UITableView()
         measurementsList.translatesAutoresizingMaskIntoConstraints = false
+        
+        devicePlacementButton = UIButton(type: .system)
+        devicePlacementButton.setTitle("📡 Show Network Devices", for: .normal)
+        devicePlacementButton.setTitleColor(.white, for: .normal)
+        devicePlacementButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
+        devicePlacementButton.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+        devicePlacementButton.layer.cornerRadius = 8
+        devicePlacementButton.addTarget(self, action: #selector(toggleDevicePlacement), for: .touchUpInside)
+        
+        deviceStatusLabel = SpectrumBranding.createSpectrumLabel(text: "", style: .caption)
+        deviceStatusLabel.textAlignment = .center
+        deviceStatusLabel.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.9)
+        deviceStatusLabel.layer.cornerRadius = 8
+        deviceStatusLabel.layer.masksToBounds = true
+        deviceStatusLabel.isHidden = true
         
         // Add to view hierarchy
         view.addSubview(floorPlanView)
         view.addSubview(heatmapToggle)
         view.addSubview(heatmapLabel)
         view.addSubview(legendView)
+        view.addSubview(devicePlacementButton)
+        view.addSubview(deviceStatusLabel)
         view.addSubview(exportButton)
         view.addSubview(measurementsList)
     }
@@ -94,7 +119,17 @@ class FloorPlanViewController: UIViewController {
             legendView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
             legendView.heightAnchor.constraint(greaterThanOrEqualToConstant: 120),
             
-            exportButton.topAnchor.constraint(equalTo: legendView.bottomAnchor, constant: 16),
+            devicePlacementButton.topAnchor.constraint(equalTo: legendView.bottomAnchor, constant: 10),
+            devicePlacementButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            devicePlacementButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            devicePlacementButton.heightAnchor.constraint(equalToConstant: 44),
+            
+            deviceStatusLabel.topAnchor.constraint(equalTo: devicePlacementButton.bottomAnchor, constant: 8),
+            deviceStatusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            deviceStatusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            deviceStatusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 30),
+            
+            exportButton.topAnchor.constraint(equalTo: devicePlacementButton.bottomAnchor, constant: 60),
             exportButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             exportButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             exportButton.heightAnchor.constraint(equalToConstant: 50),
@@ -145,8 +180,14 @@ class FloorPlanViewController: UIViewController {
         titleLabel.textAlignment = .center
         titleLabel.font = UIFont.boldSystemFont(ofSize: 18)
         
-        let newScanButton = SpectrumBranding.createSpectrumButton(title: "New Scan", style: .primary)
-        // Use primary style for better contrast on blue header background
+        let newScanButton = UIButton(type: .system)
+        newScanButton.setTitle("New Scan", for: .normal)
+        newScanButton.setTitleColor(.white, for: .normal)
+        newScanButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
+        newScanButton.backgroundColor = UIColor.white.withAlphaComponent(0.2)
+        newScanButton.layer.cornerRadius = 8
+        newScanButton.layer.borderWidth = 1
+        newScanButton.layer.borderColor = UIColor.white.cgColor
         newScanButton.addTarget(self, action: #selector(startNewScan), for: .touchUpInside)
         
         view.addSubview(customHeaderView)
@@ -262,6 +303,7 @@ class FloorPlanViewController: UIViewController {
             }
             self.floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
             self.measurementsList.reloadData()
+            self.updateDeviceStatus()
         }
     }
     
@@ -299,6 +341,104 @@ class FloorPlanViewController: UIViewController {
             return SpectrumBranding.Colors.fairSignal
         default:
             return SpectrumBranding.Colors.poorSignal
+        }
+    }
+    
+    @objc private func toggleDevicePlacement() {
+        guard let networkDeviceManager = networkDeviceManager else { return }
+        
+        let hasDevices = networkDeviceManager.router != nil || !networkDeviceManager.extenders.isEmpty
+        
+        if hasDevices {
+            // Show device information
+            showDeviceInfo()
+        } else {
+            // Show placement recommendations
+            showPlacementRecommendations()
+        }
+    }
+    
+    private func showDeviceInfo() {
+        guard let networkDeviceManager = networkDeviceManager else { return }
+        
+        var message = "Current Network Setup:\n\n"
+        
+        if let router = networkDeviceManager.router {
+            message += "📡 Router: Placed\n"
+            message += "Position: (\(String(format: "%.1f", router.position.x)), \(String(format: "%.1f", router.position.z)))\n\n"
+        } else {
+            message += "📡 Router: Not placed\n\n"
+        }
+        
+        if !networkDeviceManager.extenders.isEmpty {
+            message += "📡 Extenders: \(networkDeviceManager.extenders.count)\n"
+            for (index, extender) in networkDeviceManager.extenders.enumerated() {
+                message += "  \(index + 1). Position: (\(String(format: "%.1f", extender.position.x)), \(String(format: "%.1f", extender.position.z)))\n"
+            }
+        } else {
+            message += "📡 Extenders: None\n"
+        }
+        
+        message += "\n\(networkDeviceManager.suitableSurfaces.count) suitable surfaces found for placement"
+        
+        let alert = UIAlertController(title: "Network Device Status", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+    
+    private func showPlacementRecommendations() {
+        guard let networkDeviceManager = networkDeviceManager else { return }
+        
+        var message = "Network Device Placement Guide:\n\n"
+        
+        if networkDeviceManager.suitableSurfaces.isEmpty {
+            message += "⚠️ No suitable surfaces found for device placement.\n\n"
+            message += "Tips:\n"
+            message += "• Ensure room scanning captured furniture\n"
+            message += "• Tables and elevated surfaces work best\n"
+            message += "• Avoid floor-level placement\n"
+        } else {
+            message += "✅ Found \(networkDeviceManager.suitableSurfaces.count) suitable surfaces:\n\n"
+            
+            for (index, surface) in networkDeviceManager.suitableSurfaces.prefix(3).enumerated() {
+                let emoji = surface.furnitureItem.category == .table ? "📋" : "🛋️"
+                message += "\(index + 1). \(emoji) \(surface.furnitureItem.category) "
+                message += "(Score: \(String(format: "%.1f", surface.suitabilityScore * 100))%)\n"
+            }
+            
+            message += "\nTo place devices:\n"
+            message += "1. Return to AR scanning mode\n"
+            message += "2. Switch to WiFi Survey\n"
+            message += "3. Use '📡 Place Router' button\n"
+        }
+        
+        let alert = UIAlertController(title: "Device Placement Guide", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+    
+    private func updateDeviceStatus() {
+        guard let networkDeviceManager = networkDeviceManager else {
+            deviceStatusLabel.isHidden = true
+            return
+        }
+        
+        let deviceCount = networkDeviceManager.getDeviceCount()
+        let surfaceCount = networkDeviceManager.suitableSurfaces.count
+        
+        if deviceCount.routers > 0 || deviceCount.extenders > 0 {
+            devicePlacementButton.setTitle("📡 View Network Devices", for: .normal)
+            deviceStatusLabel.text = "\(deviceCount.routers) router, \(deviceCount.extenders) extender(s) placed"
+            deviceStatusLabel.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
+            deviceStatusLabel.isHidden = false
+        } else if surfaceCount > 0 {
+            devicePlacementButton.setTitle("📡 View Placement Options", for: .normal)
+            deviceStatusLabel.text = "\(surfaceCount) suitable surfaces found for device placement"
+            deviceStatusLabel.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
+            deviceStatusLabel.isHidden = false
+        } else {
+            devicePlacementButton.setTitle("📡 Network Device Info", for: .normal)
+            deviceStatusLabel.isHidden = true
         }
     }
 }

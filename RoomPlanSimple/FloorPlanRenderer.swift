@@ -345,10 +345,39 @@ class FloorPlanRenderer: UIView {
     }
     
     private func drawNetworkDevices(in context: CGContext, rect: CGRect) {
-        // Draw router and extender positions if available
+        guard !networkDevices.isEmpty else { return }
+        
+        // Calculate coordinate transform based on all room points
+        let allRoomPoints = rooms.flatMap { $0.wallPoints }
+        guard !allRoomPoints.isEmpty else { return }
+        
+        let minX = allRoomPoints.map { $0.x }.min() ?? 0
+        let maxX = allRoomPoints.map { $0.x }.max() ?? 0
+        let minY = allRoomPoints.map { $0.y }.min() ?? 0
+        let maxY = allRoomPoints.map { $0.y }.max() ?? 0
+        
+        let roomWidth = maxX - minX
+        let roomHeight = maxY - minY
+        
+        guard roomWidth > 0 && roomHeight > 0 else { return }
+        
+        let padding: CGFloat = 20
+        let availableWidth = rect.width - (padding * 2)
+        let availableHeight = rect.height - (padding * 2)
+        
+        let scaleX = availableWidth / CGFloat(roomWidth)
+        let scaleY = availableHeight / CGFloat(roomHeight)
+        let scale = min(scaleX, scaleY)
+        
+        let offsetX = (rect.width - CGFloat(roomWidth) * scale) / 2 - CGFloat(minX) * scale
+        let offsetY = (rect.height - CGFloat(roomHeight) * scale) / 2 - CGFloat(minY) * scale
+        
+        // Draw each network device
         for device in networkDevices {
-            // Similar coordinate transformation as heatmap
-            let viewPoint = CGPoint(x: rect.midX, y: rect.midY) // Simplified for now
+            let viewPoint = CGPoint(
+                x: CGFloat(device.position.x) * scale + offsetX,
+                y: CGFloat(device.position.z) * scale + offsetY // Use Z for Y in top-down view
+            )
             
             let color = device.type == .router ? UIColor.systemRed : UIColor.systemOrange
             drawDeviceIcon(device.type, at: viewPoint, color: color, in: context)
@@ -393,20 +422,32 @@ class FloorPlanRenderer: UIView {
     }
     
     private func drawDeviceIcon(_ type: NetworkDevice.DeviceType, at point: CGPoint, color: UIColor, in context: CGContext) {
-        let size: CGFloat = 12
-        let rect = CGRect(x: point.x - size/2, y: point.y - size/2, width: size, height: size)
+        let outerSize: CGFloat = 24
+        let innerSize: CGFloat = 20
         
+        // Draw outer circle with glow effect
+        let glowRect = CGRect(x: point.x - outerSize/2, y: point.y - outerSize/2, width: outerSize, height: outerSize)
+        context.setFillColor(color.withAlphaComponent(0.3).cgColor)
+        context.fillEllipse(in: glowRect)
+        
+        // Draw main device circle
+        let mainRect = CGRect(x: point.x - innerSize/2, y: point.y - innerSize/2, width: innerSize, height: innerSize)
         context.setFillColor(color.cgColor)
-        context.fill(rect)
+        context.fillEllipse(in: mainRect)
         
-        // Draw device label
-        let text = type == .router ? "R" : "E"
+        // Draw white border
+        context.setStrokeColor(UIColor.white.cgColor)
+        context.setLineWidth(2)
+        context.strokeEllipse(in: mainRect)
+        
+        // Draw device emoji
+        let emoji = type == .router ? "📡" : "📡"
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.boldSystemFont(ofSize: 10),
+            .font: UIFont.systemFont(ofSize: 12),
             .foregroundColor: UIColor.white
         ]
         
-        let attributedString = NSAttributedString(string: text, attributes: attributes)
+        let attributedString = NSAttributedString(string: emoji, attributes: attributes)
         let textSize = attributedString.size()
         let textRect = CGRect(x: point.x - textSize.width/2, 
                              y: point.y - textSize.height/2,
@@ -414,6 +455,30 @@ class FloorPlanRenderer: UIView {
                              height: textSize.height)
         
         attributedString.draw(in: textRect)
+        
+        // Draw device type label below
+        let labelText = type == .router ? "Router" : "Extender"
+        let labelAttributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.boldSystemFont(ofSize: 10),
+            .foregroundColor: color,
+            .backgroundColor: UIColor.systemBackground.withAlphaComponent(0.8)
+        ]
+        
+        let labelString = NSAttributedString(string: labelText, attributes: labelAttributes)
+        let labelSize = labelString.size()
+        let labelRect = CGRect(x: point.x - labelSize.width/2,
+                              y: point.y + outerSize/2 + 2,
+                              width: labelSize.width,
+                              height: labelSize.height)
+        
+        // Draw background for label
+        context.setFillColor(UIColor.systemBackground.withAlphaComponent(0.8).cgColor)
+        let paddedRect = labelRect.insetBy(dx: -4, dy: -2)
+        let path = UIBezierPath(roundedRect: paddedRect, cornerRadius: 4)
+        context.addPath(path.cgPath)
+        context.fillPath()
+        
+        labelString.draw(in: labelRect)
     }
     
     private func drawFurniture(in context: CGContext, rect: CGRect) {

@@ -297,7 +297,11 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         modeLabel?.translatesAutoresizingMaskIntoConstraints = false
         
         // Create scan/survey toggle button in bottom-left corner
-        scanSurveyToggleButton = SpectrumBranding.createSpectrumButton(title: "📡 Switch to WiFi Survey", style: .secondary)
+        scanSurveyToggleButton = UIButton(type: .system)
+        scanSurveyToggleButton?.setTitle("📡 Switch to WiFi Survey", for: .normal)
+        scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
+        scanSurveyToggleButton?.titleLabel?.font = UIFont.boldSystemFont(ofSize: 15)
+        scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
         scanSurveyToggleButton?.addTarget(self, action: #selector(scanSurveyToggleTapped), for: .touchUpInside)
         scanSurveyToggleButton?.translatesAutoresizingMaskIntoConstraints = false
         scanSurveyToggleButton?.layer.cornerRadius = 8
@@ -305,13 +309,21 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         scanSurveyToggleButton?.titleLabel?.minimumScaleFactor = 0.8
         
         // Create floor plan button in bottom-right corner
-        floorPlanNavButton = SpectrumBranding.createSpectrumButton(title: "📊 View Plan", style: .secondary)
+        floorPlanNavButton = UIButton(type: .system)
+        floorPlanNavButton?.setTitle("📊 View Plan", for: .normal)
+        floorPlanNavButton?.setTitleColor(.white, for: .normal)
+        floorPlanNavButton?.titleLabel?.font = UIFont.boldSystemFont(ofSize: 15)
+        floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
         floorPlanNavButton?.addTarget(self, action: #selector(floorPlanNavTapped), for: .touchUpInside)
         floorPlanNavButton?.translatesAutoresizingMaskIntoConstraints = false
         floorPlanNavButton?.layer.cornerRadius = 8
         
         // Create router placement button in bottom-center
-        routerPlacementButton = SpectrumBranding.createSpectrumButton(title: "📡 Place Router", style: .accent)
+        routerPlacementButton = UIButton(type: .system)
+        routerPlacementButton?.setTitle("📡 Place Router", for: .normal)
+        routerPlacementButton?.setTitleColor(.white, for: .normal)
+        routerPlacementButton?.titleLabel?.font = UIFont.boldSystemFont(ofSize: 15)
+        routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
         routerPlacementButton?.addTarget(self, action: #selector(routerPlacementTapped), for: .touchUpInside)
         routerPlacementButton?.translatesAutoresizingMaskIntoConstraints = false
         routerPlacementButton?.layer.cornerRadius = 8
@@ -399,6 +411,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             networkDeviceManager.disableRouterPlacementMode()
             routerPlacementButton?.setTitle("📡 Place Router", for: .normal)
             routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
+            routerPlacementButton?.setTitleColor(.white, for: .normal)
         } else {
             // Enter placement mode
             guard isARMode else {
@@ -408,7 +421,8 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             
             networkDeviceManager.enableRouterPlacementMode()
             routerPlacementButton?.setTitle("❌ Cancel", for: .normal)
-            routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
+            routerPlacementButton?.backgroundColor = UIColor.systemGray
+            routerPlacementButton?.setTitleColor(.white, for: .normal)
             
             // Show instruction message
             statusLabel?.text = "📡 Tap anywhere in AR to place router"
@@ -638,12 +652,14 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 modeLabel?.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
                 scanSurveyToggleButton?.setTitle("📡 Switch to WiFi Survey", for: .normal)
                 scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+                scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
                 scanSurveyToggleButton?.isEnabled = true
             } else {
                 modeLabel?.text = "📱 Ready to Scan Room"
                 modeLabel?.backgroundColor = UIColor.systemGray.withAlphaComponent(0.9)
                 scanSurveyToggleButton?.setTitle("📱 Start Room Scan", for: .normal)
                 scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+                scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
                 scanSurveyToggleButton?.isEnabled = true
             }
             
@@ -653,12 +669,14 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 modeLabel?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
                 scanSurveyToggleButton?.setTitle("📱 Back to Room Scan", for: .normal)
                 scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+                scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
                 scanSurveyToggleButton?.isEnabled = true
             } else {
                 modeLabel?.text = "📡 WiFi Survey Ready"
                 modeLabel?.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
                 scanSurveyToggleButton?.setTitle("📡 Resume WiFi Survey", for: .normal)
                 scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+                scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
                 scanSurveyToggleButton?.isEnabled = true
             }
             
@@ -666,7 +684,8 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             modeLabel?.text = "📊 Ready for Results"
             modeLabel?.backgroundColor = UIColor.systemPurple.withAlphaComponent(0.9)
             scanSurveyToggleButton?.setTitle("🔄 Restart", for: .normal)
-            scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
+            scanSurveyToggleButton?.backgroundColor = UIColor.systemGray
+            scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
             scanSurveyToggleButton?.isEnabled = true
         }
         
@@ -678,14 +697,17 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             if hasWifiData {
                 floorPlanNavButton?.setTitle("📊 Results", for: .normal)
                 floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+                floorPlanNavButton?.setTitleColor(.white, for: .normal)
             } else {
                 floorPlanNavButton?.setTitle("📊 Plan", for: .normal)
                 floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+                floorPlanNavButton?.setTitleColor(.white, for: .normal)
             }
             floorPlanNavButton?.isEnabled = true
         } else {
             floorPlanNavButton?.setTitle("📊 Plan", for: .normal)
-            floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
+            floorPlanNavButton?.backgroundColor = UIColor.systemGray
+            floorPlanNavButton?.setTitleColor(.white, for: .normal)
             floorPlanNavButton?.isEnabled = false
         }
         
@@ -697,14 +719,17 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         if let router = networkDeviceManager.router {
             routerPlacementButton?.setTitle("📡 Router Placed", for: .normal)
             routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+            routerPlacementButton?.setTitleColor(.white, for: .normal)
             routerPlacementButton?.isEnabled = false
         } else if networkDeviceManager.isRouterPlacementMode {
             routerPlacementButton?.setTitle("❌ Cancel", for: .normal)
-            routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
+            routerPlacementButton?.backgroundColor = UIColor.systemGray
+            routerPlacementButton?.setTitleColor(.white, for: .normal)
             routerPlacementButton?.isEnabled = true
         } else {
             routerPlacementButton?.setTitle("📡 Place Router", for: .normal)
             routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
+            routerPlacementButton?.setTitleColor(.white, for: .normal)
             routerPlacementButton?.isEnabled = true
         }
     }
