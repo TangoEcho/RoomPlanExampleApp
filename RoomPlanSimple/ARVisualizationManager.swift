@@ -1168,7 +1168,6 @@ extension ARVisualizationManager: ARSCNViewDelegate {
         
         // Position and orient the line
         lineNode.position = SCNVector3(midpoint.x, midpoint.y, midpoint.z)
-        let direction = normalize(extenderPos - routerPos)
         lineNode.look(at: SCNVector3(extenderPos.x, extenderPos.y, extenderPos.z), up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 1, 0))
         
         // Line material (dashed effect would be nice but complex in SceneKit)

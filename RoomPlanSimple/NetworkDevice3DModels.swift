@@ -249,13 +249,13 @@ class NetworkDevice3DModels {
         case .router:
             deviceNode = createRouterModel()
             if withLabel {
-                addDeviceLabel(to: deviceNode, text: "📡 Router", deviceType: deviceType)
+                let _ = addDeviceLabel(to: deviceNode, text: "📡 Router", deviceType: deviceType)
             }
             
         case .extender:
             deviceNode = createExtenderModel() 
             if withLabel {
-                addDeviceLabel(to: deviceNode, text: "📶 Extender", deviceType: deviceType)
+                let _ = addDeviceLabel(to: deviceNode, text: "📶 Extender", deviceType: deviceType)
             }
         }
         

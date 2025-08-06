@@ -435,11 +435,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         
         let location = gesture.location(in: arSceneView)
         
-        // Perform hit test to find a surface
-        let hitTestResults = arSceneView.hitTest(location, types: [.existingPlaneUsingExtent, .estimatedHorizontalPlane])
+        // Perform raycast to find a surface
+        guard let query = arSceneView.raycastQuery(from: location, allowing: .existingPlaneGeometry, alignment: .horizontal) else { return }
+        let raycastResults = arSceneView.session.raycast(query)
         
-        if let hitResult = hitTestResults.first {
-            let position = hitResult.worldTransform.columns.3
+        if let raycastResult = raycastResults.first {
+            let position = raycastResult.worldTransform.columns.3
             let routerPosition = simd_float3(position.x, position.y, position.z)
             
             // Handle router placement through AR visualization manager

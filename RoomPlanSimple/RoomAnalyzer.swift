@@ -342,7 +342,6 @@ class RoomAnalyzer: ObservableObject {
         
         // Analyze the space and furniture to create logical room divisions
         let allObjects = capturedRoom.objects
-        let spaceCenter = extractSurfaceCenter(mainFloor)
         
         // Create rooms based on furniture distribution and typical home layout
         if allObjects.count >= 3 {
@@ -434,7 +433,6 @@ class RoomAnalyzer: ObservableObject {
     }
     
     private func createDefaultRoomLayout(capturedRoom: CapturedRoom, mainFloor: CapturedRoom.Surface) -> [IdentifiedRoom] {
-        let spaceCenter = extractSurfaceCenter(mainFloor)
         let allObjects = capturedRoom.objects
         
         // Create a reasonable default layout with multiple rooms

@@ -46,7 +46,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     private var speedTestTimer: Timer?
     private var lastMeasurementTime: TimeInterval = 0
     private var lastMeasurementPosition: simd_float3?
-    private let measurementDistanceThreshold: Float = 0.6096 // ~2 feet in meters for better coverage without overwhelming data
+    private let measurementDistanceThreshold: Float = 0.9144 // ~3 feet in meters to prevent test point overlapping
     
     // Memory management limits
     private let maxMeasurements = 500 // Prevent unlimited measurement growth
@@ -140,7 +140,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         // Update position history for movement detection
         updatePositionHistory(location: location, timestamp: currentTime)
         
-        // Check if user has moved at least 1 foot from last measurement
+        // Check if user has moved at least 3 feet from last measurement
         if let lastPosition = lastMeasurementPosition {
             let distance = simd_distance(location, lastPosition)
             guard distance >= measurementDistanceThreshold else { 
@@ -157,7 +157,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
             return
         }
         
-        // User has moved >1 foot and stopped - take measurement
+        // User has moved >3 feet and stopped - take measurement
         lastMeasurementPosition = location
         lastMeasurementTime = currentTime
         

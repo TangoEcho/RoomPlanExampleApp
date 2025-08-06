@@ -28,10 +28,16 @@ class FloorPlanViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupViews()
-        setupFloorPlanRenderer()
         setupUI()
         setupConstraints()
         setupTableView()
+    }
+    
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if floorPlanRenderer == nil {
+            setupFloorPlanRenderer()
+        }
     }
     
     private func setupViews() {
@@ -151,6 +157,22 @@ class FloorPlanViewController: UIViewController {
             floorPlanRenderer.trailingAnchor.constraint(equalTo: floorPlanView.trailingAnchor),
             floorPlanRenderer.bottomAnchor.constraint(equalTo: floorPlanView.bottomAnchor)
         ])
+        
+        // Apply any pending data now that renderer is ready
+        if let roomAnalyzer = self.roomAnalyzer, let heatmapData = self.wifiHeatmapData {
+            floorPlanRenderer.updateRooms(roomAnalyzer.identifiedRooms)
+            floorPlanRenderer.updateFurniture(roomAnalyzer.furnitureItems)
+            floorPlanRenderer.updateHeatmap(heatmapData)
+            if let devices = self.networkDeviceManager?.getAllDevices() {
+                let convertedDevices = devices.compactMap { device -> NetworkDevice? in
+                    let type: NetworkDevice.DeviceType = device.type == .router ? .router : .extender
+                    return NetworkDevice(type: type, position: device.position)
+                }
+                floorPlanRenderer.updateNetworkDevices(convertedDevices)
+            }
+            floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
+            print("✅ Applied pending data to FloorPlanRenderer")
+        }
     }
     
     private func setupUI() {
@@ -289,19 +311,24 @@ class FloorPlanViewController: UIViewController {
         self.measurements = heatmapData.measurements
         
         DispatchQueue.main.async {
-            // Update the renderer with the new data
-            self.floorPlanRenderer.updateRooms(roomAnalyzer.identifiedRooms)
-            self.floorPlanRenderer.updateFurniture(roomAnalyzer.furnitureItems)
-            self.floorPlanRenderer.updateHeatmap(heatmapData)
-            if let devices = self.networkDeviceManager?.getAllDevices() {
-                // Convert NetworkDeviceManager.NetworkDevice to our NetworkDevice type
-                let convertedDevices = devices.compactMap { device -> NetworkDevice? in
-                    let type: NetworkDevice.DeviceType = device.type == .router ? .router : .extender
-                    return NetworkDevice(type: type, position: device.position)
+            // Update the renderer with the new data (if it exists)
+            if let renderer = self.floorPlanRenderer {
+                renderer.updateRooms(roomAnalyzer.identifiedRooms)
+                renderer.updateFurniture(roomAnalyzer.furnitureItems)
+                renderer.updateHeatmap(heatmapData)
+                if let devices = self.networkDeviceManager?.getAllDevices() {
+                    // Convert NetworkDeviceManager.NetworkDevice to our NetworkDevice type
+                    let convertedDevices = devices.compactMap { device -> NetworkDevice? in
+                        let type: NetworkDevice.DeviceType = device.type == .router ? .router : .extender
+                        return NetworkDevice(type: type, position: device.position)
+                    }
+                    renderer.updateNetworkDevices(convertedDevices)
                 }
-                self.floorPlanRenderer.updateNetworkDevices(convertedDevices)
+                renderer.setShowHeatmap(self.heatmapToggle.isOn)
+            } else {
+                // Renderer not ready yet, will be updated in setupFloorPlanRenderer
+                print("⚠️ FloorPlanRenderer not ready yet, data will be applied when renderer is created")
             }
-            self.floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
             self.measurementsList.reloadData()
             self.updateDeviceStatus()
         }
