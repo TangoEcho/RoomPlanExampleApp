@@ -52,8 +52,9 @@ class FloorPlanViewController: UIViewController {
         legendView.translatesAutoresizingMaskIntoConstraints = false
         
         exportButton = SpectrumBranding.createSpectrumButton(title: "Export Report", style: .accent)
-        exportButton.layer.borderWidth = 2
-        exportButton.layer.borderColor = UIColor.white.cgColor
+        // Remove white border for better readability - accent style already has good contrast
+        exportButton.layer.borderWidth = 0
+        exportButton.layer.borderColor = UIColor.clear.cgColor
         
         measurementsList = UITableView()
         measurementsList.translatesAutoresizingMaskIntoConstraints = false
@@ -144,7 +145,8 @@ class FloorPlanViewController: UIViewController {
         titleLabel.textAlignment = .center
         titleLabel.font = UIFont.boldSystemFont(ofSize: 18)
         
-        let newScanButton = SpectrumBranding.createSpectrumButton(title: "New Scan", style: .secondary)
+        let newScanButton = SpectrumBranding.createSpectrumButton(title: "New Scan", style: .primary)
+        // Use primary style for better contrast on blue header background
         newScanButton.addTarget(self, action: #selector(startNewScan), for: .touchUpInside)
         
         view.addSubview(customHeaderView)
@@ -248,6 +250,7 @@ class FloorPlanViewController: UIViewController {
         DispatchQueue.main.async {
             // Update the renderer with the new data
             self.floorPlanRenderer.updateRooms(roomAnalyzer.identifiedRooms)
+            self.floorPlanRenderer.updateFurniture(roomAnalyzer.furnitureItems)
             self.floorPlanRenderer.updateHeatmap(heatmapData)
             if let devices = self.networkDeviceManager?.getAllDevices() {
                 // Convert NetworkDeviceManager.NetworkDevice to our NetworkDevice type

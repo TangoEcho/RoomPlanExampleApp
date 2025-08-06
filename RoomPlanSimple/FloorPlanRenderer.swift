@@ -1,10 +1,31 @@
 import UIKit
 import simd
+import RoomPlan
+
+// MARK: - UIColor Extension
+extension UIColor {
+    func darker(by percentage: CGFloat = 0.3) -> UIColor {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        
+        self.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        
+        return UIColor(
+            red: max(red - percentage, 0),
+            green: max(green - percentage, 0),
+            blue: max(blue - percentage, 0),
+            alpha: alpha
+        )
+    }
+}
 
 class FloorPlanRenderer: UIView {
     
     // MARK: - Properties
     private var rooms: [RoomAnalyzer.IdentifiedRoom] = []
+    private var furnitureItems: [RoomAnalyzer.FurnitureItem] = []
     private var heatmapData: WiFiHeatmapData?
     private var networkDevices: [NetworkDevice] = []
     private var showHeatmap = false
@@ -44,6 +65,11 @@ class FloorPlanRenderer: UIView {
         setNeedsDisplay()
     }
     
+    func updateFurniture(_ furniture: [RoomAnalyzer.FurnitureItem]) {
+        self.furnitureItems = furniture
+        setNeedsDisplay()
+    }
+    
     func updateHeatmap(_ data: WiFiHeatmapData?) {
         self.heatmapData = data
         if showHeatmap {
@@ -74,9 +100,17 @@ class FloorPlanRenderer: UIView {
         // Draw rooms
         drawRooms(in: context, rect: rect)
         
-        // Draw heatmap if enabled
+        // Draw furniture items
+        drawFurniture(in: context, rect: rect)
+        
+        // Always draw WiFi test points if heatmap data exists
+        if let heatmapData = heatmapData {
+            drawWiFiTestPoints(heatmapData, in: context, rect: rect)
+        }
+        
+        // Draw heatmap overlay if enabled
         if showHeatmap, let heatmapData = heatmapData {
-            drawHeatmap(heatmapData, in: context, rect: rect)
+            drawHeatmapOverlay(heatmapData, in: context, rect: rect)
         }
         
         // Draw network devices
@@ -226,12 +260,52 @@ class FloorPlanRenderer: UIView {
         attributedString.draw(in: rect)
     }
     
-    private func drawHeatmap(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
-        // Simple heatmap visualization - draw measurement points as colored circles
+    private func drawWiFiTestPoints(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
+        // Draw WiFi test points as colored circles - always visible
         guard !data.measurements.isEmpty else { return }
         
-        // Calculate bounds similar to rooms
-        let points = data.measurements.map { simd_float2($0.location.x, $0.location.z) }
+        let transform = calculateCoordinateTransform(for: data.measurements, in: rect)
+        guard let transform = transform else { return }
+        
+        // Draw measurement points
+        for measurement in data.measurements {
+            let viewPoint = CGPoint(
+                x: CGFloat(measurement.location.x) * transform.scale + transform.offsetX,
+                y: CGFloat(measurement.location.z) * transform.scale + transform.offsetY
+            )
+            
+            let color = colorForSignalStrength(Float(measurement.signalStrength))
+            drawMeasurementPoint(at: viewPoint, color: color, in: context, alpha: 1.0)
+        }
+    }
+    
+    private func drawHeatmapOverlay(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
+        // Draw heatmap overlay with transparency - only when heatmap toggle is on
+        guard !data.measurements.isEmpty else { return }
+        
+        let transform = calculateCoordinateTransform(for: data.measurements, in: rect)
+        guard let transform = transform else { return }
+        
+        // Draw semi-transparent heatmap overlay
+        for measurement in data.measurements {
+            let viewPoint = CGPoint(
+                x: CGFloat(measurement.location.x) * transform.scale + transform.offsetX,
+                y: CGFloat(measurement.location.z) * transform.scale + transform.offsetY
+            )
+            
+            let color = colorForSignalStrength(Float(measurement.signalStrength))
+            drawHeatmapArea(at: viewPoint, color: color, in: context, radius: 30)
+        }
+    }
+    
+    private struct CoordinateTransform {
+        let scale: CGFloat
+        let offsetX: CGFloat
+        let offsetY: CGFloat
+    }
+    
+    private func calculateCoordinateTransform(for measurements: [WiFiMeasurement], in rect: CGRect) -> CoordinateTransform? {
+        let points = measurements.map { simd_float2($0.location.x, $0.location.z) }
         let minX = points.map { $0.x }.min() ?? 0
         let maxX = points.map { $0.x }.max() ?? 0
         let minY = points.map { $0.y }.min() ?? 0
@@ -240,7 +314,7 @@ class FloorPlanRenderer: UIView {
         let roomWidth = maxX - minX
         let roomHeight = maxY - minY
         
-        guard roomWidth > 0 && roomHeight > 0 else { return }
+        guard roomWidth > 0 && roomHeight > 0 else { return nil }
         
         let padding: CGFloat = 20
         let availableWidth = rect.width - (padding * 2)
@@ -255,16 +329,7 @@ class FloorPlanRenderer: UIView {
         let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
         let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
         
-        // Draw measurement points
-        for measurement in data.measurements {
-            let viewPoint = CGPoint(
-                x: CGFloat(measurement.location.x) * scale + offsetX,
-                y: CGFloat(measurement.location.z) * scale + offsetY
-            )
-            
-            let color = colorForSignalStrength(Float(measurement.signalStrength))
-            drawMeasurementPoint(at: viewPoint, color: color, in: context)
-        }
+        return CoordinateTransform(scale: scale, offsetX: offsetX, offsetY: offsetY)
     }
     
     private func drawNetworkDevices(in context: CGContext, rect: CGRect) {
@@ -291,17 +356,28 @@ class FloorPlanRenderer: UIView {
         }
     }
     
-    private func drawMeasurementPoint(at point: CGPoint, color: UIColor, in context: CGContext) {
+    private func drawMeasurementPoint(at point: CGPoint, color: UIColor, in context: CGContext, alpha: CGFloat = 1.0) {
         let radius: CGFloat = 8
         let rect = CGRect(x: point.x - radius, y: point.y - radius, 
                          width: radius * 2, height: radius * 2)
         
-        context.setFillColor(color.withAlphaComponent(heatmapAlpha).cgColor)
+        // Fill with specified alpha
+        context.setFillColor(color.withAlphaComponent(alpha * 0.8).cgColor)
         context.fillEllipse(in: rect)
         
+        // Stroke with solid color for better visibility
         context.setStrokeColor(color.cgColor)
-        context.setLineWidth(1)
+        context.setLineWidth(2)
         context.strokeEllipse(in: rect)
+    }
+    
+    private func drawHeatmapArea(at point: CGPoint, color: UIColor, in context: CGContext, radius: CGFloat) {
+        let rect = CGRect(x: point.x - radius, y: point.y - radius, 
+                         width: radius * 2, height: radius * 2)
+        
+        // Draw transparent heatmap area
+        context.setFillColor(color.withAlphaComponent(heatmapAlpha * 0.3).cgColor)
+        context.fillEllipse(in: rect)
     }
     
     private func drawDeviceIcon(_ type: NetworkDevice.DeviceType, at point: CGPoint, color: UIColor, in context: CGContext) {
@@ -326,6 +402,130 @@ class FloorPlanRenderer: UIView {
                              height: textSize.height)
         
         attributedString.draw(in: textRect)
+    }
+    
+    private func drawFurniture(in context: CGContext, rect: CGRect) {
+        guard !furnitureItems.isEmpty else { return }
+        
+        // Calculate coordinate transform based on all room points
+        let allRoomPoints = rooms.flatMap { $0.wallPoints }
+        guard !allRoomPoints.isEmpty else { return }
+        
+        let minX = allRoomPoints.map { $0.x }.min() ?? 0
+        let maxX = allRoomPoints.map { $0.x }.max() ?? 0
+        let minY = allRoomPoints.map { $0.y }.min() ?? 0
+        let maxY = allRoomPoints.map { $0.y }.max() ?? 0
+        
+        let roomWidth = maxX - minX
+        let roomHeight = maxY - minY
+        
+        guard roomWidth > 0 && roomHeight > 0 else { return }
+        
+        let padding: CGFloat = 20
+        let availableWidth = rect.width - (padding * 2)
+        let availableHeight = rect.height - (padding * 2)
+        
+        let scaleX = availableWidth / CGFloat(roomWidth)
+        let scaleY = availableHeight / CGFloat(roomHeight)
+        let scale = min(scaleX, scaleY)
+        
+        let offsetX = (rect.width - CGFloat(roomWidth) * scale) / 2 - CGFloat(minX) * scale
+        let offsetY = (rect.height - CGFloat(roomHeight) * scale) / 2 - CGFloat(minY) * scale
+        
+        // Draw each furniture item
+        for furniture in furnitureItems {
+            drawFurnitureItem(furniture, in: context, scale: scale, offsetX: offsetX, offsetY: offsetY)
+        }
+    }
+    
+    private func drawFurnitureItem(_ furniture: RoomAnalyzer.FurnitureItem, in context: CGContext, scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat) {
+        // Convert furniture position to view coordinates
+        let viewX = CGFloat(furniture.position.x) * scale + offsetX
+        let viewY = CGFloat(furniture.position.z) * scale + offsetY // Use Z for Y in top-down view
+        
+        // Calculate furniture dimensions in view coordinates
+        let width = CGFloat(furniture.dimensions.x) * scale
+        let height = CGFloat(furniture.dimensions.z) * scale // Use Z for depth in top-down view
+        
+        let furnitureRect = CGRect(
+            x: viewX - width/2,
+            y: viewY - height/2,
+            width: width,
+            height: height
+        )
+        
+        // Choose color based on furniture category
+        let fillColor = colorForFurnitureCategory(furniture.category)
+        let strokeColor = fillColor.darker(by: 0.3)
+        
+        // Draw furniture as rounded rectangle
+        let cornerRadius = min(width, height) * 0.1
+        let path = CGMutablePath()
+        path.addRoundedRect(in: furnitureRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
+        
+        // Fill furniture
+        context.setFillColor(fillColor.withAlphaComponent(0.7).cgColor)
+        context.addPath(path)
+        context.fillPath()
+        
+        // Stroke furniture outline
+        context.setStrokeColor(strokeColor.cgColor)
+        context.setLineWidth(1.5)
+        context.addPath(path)
+        context.strokePath()
+        
+        // Add furniture label if there's space
+        if width > 30 && height > 20 {
+            let emoji = emojiForFurnitureCategory(furniture.category)
+            drawFurnitureLabel(emoji, at: CGPoint(x: furnitureRect.midX, y: furnitureRect.midY), in: context)
+        }
+    }
+    
+    private func colorForFurnitureCategory(_ category: CapturedRoom.Object.Category) -> UIColor {
+        switch category {
+        case .table:
+            return UIColor.systemBrown
+        case .sofa:
+            return UIColor.systemIndigo
+        case .bed:
+            return UIColor.systemPink
+        case .storage:
+            return UIColor.systemGreen
+        default:
+            return UIColor.systemGray2
+        }
+    }
+    
+    private func emojiForFurnitureCategory(_ category: CapturedRoom.Object.Category) -> String {
+        switch category {
+        case .table:
+            return "📋"
+        case .sofa:
+            return "🛋️"
+        case .bed:
+            return "🛏️"
+        case .storage:
+            return "📦"
+        default:
+            return "🔲"
+        }
+    }
+    
+    private func drawFurnitureLabel(_ text: String, at point: CGPoint, in context: CGContext) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 14),
+            .foregroundColor: UIColor.label
+        ]
+        
+        let attributedString = NSAttributedString(string: text, attributes: attributes)
+        let size = attributedString.size()
+        
+        let rect = CGRect(x: point.x - size.width / 2,
+                         y: point.y - size.height / 2,
+                         width: size.width,
+                         height: size.height)
+        
+        attributedString.draw(in: rect)
     }
 }
 
