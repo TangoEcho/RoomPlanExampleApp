@@ -38,11 +38,38 @@ class ARVisualizationManager: NSObject, ObservableObject {
     private var lastUpdateTime: TimeInterval = 0
     private let updateInterval: TimeInterval = 2.0 // Update every 2 seconds to reduce load
     
+    // Material cache to reduce AR warnings about material loading
+    private var materialCache: [String: SCNMaterial] = [:]
+    
     deinit {
         print("🧹 ARVisualizationManager deallocating - cleaning up AR session")
         stopARSession()
         clearAllVisualizations()
         clearTestPointMarkers()
+        materialCache.removeAll()
+    }
+    
+    // MARK: - Material Caching
+    
+    private func getCachedMaterial(for key: String, configure: (SCNMaterial) -> Void) -> SCNMaterial {
+        if let cachedMaterial = materialCache[key] {
+            return cachedMaterial
+        }
+        
+        let material = SCNMaterial()
+        configure(material)
+        materialCache[key] = material
+        return material
+    }
+    
+    private func getSignalMaterial(signalStrength: Int, alpha: CGFloat = 1.0) -> SCNMaterial {
+        let key = "signal_\(signalStrength)_\(alpha)"
+        return getCachedMaterial(for: key) { material in
+            let color = getSignalQualityColor(signalStrength: signalStrength)
+            material.diffuse.contents = color.withAlphaComponent(alpha)
+            material.emission.contents = color.withAlphaComponent(alpha * 0.4)
+            material.transparency = alpha
+        }
     }
     
     // MARK: - Signal Quality Color Coding
@@ -76,12 +103,9 @@ class ARVisualizationManager: NSObject, ObservableObject {
         
         // Main floor disk - larger and more visible than regular measurement circles
         let diskGeometry = SCNCylinder(radius: 0.2, height: 0.015) // 40cm diameter, 1.5cm thick
-        let diskMaterial = SCNMaterial()
         
-        let signalColor = getSignalQualityColor(signalStrength: measurement.signalStrength)
-        diskMaterial.diffuse.contents = signalColor
-        diskMaterial.emission.contents = signalColor.withAlphaComponent(0.4)
-        diskMaterial.transparency = 0.85
+        // Use cached material to reduce warnings
+        let diskMaterial = getSignalMaterial(signalStrength: measurement.signalStrength, alpha: 0.85)
         diskMaterial.writesToDepthBuffer = false // Ensure visibility through walls
         
         diskGeometry.materials = [diskMaterial]
@@ -89,11 +113,8 @@ class ARVisualizationManager: NSObject, ObservableObject {
         
         // Height indicator - vertical line showing measurement height
         let heightLineGeometry = SCNCylinder(radius: 0.005, height: 1.5) // Thin pole 1.5m high
-        let heightLineMaterial = SCNMaterial()
-        
-        heightLineMaterial.diffuse.contents = signalColor.withAlphaComponent(0.6)
-        heightLineMaterial.emission.contents = signalColor.withAlphaComponent(0.3)
-        heightLineMaterial.transparency = 0.7
+        // Use cached material for height line
+        let heightLineMaterial = getSignalMaterial(signalStrength: measurement.signalStrength, alpha: 0.7)
         
         heightLineGeometry.materials = [heightLineMaterial]
         
@@ -592,6 +613,15 @@ class ARVisualizationManager: NSObject, ObservableObject {
         clearCoverageOverlayNodes()
         clearRoomOutlines()
         clearTestPointMarkers()
+        clearUnusedMaterials()
+    }
+    
+    private func clearUnusedMaterials() {
+        // Keep only frequently used materials to reduce memory usage
+        let commonKeys = ["signal_-50_1.0", "signal_-70_1.0", "signal_-85_1.0", "signal_-100_1.0"]
+        let keysToKeep = Set(commonKeys)
+        materialCache = materialCache.filter { keysToKeep.contains($0.key) }
+        print("🧹 Cleared unused materials, kept \(materialCache.count) cached materials")
     }
     
     private func clearMeasurementNodes() {
