@@ -34,26 +34,60 @@ class SimulatorMockData {
         return [
             RoomAnalyzer.IdentifiedRoom(
                 type: .livingRoom,
+                bounds: createMockSurface(center: simd_float3(3.0, 0, 2.0), size: simd_float3(6.0, 3.0, 4.0)),
                 center: simd_float3(3.0, 0, 2.0),
-                bounds: simd_float3(6.0, 3.0, 4.0),
+                area: 24.0,
                 confidence: 0.85,
-                surfaces: createMockSurfaces(for: .livingRoom)
+                wallPoints: [
+                    simd_float2(0.0, 0.0),
+                    simd_float2(6.0, 0.0),
+                    simd_float2(6.0, 4.0),
+                    simd_float2(0.0, 4.0)
+                ],
+                doorways: [simd_float2(2.0, 0.0)]
             ),
             RoomAnalyzer.IdentifiedRoom(
                 type: .kitchen,
+                bounds: createMockSurface(center: simd_float3(-2.0, 0, 2.0), size: simd_float3(4.0, 3.0, 3.0)),
                 center: simd_float3(-2.0, 0, 2.0),
-                bounds: simd_float3(4.0, 3.0, 3.0),
+                area: 12.0,
                 confidence: 0.78,
-                surfaces: createMockSurfaces(for: .kitchen)
+                wallPoints: [
+                    simd_float2(-4.0, 0.5),
+                    simd_float2(0.0, 0.5),
+                    simd_float2(0.0, 3.5),
+                    simd_float2(-4.0, 3.5)
+                ],
+                doorways: [simd_float2(-2.0, 0.5)]
             ),
             RoomAnalyzer.IdentifiedRoom(
                 type: .bedroom,
+                bounds: createMockSurface(center: simd_float3(3.0, 0, -3.0), size: simd_float3(4.0, 3.0, 3.5)),
                 center: simd_float3(3.0, 0, -3.0),
-                bounds: simd_float3(4.0, 3.0, 3.5),
+                area: 14.0,
                 confidence: 0.92,
-                surfaces: createMockSurfaces(for: .bedroom)
+                wallPoints: [
+                    simd_float2(1.0, -4.75),
+                    simd_float2(5.0, -4.75),
+                    simd_float2(5.0, -1.25),
+                    simd_float2(1.0, -1.25)
+                ],
+                doorways: [simd_float2(3.0, -1.25)]
             )
         ]
+    }
+    
+    private static func createMockSurface(center: simd_float3, size: simd_float3) -> CapturedRoom.Surface {
+        // Create a mock CapturedRoom.Surface - this is simplified since we can't easily create real RoomPlan data
+        // The floor plan renderer mainly uses the wallPoints anyway
+        return CapturedRoom.Surface(
+            curve: nil,
+            completedEdges: [],
+            confidence: .high,
+            classification: .floor,
+            transform: simd_float4x4(1.0),
+            dimensions: size
+        )
     }
     
     private static func createMockSurfaces(for roomType: RoomAnalyzer.RoomType) -> [RoomAnalyzer.RoomSurface] {

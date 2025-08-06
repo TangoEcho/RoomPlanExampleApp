@@ -54,14 +54,19 @@ class FloorPlanRenderer: UIView {
     // MARK: - Public Methods
     
     func updateRooms(_ rooms: [RoomAnalyzer.IdentifiedRoom]) {
+        print("🏠 FloorPlanRenderer: Received \(rooms.count) rooms for rendering")
+        
         // Validate room boundaries before storing
         self.rooms = rooms.filter { room in
+            print("   Room \(room.type.rawValue): \(room.wallPoints.count) wall points")
             guard room.wallPoints.count >= 3 else {
                 print("⚠️ FloorPlanRenderer: Skipping room with insufficient boundary points (\(room.wallPoints.count))")
                 return false
             }
             return true
         }
+        
+        print("✅ FloorPlanRenderer: Filtered to \(self.rooms.count) valid rooms")
         setNeedsDisplay()
     }
     
@@ -92,6 +97,8 @@ class FloorPlanRenderer: UIView {
     override func draw(_ rect: CGRect) {
         super.draw(rect)
         
+        print("🎨 FloorPlanRenderer: draw() called - \(rooms.count) rooms, \(furnitureItems.count) furniture")
+        
         guard let context = UIGraphicsGetCurrentContext() else { return }
         
         // Clear the context
@@ -118,7 +125,10 @@ class FloorPlanRenderer: UIView {
     }
     
     private func drawRooms(in context: CGContext, rect: CGRect) {
+        print("🎨 FloorPlanRenderer: Drawing \(rooms.count) rooms")
+        
         guard !rooms.isEmpty else {
+            print("⚠️ FloorPlanRenderer: No rooms to draw, showing placeholder")
             // Draw placeholder room if no rooms available
             drawPlaceholderRoom(in: context, rect: rect)
             return
