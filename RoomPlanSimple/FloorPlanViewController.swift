@@ -92,7 +92,7 @@ class FloorPlanViewController: UIViewController {
             legendView.topAnchor.constraint(equalTo: heatmapToggle.bottomAnchor, constant: 10),
             legendView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
             legendView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
-            legendView.heightAnchor.constraint(equalToConstant: 120),
+            legendView.heightAnchor.constraint(greaterThanOrEqualToConstant: 120),
             
             exportButton.topAnchor.constraint(equalTo: legendView.bottomAnchor, constant: 16),
             exportButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
@@ -225,17 +225,17 @@ class FloorPlanViewController: UIViewController {
         containerView.addSubview(labelView)
         
         NSLayoutConstraint.activate([
-            // Set container height
-            containerView.heightAnchor.constraint(equalToConstant: 24),
-            
             colorView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            colorView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            colorView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            colorView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
             colorView.widthAnchor.constraint(equalToConstant: 16),
             colorView.heightAnchor.constraint(equalToConstant: 16),
             
             labelView.leadingAnchor.constraint(equalTo: colorView.trailingAnchor, constant: 12),
-            labelView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            labelView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor)
+            labelView.centerYAnchor.constraint(equalTo: colorView.centerYAnchor),
+            labelView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            labelView.topAnchor.constraint(greaterThanOrEqualTo: containerView.topAnchor),
+            labelView.bottomAnchor.constraint(lessThanOrEqualTo: containerView.bottomAnchor)
         ])
         
         return containerView

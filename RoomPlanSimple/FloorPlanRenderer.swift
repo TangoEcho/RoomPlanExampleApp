@@ -170,8 +170,20 @@ class FloorPlanRenderer: UIView {
             return
         }
         
-        // Convert room points to view coordinates
-        let viewPoints = room.wallPoints.map { point in
+        // Additional validation to prevent boundary assertion errors
+        let uniquePoints = room.wallPoints.reduce(into: [simd_float2]()) { result, point in
+            if !result.contains(where: { abs($0.x - point.x) < 0.001 && abs($0.y - point.y) < 0.001 }) {
+                result.append(point)
+            }
+        }
+        
+        guard uniquePoints.count >= 3 else {
+            print("⚠️ FloorPlanRenderer: Room has insufficient unique points after deduplication (\(uniquePoints.count))")
+            return
+        }
+        
+        // Convert room points to view coordinates using unique points
+        let viewPoints = uniquePoints.map { point in
             CGPoint(x: CGFloat(point.x) * scale + offsetX,
                    y: CGFloat(point.y) * scale + offsetY)
         }
