@@ -24,11 +24,6 @@ You can see a preview of your scan at the bottom of the screen so you can make s
                                 <fontDescription key="fontDescription" style="UICTFontTextStyleBody"/>
                                 <nil key="highlightedColor"/>
                             </label>
-                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="RoomPlan" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="cDs-He-YN5">
-                                <rect key="frame" x="133.66666666666669" y="174" width="160.66666666666669" height="41"/>
-                                <fontDescription key="fontDescription" type="boldSystem" pointSize="34"/>
-                                <nil key="highlightedColor"/>
-                            </label>
                             <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" role="primary" translatesAutoresizingMaskIntoConstraints="NO" id="r5J-Dx-sgl">
                                 <rect key="frame" x="114" y="809" width="200" height="50"/>
                                 <constraints>
@@ -52,10 +47,8 @@ You can see a preview of your scan at the bottom of the screen so you can make s
                             <constraint firstItem="7pk-tu-CeD" firstAttribute="leading" secondItem="yBf-P1-2uZ" secondAttribute="leading" constant="40" id="5Ff-Ks-CH2"/>
                             <constraint firstItem="7pk-tu-CeD" firstAttribute="centerX" secondItem="yBf-P1-2uZ" secondAttribute="centerX" id="IgI-hg-NjN"/>
                             <constraint firstItem="r5J-Dx-sgl" firstAttribute="centerX" secondItem="yBf-P1-2uZ" secondAttribute="centerX" id="SJ7-JW-icA"/>
-                            <constraint firstItem="cDs-He-YN5" firstAttribute="top" secondItem="6Fz-hG-eHB" secondAttribute="top" constant="130" id="SQJ-hz-omc"/>
                             <constraint firstItem="6Fz-hG-eHB" firstAttribute="bottom" secondItem="r5J-Dx-sgl" secondAttribute="bottom" constant="33" id="WAH-Xu-OKa"/>
-                            <constraint firstItem="7pk-tu-CeD" firstAttribute="top" secondItem="cDs-He-YN5" secondAttribute="bottom" constant="15" id="WHO-Ho-ovq"/>
-                            <constraint firstItem="cDs-He-YN5" firstAttribute="centerX" secondItem="yBf-P1-2uZ" secondAttribute="centerX" id="Wjg-Iv-gWw"/>
+                            <constraint firstItem="7pk-tu-CeD" firstAttribute="top" secondItem="6Fz-hG-eHB" secondAttribute="top" constant="159" id="WHO-Ho-ovq"/>
                             <constraint firstAttribute="trailing" secondItem="7pk-tu-CeD" secondAttribute="trailing" constant="40" id="fCa-8j-XGw"/>
                         </constraints>
                     </view>

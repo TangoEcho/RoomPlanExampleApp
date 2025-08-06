@@ -86,7 +86,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     // Progress scanning haptic timer
     private var scanningProgressTimer: Timer?
-    private let progressHapticInterval: TimeInterval = 3.0 // Every 3 seconds while scanning
+    private let progressHapticInterval: TimeInterval = 1.5 // Every 1.5 seconds while scanning
     
     // Simulator mode properties
     private var simulatorTimer: Timer?
@@ -335,19 +335,19 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             modeLabel.heightAnchor.constraint(equalToConstant: 32),
             
             // Scan/survey toggle in bottom-left corner (moved further up to avoid RoomPlan model)
-            scanSurveyToggleButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -80),
+            scanSurveyToggleButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -120),
             scanSurveyToggleButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
             scanSurveyToggleButton.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
             scanSurveyToggleButton.heightAnchor.constraint(equalToConstant: 44),
             
             // Floor plan button in bottom-right corner (moved further up to avoid RoomPlan model)
-            floorPlanNavButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -80),
+            floorPlanNavButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -120),
             floorPlanNavButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
             floorPlanNavButton.widthAnchor.constraint(equalToConstant: 120),
             floorPlanNavButton.heightAnchor.constraint(equalToConstant: 44),
             
             // Router placement button in bottom-center
-            routerPlacementButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -80),
+            routerPlacementButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -120),
             routerPlacementButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             routerPlacementButton.widthAnchor.constraint(equalToConstant: 140),
             routerPlacementButton.heightAnchor.constraint(equalToConstant: 44)
@@ -377,8 +377,8 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             }
             
         case .completed:
-            // Allow viewing results or restarting
-            break
+            // Restart the entire session from the beginning
+            restartCompleteSession()
         }
         
         updateBottomNavigation()
@@ -512,6 +512,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         // Stop WiFi survey but preserve coordinate system
         wifiSurveyManager.stopSurvey()
         
+        // Disable shared session mode when returning to scanning
+        arVisualizationManager.setSharedARSessionMode(false)
+        
         // iOS 17+: Don't stop the shared ARSession to maintain coordinates
         if isIOS17Available {
             print("🎯 Preserving shared ARSession for coordinate continuity")
@@ -558,6 +561,40 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         }
     }
     
+    private func restartCompleteSession() {
+        print("🔄 Restarting complete session - clearing all data...")
+        
+        // Stop any active sessions
+        stopSession()
+        
+        // Clear all data
+        capturedRoomData = nil
+        finalResults = nil
+        currentMode = .scanning
+        isScanning = false
+        
+        // Clear WiFi survey data
+        wifiSurveyManager.clearMeasurementData()
+        
+        // Clear AR visualization
+        arVisualizationManager.clearAllVisualizations()
+        
+        // Clear network device data
+        networkDeviceManager.clearAllDevices()
+        
+        // Clear any room analysis
+        roomAnalyzer.identifiedRooms.removeAll()
+        
+        // Reset status
+        statusLabel?.text = "📱 Ready to scan room - Tap to start"
+        statusLabel?.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
+        
+        // Update UI
+        updateBottomNavigation()
+        
+        print("✅ Complete session restart - ready for new scan")
+    }
+    
     private func resumeWiFiSurvey() {
         print("▶️ Resuming WiFi survey...")
         startWiFiSurveyWithinRoomPlan()
@@ -570,18 +607,18 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         // Start WiFi survey 
         wifiSurveyManager.startSurvey()
         
-        // Switch to AR mode for WiFi visualization
-        switchToARMode()
-        
-        // iOS 17+: AR is already using the shared session, perfect alignment!
+        // iOS 17+: Set shared session mode BEFORE switching to AR mode to preserve coordinates
         if isIOS17Available {
-            print("🎯 WiFi survey using shared ARSession - Perfect coordinate alignment active")
+            print("🎯 Enabling shared ARSession mode for perfect coordinate alignment")
             arVisualizationManager.setSharedARSessionMode(true)
         } else {
-            // iOS 16: Start separate AR session
-            arVisualizationManager.startARSession()
-            print("⚠️ WiFi survey using separate ARSession (iOS 16)")
+            // iOS 16: Disable shared session mode
+            arVisualizationManager.setSharedARSessionMode(false)
+            print("⚠️ Using separate ARSession (iOS 16)")
         }
+        
+        // Switch to AR mode for WiFi visualization (this will respect shared session mode)
+        switchToARMode()
         
         // If we have room data, use it for additional reference
         if let capturedRoom = capturedRoomData {
@@ -1146,6 +1183,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         arSceneView.isHidden = false
         
         // Start AR session when switching to AR mode
+        // (ARVisualizationManager will handle shared session mode appropriately)
         arVisualizationManager.startARSession()
         
         updateButtonStates()
