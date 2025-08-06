@@ -148,9 +148,17 @@ class FloorPlanViewController: UIViewController {
     }
     
     private func setupFloorPlanRenderer() {
+        print("🔧 FloorPlanViewController: setupFloorPlanRenderer called")
+        print("🔧 FloorPlanView bounds: \(floorPlanView.bounds)")
+        print("🔧 FloorPlanView frame: \(floorPlanView.frame)")
+        
         floorPlanRenderer = FloorPlanRenderer(frame: floorPlanView.bounds)
         floorPlanView.addSubview(floorPlanRenderer)
         floorPlanRenderer.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Make the renderer background visible for debugging
+        floorPlanRenderer.backgroundColor = UIColor.systemRed.withAlphaComponent(0.3)
+        
         NSLayoutConstraint.activate([
             floorPlanRenderer.topAnchor.constraint(equalTo: floorPlanView.topAnchor),
             floorPlanRenderer.leadingAnchor.constraint(equalTo: floorPlanView.leadingAnchor),
@@ -158,8 +166,18 @@ class FloorPlanViewController: UIViewController {
             floorPlanRenderer.bottomAnchor.constraint(equalTo: floorPlanView.bottomAnchor)
         ])
         
+        print("🔧 FloorPlanRenderer created with frame: \(floorPlanRenderer.frame)")
+        print("🔧 FloorPlanRenderer added to view hierarchy")
+        
+        // Force layout and trigger drawing
+        floorPlanView.layoutIfNeeded()
+        floorPlanRenderer.setNeedsDisplay()
+        
+        print("🔧 FloorPlanRenderer after layout - frame: \(floorPlanRenderer.frame), bounds: \(floorPlanRenderer.bounds)")
+        
         // Apply any pending data now that renderer is ready
         if let roomAnalyzer = self.roomAnalyzer, let heatmapData = self.wifiHeatmapData {
+            print("🔧 Applying pending data to FloorPlanRenderer")
             floorPlanRenderer.updateRooms(roomAnalyzer.identifiedRooms)
             floorPlanRenderer.updateFurniture(roomAnalyzer.furnitureItems)
             floorPlanRenderer.updateHeatmap(heatmapData)
@@ -172,6 +190,10 @@ class FloorPlanViewController: UIViewController {
             }
             floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
             print("✅ Applied pending data to FloorPlanRenderer")
+        } else {
+            print("⚠️ No pending data to apply to FloorPlanRenderer")
+            print("   roomAnalyzer: \(roomAnalyzer != nil ? "exists" : "nil")")
+            print("   heatmapData: \(wifiHeatmapData != nil ? "exists" : "nil")")
         }
     }
     

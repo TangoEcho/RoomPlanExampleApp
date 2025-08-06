@@ -98,11 +98,30 @@ class FloorPlanRenderer: UIView {
         super.draw(rect)
         
         print("🎨 FloorPlanRenderer: draw() called - \(rooms.count) rooms, \(furnitureItems.count) furniture")
+        print("🎨 FloorPlanRenderer: View frame: \(frame), bounds: \(bounds)")
+        print("🎨 FloorPlanRenderer: Draw rect: \(rect)")
+        print("🎨 FloorPlanRenderer: Background color: \(backgroundColor?.description ?? "nil")")
+        print("🎨 FloorPlanRenderer: IsHidden: \(isHidden), Alpha: \(alpha)")
         
-        guard let context = UIGraphicsGetCurrentContext() else { return }
+        guard let context = UIGraphicsGetCurrentContext() else { 
+            print("❌ FloorPlanRenderer: No graphics context available!")
+            return 
+        }
         
-        // Clear the context
+        // Clear the context with a visible background for debugging
         context.clear(rect)
+        
+        // Fill with background color to make sure the view is visible
+        if let bgColor = backgroundColor {
+            context.setFillColor(bgColor.cgColor)
+            context.fill(rect)
+        }
+        
+        // Draw a test rectangle to verify rendering is working
+        context.setStrokeColor(UIColor.red.cgColor)
+        context.setLineWidth(3.0)
+        context.stroke(rect.insetBy(dx: 10, dy: 10))
+        print("🎨 FloorPlanRenderer: Drew test border rectangle")
         
         // Draw rooms
         drawRooms(in: context, rect: rect)
@@ -180,6 +199,12 @@ class FloorPlanRenderer: UIView {
             return
         }
         
+        // Debug: Print raw room data
+        print("🔍 FloorPlanRenderer: Drawing room '\(room.type.rawValue)' with \(room.wallPoints.count) wall points:")
+        for (i, point) in room.wallPoints.enumerated() {
+            print("   Point \(i): (\(point.x), \(point.y))")
+        }
+        
         // Additional validation to prevent boundary assertion errors
         let uniquePoints = room.wallPoints.reduce(into: [simd_float2]()) { result, point in
             if !result.contains(where: { abs($0.x - point.x) < 0.001 && abs($0.y - point.y) < 0.001 }) {
@@ -192,10 +217,18 @@ class FloorPlanRenderer: UIView {
             return
         }
         
+        print("🔍 FloorPlanRenderer: Using \(uniquePoints.count) unique points after deduplication")
+        print("🔍 FloorPlanRenderer: Transform - scale: \(scale), offsetX: \(offsetX), offsetY: \(offsetY)")
+        
         // Convert room points to view coordinates using unique points
         let viewPoints = uniquePoints.map { point in
             CGPoint(x: CGFloat(point.x) * scale + offsetX,
                    y: CGFloat(point.y) * scale + offsetY)
+        }
+        
+        print("🔍 FloorPlanRenderer: Transformed view points:")
+        for (i, point) in viewPoints.enumerated() {
+            print("   ViewPoint \(i): (\(point.x), \(point.y))")
         }
         
         // Create path for room boundary - using safe path creation
