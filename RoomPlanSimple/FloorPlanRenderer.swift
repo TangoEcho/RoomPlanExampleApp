@@ -229,35 +229,54 @@ class FloorPlanRenderer: UIView {
             print("   ViewPoint \(i): (\(point.x), \(point.y))")
         }
         
-        // Create path for room boundary - using safe path creation
+        // Create path for room boundary with comprehensive validation
         let path = CGMutablePath()
-        if let firstPoint = viewPoints.first {
-            path.move(to: firstPoint)
-            
-            // Add lines to subsequent points
-            for i in 1..<viewPoints.count {
-                path.addLine(to: viewPoints[i])
-            }
-            
-            // Close the path only if we have more than 2 points
-            if viewPoints.count > 2 {
-                path.closeSubpath()
+        
+        // Validate we have enough points and they're all valid
+        guard viewPoints.count >= 3,
+              viewPoints.allSatisfy({ !$0.x.isNaN && !$0.y.isNaN && $0.x.isFinite && $0.y.isFinite }) else {
+            print("⚠️ FloorPlanRenderer: Invalid room points, skipping path creation")
+            return
+        }
+        
+        // Additional validation: ensure points aren't all identical
+        let uniqueViewPoints = viewPoints.reduce(into: [CGPoint]()) { result, point in
+            if !result.contains(where: { abs($0.x - point.x) < 0.5 && abs($0.y - point.y) < 0.5 }) {
+                result.append(point)
             }
         }
+        
+        guard uniqueViewPoints.count >= 3 else {
+            print("⚠️ FloorPlanRenderer: Insufficient unique points (\(uniqueViewPoints.count)), skipping room")
+            return
+        }
+        
+        // Safe path creation
+        path.move(to: uniqueViewPoints[0])
+        
+        for i in 1..<uniqueViewPoints.count {
+            path.addLine(to: uniqueViewPoints[i])
+        }
+        
+        path.closeSubpath()
         
         // Use different colors for different room types to distinguish overlaps
         let (fillColor, strokeColor) = getRoomColors(for: room.type, roomIndex: roomIndex)
         
-        // Set room fill color with room-specific transparency
-        context.setFillColor(fillColor.withAlphaComponent(0.2).cgColor)
-        context.addPath(path)
-        context.fillPath()
-        
-        // Draw room boundary with room-specific color
-        context.setStrokeColor(strokeColor.cgColor)
-        context.setLineWidth(roomStrokeWidth)
-        context.addPath(path)
-        context.strokePath()
+        // Draw room fill with safety checks
+        if !path.isEmpty {
+            context.setFillColor(fillColor.withAlphaComponent(0.2).cgColor)
+            context.addPath(path)
+            context.fillPath()
+            
+            // Draw room boundary with room-specific color
+            context.setStrokeColor(strokeColor.cgColor)
+            context.setLineWidth(roomStrokeWidth)
+            context.addPath(path)
+            context.strokePath()
+        } else {
+            print("⚠️ FloorPlanRenderer: Empty path, skipping room drawing")
+        }
         
         // Draw room label if there's space
         if let centerPoint = calculateRoomCenter(viewPoints) {

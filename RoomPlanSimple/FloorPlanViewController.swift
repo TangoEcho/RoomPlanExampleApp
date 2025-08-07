@@ -6,16 +6,20 @@ class FloorPlanViewController: UIViewController {
     // MARK: - Properties
     
     private var floorPlanRenderer: FloorPlanRenderer!
+    private var accuracyDebugRenderer: AccuracyDebugRenderer!
     private var legendView: UIView!
     private var measurementsList: UITableView!
     private var heatmapToggle: UISwitch!
     private var heatmapLabel: UILabel!
+    private var debugToggle: UISwitch!
+    private var debugLabel: UILabel!
     private var exportButton: UIButton!
     private var closeButton: UIButton!
     
     private var wifiHeatmapData: WiFiHeatmapData?
     private var roomAnalyzer: RoomAnalyzer?
     private var networkDeviceManager: NetworkDeviceManager?
+    private var validationResults: RoomAccuracyValidator.ValidationResults?
     private var measurements: [WiFiMeasurement] = []
     
     // MARK: - Lifecycle
@@ -69,6 +73,15 @@ class FloorPlanViewController: UIViewController {
         floorPlanRenderer.layer.borderWidth = 1
         floorPlanRenderer.layer.borderColor = UIColor.systemGray4.cgColor
         
+        // Accuracy debug renderer
+        accuracyDebugRenderer = AccuracyDebugRenderer()
+        accuracyDebugRenderer.translatesAutoresizingMaskIntoConstraints = false
+        accuracyDebugRenderer.backgroundColor = .systemGray6
+        accuracyDebugRenderer.layer.cornerRadius = 12
+        accuracyDebugRenderer.layer.borderWidth = 1
+        accuracyDebugRenderer.layer.borderColor = UIColor.systemGray4.cgColor
+        accuracyDebugRenderer.isHidden = true
+        
         // Heatmap controls
         heatmapLabel = UILabel()
         heatmapLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -78,6 +91,16 @@ class FloorPlanViewController: UIViewController {
         heatmapToggle = UISwitch()
         heatmapToggle.translatesAutoresizingMaskIntoConstraints = false
         heatmapToggle.addTarget(self, action: #selector(toggleHeatmap), for: .valueChanged)
+        
+        // Debug controls
+        debugLabel = UILabel()
+        debugLabel.translatesAutoresizingMaskIntoConstraints = false
+        debugLabel.text = "Show Accuracy Debug"
+        debugLabel.font = .systemFont(ofSize: 16, weight: .medium)
+        
+        debugToggle = UISwitch()
+        debugToggle.translatesAutoresizingMaskIntoConstraints = false
+        debugToggle.addTarget(self, action: #selector(toggleDebugView), for: .valueChanged)
         
         // Legend
         legendView = UIView()
@@ -114,8 +137,11 @@ class FloorPlanViewController: UIViewController {
     private func addSubviews() {
         view.addSubview(closeButton)
         view.addSubview(floorPlanRenderer)
+        view.addSubview(accuracyDebugRenderer)
         view.addSubview(heatmapLabel)
         view.addSubview(heatmapToggle)
+        view.addSubview(debugLabel)
+        view.addSubview(debugToggle)
         view.addSubview(legendView)
         view.addSubview(measurementsList)
         view.addSubview(exportButton)
@@ -135,6 +161,12 @@ class FloorPlanViewController: UIViewController {
             floorPlanRenderer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             floorPlanRenderer.heightAnchor.constraint(equalToConstant: 300),
             
+            // Accuracy debug renderer - same position as floor plan renderer
+            accuracyDebugRenderer.topAnchor.constraint(equalTo: floorPlanRenderer.topAnchor),
+            accuracyDebugRenderer.leadingAnchor.constraint(equalTo: floorPlanRenderer.leadingAnchor),
+            accuracyDebugRenderer.trailingAnchor.constraint(equalTo: floorPlanRenderer.trailingAnchor),
+            accuracyDebugRenderer.bottomAnchor.constraint(equalTo: floorPlanRenderer.bottomAnchor),
+            
             // Heatmap toggle and label
             heatmapToggle.topAnchor.constraint(equalTo: floorPlanRenderer.bottomAnchor, constant: 16),
             heatmapToggle.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
@@ -142,8 +174,15 @@ class FloorPlanViewController: UIViewController {
             heatmapLabel.centerYAnchor.constraint(equalTo: heatmapToggle.centerYAnchor),
             heatmapLabel.trailingAnchor.constraint(equalTo: heatmapToggle.leadingAnchor, constant: -8),
             
+            // Debug toggle and label
+            debugToggle.topAnchor.constraint(equalTo: heatmapToggle.bottomAnchor, constant: 8),
+            debugToggle.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            
+            debugLabel.centerYAnchor.constraint(equalTo: debugToggle.centerYAnchor),
+            debugLabel.trailingAnchor.constraint(equalTo: debugToggle.leadingAnchor, constant: -8),
+            
             // Legend
-            legendView.topAnchor.constraint(equalTo: heatmapToggle.bottomAnchor, constant: 16),
+            legendView.topAnchor.constraint(equalTo: debugToggle.bottomAnchor, constant: 16),
             legendView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             legendView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             legendView.heightAnchor.constraint(equalToConstant: 140),
@@ -240,15 +279,19 @@ class FloorPlanViewController: UIViewController {
     
     // MARK: - Public Methods
     
-    func updateWithData(heatmapData: WiFiHeatmapData, roomAnalyzer: RoomAnalyzer, networkDeviceManager: NetworkDeviceManager? = nil) {
+    func updateWithData(heatmapData: WiFiHeatmapData, roomAnalyzer: RoomAnalyzer, networkDeviceManager: NetworkDeviceManager? = nil, validationResults: RoomAccuracyValidator.ValidationResults? = nil) {
         self.wifiHeatmapData = heatmapData
         self.roomAnalyzer = roomAnalyzer
         self.networkDeviceManager = networkDeviceManager
+        self.validationResults = validationResults
         self.measurements = heatmapData.measurements
         
         print("📊 FloorPlanViewController: Received data update")
         print("   Rooms: \(roomAnalyzer.identifiedRooms.count)")
         print("   Measurements: \(measurements.count)")
+        if let results = validationResults {
+            print("   Validation accuracy: \(String(format: "%.1f", results.overallAccuracyScore * 100))%")
+        }
         
         // Update the renderer
         DispatchQueue.main.async { [weak self] in
@@ -268,6 +311,14 @@ class FloorPlanViewController: UIViewController {
                 self.floorPlanRenderer.updateNetworkDevices(convertedDevices)
             }
             
+            // Update accuracy debug renderer if we have validation results
+            if let results = validationResults {
+                self.accuracyDebugRenderer.updateWithValidationResults(results)
+                self.debugToggle.isEnabled = true
+            } else {
+                self.debugToggle.isEnabled = false
+            }
+            
             self.floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
             self.measurementsList.reloadData()
         }
@@ -277,6 +328,16 @@ class FloorPlanViewController: UIViewController {
     
     @objc private func toggleHeatmap() {
         floorPlanRenderer.setShowHeatmap(heatmapToggle.isOn)
+    }
+    
+    @objc private func toggleDebugView() {
+        if debugToggle.isOn {
+            floorPlanRenderer.isHidden = true
+            accuracyDebugRenderer.isHidden = false
+        } else {
+            floorPlanRenderer.isHidden = false
+            accuracyDebugRenderer.isHidden = true
+        }
     }
     
     @objc private func exportReport() {

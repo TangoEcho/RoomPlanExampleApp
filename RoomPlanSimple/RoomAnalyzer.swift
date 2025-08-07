@@ -100,7 +100,7 @@ class RoomAnalyzer: ObservableObject {
         let area = calculateSurfaceArea(floor)
         
         // Create room boundary from floor surface (not walls/doors/windows)
-        let wallPoints = createRoomBoundaryFromFloorSurface(floor)
+        let wallPoints = createRoomBoundaryFromWalls(capturedRoom, centerPoint: center)
         let doorways = extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: center)
         
         return IdentifiedRoom(
@@ -202,7 +202,7 @@ class RoomAnalyzer: ObservableObject {
                 center: roomCenter,
                 area: roomArea,
                 confidence: calculateConfidenceFromFurniture(group, roomType: roomType),
-                wallPoints: roomBoundary,
+                wallPoints: createRoomBoundaryFromWalls(capturedRoom, centerPoint: simd_float3(groupCenter.x, 0, groupCenter.y)),
                 doorways: doorways
             )
             
@@ -314,15 +314,103 @@ class RoomAnalyzer: ObservableObject {
     }
     
     private func extractActualSurfaceBoundary(_ surface: CapturedRoom.Surface) -> [simd_float2]? {
-        // IMPROVED: Attempt to extract actual room boundary from RoomPlan surface mesh
-        // RoomPlan surfaces contain detailed geometry that we should use instead of rectangles
-        
-        // Note: RoomPlan's CapturedRoom.Surface doesn't expose mesh vertices directly in the public API
-        // We'll need to use the transform and dimensions but apply more sophisticated boundary detection
-        
-        // For now, return nil to use the improved rectangular approximation
-        // In a production app, you might use private APIs or ARMeshGeometry to extract actual boundaries
+        // Try to create boundaries from wall surfaces instead of floor approximations
+        // This is a placeholder that could be enhanced to use the actual wall positions
         return nil
+    }
+    
+    private func createRoomBoundaryFromWalls(_ capturedRoom: CapturedRoom, centerPoint: simd_float3) -> [simd_float2] {
+        // Create proper room boundaries using wall surface positions
+        print("🧱 Creating room boundary from \(capturedRoom.walls.count) wall surfaces")
+        
+        var wallPoints: [simd_float2] = []
+        let maxDistance: Float = 10.0 // Maximum distance to consider walls as part of this room
+        
+        // Extract wall endpoints and centers
+        for wall in capturedRoom.walls {
+            let wallCenter = extractSurfaceCenter(wall)
+            let distance = simd_distance(wallCenter, centerPoint)
+            
+            if distance <= maxDistance {
+                // Extract wall corner points based on dimensions and transform
+                let wallCorners = extractWallCornerPoints(wall)
+                wallPoints.append(contentsOf: wallCorners)
+                print("   Wall at (\(String(format: "%.2f", wallCenter.x)), \(String(format: "%.2f", wallCenter.z))) added \(wallCorners.count) points")
+            }
+        }
+        
+        if wallPoints.isEmpty {
+            print("   ⚠️ No walls found, creating fallback boundary")
+            // Fallback to furniture-based boundary
+            return createRoomBoundaryFromFurnitureCluster(capturedRoom.objects, floor: capturedRoom.floors.first ?? CapturedRoom.Surface(anchor: ARAnchor()))
+        }
+        
+        // Create convex hull or ordered boundary from wall points
+        let orderedBoundary = createOrderedBoundaryFromPoints(wallPoints, center: simd_float2(centerPoint.x, centerPoint.z))
+        print("   ✅ Created room boundary with \(orderedBoundary.count) wall-based points")
+        
+        return orderedBoundary
+    }
+    
+    private func extractWallCornerPoints(_ wall: CapturedRoom.Surface) -> [simd_float2] {
+        let center = extractSurfaceCenter(wall)
+        let dimensions = wall.dimensions
+        let transform = wall.transform
+        
+        // Extract wall orientation from transform matrix
+        let rightX = transform.columns.0.x
+        let rightZ = transform.columns.0.z
+        let forwardX = transform.columns.2.x
+        let forwardZ = transform.columns.2.z
+        
+        let rightVector = simd_normalize(simd_float2(rightX, rightZ))
+        let forwardVector = simd_normalize(simd_float2(forwardX, forwardZ))
+        
+        let halfWidth = dimensions.x / 2
+        let halfDepth = dimensions.z / 2
+        
+        let center2D = simd_float2(center.x, center.z)
+        
+        // Generate wall corner points
+        let corners = [
+            center2D - rightVector * halfWidth - forwardVector * halfDepth,
+            center2D + rightVector * halfWidth - forwardVector * halfDepth,
+            center2D + rightVector * halfWidth + forwardVector * halfDepth,
+            center2D - rightVector * halfWidth + forwardVector * halfDepth
+        ]
+        
+        return corners
+    }
+    
+    private func createOrderedBoundaryFromPoints(_ points: [simd_float2], center: simd_float2) -> [simd_float2] {
+        guard !points.isEmpty else { return [] }
+        
+        // Remove duplicate points
+        let uniquePoints = points.reduce(into: [simd_float2]()) { result, point in
+            if !result.contains(where: { simd_distance($0, point) < 0.1 }) {
+                result.append(point)
+            }
+        }
+        
+        guard uniquePoints.count >= 3 else { 
+            // Fallback to simple rectangular boundary
+            let padding: Float = 2.0
+            return [
+                center + simd_float2(-padding, -padding),
+                center + simd_float2(padding, -padding),
+                center + simd_float2(padding, padding),
+                center + simd_float2(-padding, padding)
+            ]
+        }
+        
+        // Sort points by angle relative to center to create proper polygon
+        let sortedPoints = uniquePoints.sorted { point1, point2 in
+            let angle1 = atan2(point1.y - center.y, point1.x - center.x)
+            let angle2 = atan2(point2.y - center.y, point2.x - center.x)
+            return angle1 < angle2
+        }
+        
+        return sortedPoints
     }
     
     private func createRoomBoundaryFromFurnitureCluster(_ furniture: [CapturedRoom.Object], floor: CapturedRoom.Surface) -> [simd_float2] {

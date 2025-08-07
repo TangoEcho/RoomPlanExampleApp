@@ -16,6 +16,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var wifiSurveyManager = WiFiSurveyManager()
     private var arVisualizationManager = ARVisualizationManager()
     private var networkDeviceManager = NetworkDeviceManager()
+    private var roomAccuracyValidator = RoomAccuracyValidator()
     private var arSceneView: ARSCNView!
     
     // iOS 17+ Custom ARSession for perfect coordinate alignment
@@ -695,18 +696,22 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             scanSurveyToggleButton?.isEnabled = true
         }
         
-        // Floor Plan button - only show results after both room scan AND WiFi survey are completed
+        // Floor Plan button - show results when room data is available (WiFi data is optional)
         let hasRoomData = capturedRoomData != nil || roomPlanPaused
         let hasWifiData = !wifiSurveyManager.measurements.isEmpty
         
-        if hasRoomData && hasWifiData {
-            // Both room scan and WiFi survey completed - show Results button
-            floorPlanNavButton?.setTitle("📊 Results", for: .normal)
+        if hasRoomData {
+            // Room scan completed - show Results button (WiFi data is optional)
+            if hasWifiData {
+                floorPlanNavButton?.setTitle("📊 Results", for: .normal)
+            } else {
+                floorPlanNavButton?.setTitle("📊 Floor Plan", for: .normal)
+            }
             floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
             floorPlanNavButton?.setTitleColor(.white, for: .normal)
             floorPlanNavButton?.isEnabled = true
         } else {
-            // Either room scan or WiFi survey (or both) not completed - disable button
+            // No room scan data - disable button
             floorPlanNavButton?.setTitle("📊 Results", for: .normal)
             floorPlanNavButton?.backgroundColor = UIColor.systemGray
             floorPlanNavButton?.setTitleColor(.white, for: .normal)
@@ -1046,6 +1051,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         // Pass room data to AR visualization manager
         arVisualizationManager.setCapturedRoomData(processedResult)
         
+        // Perform accuracy validation after room analysis
+        performAccuracyValidation(capturedRoom: processedResult)
+        
         // Check if both room and WiFi data exist (but don't auto-complete)
         if !wifiSurveyManager.measurements.isEmpty {
             print("✅ Both room scan and WiFi survey data available - user can view results when ready")
@@ -1149,7 +1157,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                     print("✅ Results generated, navigating to floor plan...")
                     
                     let floorPlanVC = FloorPlanViewController()
-                    floorPlanVC.updateWithData(heatmapData: heatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager)
+                    floorPlanVC.updateWithData(heatmapData: heatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager, validationResults: self.roomAccuracyValidator.validationResults)
                     floorPlanVC.modalPresentationStyle = .fullScreen
                     self.present(floorPlanVC, animated: true)
                     
@@ -1171,7 +1179,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                     coverageMap: [:],
                     optimalRouterPlacements: []
                 )
-                floorPlanVC.updateWithData(heatmapData: emptyHeatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager)
+                floorPlanVC.updateWithData(heatmapData: emptyHeatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager, validationResults: self.roomAccuracyValidator.validationResults)
                 floorPlanVC.modalPresentationStyle = .fullScreen
                 self.present(floorPlanVC, animated: true)
                 
@@ -1194,7 +1202,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 print("✅ Mock results generated, navigating to floor plan...")
                 
                 let floorPlanVC = FloorPlanViewController()
-                floorPlanVC.updateWithData(heatmapData: mockHeatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager)
+                floorPlanVC.updateWithData(heatmapData: mockHeatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager, validationResults: self.roomAccuracyValidator.validationResults)
                 floorPlanVC.modalPresentationStyle = .fullScreen
                 self.present(floorPlanVC, animated: true)
                 
@@ -1304,6 +1312,102 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         UIView.animate(withDuration: 1.0) {
             self.exportButton?.alpha = 1.0
         }
+    }
+    
+    // MARK: - Accuracy Validation
+    
+    private func performAccuracyValidation(capturedRoom: CapturedRoom) {
+        print("🎯 Performing room accuracy validation...")
+        
+        // Run validation in background to avoid blocking UI
+        DispatchQueue.global(qos: .userInitiated).async {
+            let validationResults = self.roomAccuracyValidator.validateRoomAccuracy(
+                capturedRoom: capturedRoom,
+                roomAnalyzer: self.roomAnalyzer
+            )
+            
+            DispatchQueue.main.async {
+                self.handleValidationResults(validationResults)
+            }
+        }
+    }
+    
+    private func handleValidationResults(_ results: RoomAccuracyValidator.ValidationResults) {
+        print("📊 Accuracy validation completed:")
+        print("   Overall accuracy: \(String(format: "%.1f", results.overallAccuracyScore * 100))%")
+        print("   Wall matching: \(String(format: "%.1f", results.comparisonResults.wallAccuracy.wallMatchingRate * 100))%")
+        print("   Furniture matching: \(String(format: "%.1f", results.comparisonResults.furnitureAccuracy.furnitureMatchingRate * 100))%")
+        print("   Recommendations: \(roomAccuracyValidator.recommendations.count)")
+        
+        // Update status label with accuracy information
+        let accuracyText = String(format: "%.0f", results.overallAccuracyScore * 100)
+        statusLabel?.text = "✅ Room scanned with \(accuracyText)% accuracy - Tap 'View Plan' to see results"
+        
+        // Change status color based on accuracy
+        if results.overallAccuracyScore >= 0.8 {
+            statusLabel?.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
+        } else if results.overallAccuracyScore >= 0.6 {
+            statusLabel?.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.9)
+        } else {
+            statusLabel?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
+        }
+        
+        // Show alert for significant accuracy issues
+        if results.overallAccuracyScore < 0.6 && !roomAccuracyValidator.recommendations.isEmpty {
+            showAccuracyAlert(results: results)
+        }
+        
+        // Log detailed recommendations
+        for recommendation in roomAccuracyValidator.recommendations {
+            print("   \(recommendation.severity.color) \(recommendation.type): \(recommendation.issue)")
+            print("     → \(recommendation.recommendation)")
+        }
+    }
+    
+    private func showAccuracyAlert(results: RoomAccuracyValidator.ValidationResults) {
+        let accuracyPercent = String(format: "%.0f", results.overallAccuracyScore * 100)
+        let criticalIssues = roomAccuracyValidator.recommendations.filter { $0.severity == .critical || $0.severity == .high }
+        
+        let title = "Room Accuracy Issues Detected"
+        var message = "Floor plan accuracy: \(accuracyPercent)%\n\n"
+        
+        if !criticalIssues.isEmpty {
+            message += "Key issues found:\n"
+            for issue in criticalIssues.prefix(3) {
+                message += "• \(issue.issue)\n"
+            }
+        }
+        
+        message += "\nYou can still proceed with the current results or rescan for better accuracy."
+        
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        
+        alert.addAction(UIAlertAction(title: "View Detailed Report", style: .default) { _ in
+            self.showDetailedAccuracyReport(results)
+        })
+        
+        alert.addAction(UIAlertAction(title: "Continue", style: .default))
+        alert.addAction(UIAlertAction(title: "Rescan Room", style: .cancel) { _ in
+            self.retryRoomCapture()
+        })
+        
+        present(alert, animated: true)
+    }
+    
+    private func showDetailedAccuracyReport(_ results: RoomAccuracyValidator.ValidationResults) {
+        let reportText = results.validationSummary + "\n\n" + 
+            roomAccuracyValidator.recommendations.map { rec in
+                "\(rec.severity.color) \(rec.issue)\n→ \(rec.recommendation)\n"
+            }.joined(separator: "\n")
+        
+        let alert = UIAlertController(
+            title: "Room Accuracy Report",
+            message: reportText,
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
     
     // MARK: - Navigation Methods
