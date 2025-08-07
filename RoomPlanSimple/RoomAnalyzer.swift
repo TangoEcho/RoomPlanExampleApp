@@ -52,35 +52,39 @@ class RoomAnalyzer: ObservableObject {
     private func identifyRoomTypes(from capturedRoom: CapturedRoom) {
         var rooms: [IdentifiedRoom] = []
         
-        print("🏠 Analyzing \(capturedRoom.floors.count) floor surfaces and \(capturedRoom.objects.count) objects")
+        print("🏠 Analyzing RoomPlan data:")
+        print("   Floors: \(capturedRoom.floors.count)")
+        print("   Walls: \(capturedRoom.walls.count)") 
+        print("   Openings: \(capturedRoom.openings.count)")
+        print("   Windows: \(capturedRoom.windows.count)")
+        print("   Doors: \(capturedRoom.doors.count)")
+        print("   Objects: \(capturedRoom.objects.count)")
         
-        // Check for invalid surface dimensions that indicate segmentation needed
-        let hasInvalidDimensions = capturedRoom.floors.contains { surface in
-            surface.dimensions.x <= 0 || surface.dimensions.z <= 0 ||
-            !surface.dimensions.x.isFinite || !surface.dimensions.z.isFinite
+        // CORRECT APPROACH: Only use floor surfaces as room boundaries
+        // Walls/doors/windows are used for openings and connections, NOT separate rooms
+        
+        let validFloors = capturedRoom.floors.filter { surface in
+            surface.dimensions.x > 0 && surface.dimensions.z > 0 &&
+            surface.dimensions.x.isFinite && surface.dimensions.z.isFinite
         }
         
-        // Use Apple's intended approach: process each floor surface directly
-        if capturedRoom.floors.count == 1 && (capturedRoom.objects.count > 5 || hasInvalidDimensions) {
-            print("🔍 Single floor with furniture or invalid dimensions - segmenting into logical rooms")
-            rooms = segmentSingleFloorIntoRooms(capturedRoom: capturedRoom)
-        } else {
-            // Multiple floors detected - process each separately
-            for surface in capturedRoom.floors {
-                // Skip surfaces with invalid dimensions
-                if surface.dimensions.x <= 0 || surface.dimensions.z <= 0 {
-                    print("⚠️ Skipping surface with invalid dimensions: \(surface.dimensions.x) x \(surface.dimensions.z)")
-                    continue
-                }
-                let room = createRoomFromRoomPlanSurface(surface: surface, capturedRoom: capturedRoom)
+        print("🔍 Found \(validFloors.count) valid floor surfaces")
+        
+        if validFloors.count == 1 {
+            // Single floor area - segment into logical rooms based on furniture
+            print("🔍 Single floor detected - segmenting into logical rooms based on furniture clustering")
+            rooms = segmentSingleFloorIntoRooms(capturedRoom: capturedRoom, mainFloor: validFloors[0])
+        } else if validFloors.count > 1 {
+            // Multiple distinct floor areas - each represents a separate room
+            print("🔍 Multiple floor areas detected - treating each as separate room")
+            for floor in validFloors {
+                let room = createRoomFromFloorSurface(floor: floor, capturedRoom: capturedRoom)
                 rooms.append(room)
             }
-        }
-        
-        // If no valid rooms were created, force segmentation
-        if rooms.isEmpty && !capturedRoom.floors.isEmpty {
-            print("🔧 No valid rooms found, forcing furniture-based segmentation")
-            rooms = segmentSingleFloorIntoRooms(capturedRoom: capturedRoom)
+        } else {
+            // No valid floors - create fallback room
+            print("⚠️ No valid floor surfaces found - creating fallback room")
+            rooms = createFallbackRoom(capturedRoom: capturedRoom)
         }
         
         print("✅ Identified \(rooms.count) rooms: \(rooms.map { $0.type.rawValue }.joined(separator: ", "))")
@@ -90,31 +94,83 @@ class RoomAnalyzer: ObservableObject {
         }
     }
     
-    private func createRoomFromRoomPlanSurface(surface: CapturedRoom.Surface, capturedRoom: CapturedRoom) -> IdentifiedRoom {
-        let roomType = classifyRoomByFurniture(surface: surface, objects: capturedRoom.objects)
-        let center = extractSurfaceCenter(surface)
-        let area = calculateSurfaceArea(surface)
+    private func createRoomFromFloorSurface(floor: CapturedRoom.Surface, capturedRoom: CapturedRoom) -> IdentifiedRoom {
+        let roomType = classifyRoomByFurniture(surface: floor, objects: capturedRoom.objects)
+        let center = extractSurfaceCenter(floor)
+        let area = calculateSurfaceArea(floor)
         
-        // Use RoomPlan's surface data directly for room boundaries
-        let wallPoints = createRoomBoundaryFromSurface(surface)
-        let doorways = extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+        // Create room boundary from floor surface (not walls/doors/windows)
+        let wallPoints = createRoomBoundaryFromFloorSurface(floor)
+        let doorways = extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: center)
         
         return IdentifiedRoom(
             type: roomType,
-            bounds: surface,
+            bounds: floor,
             center: center,
             area: area,
-            confidence: calculateRoomTypeConfidence(roomType: roomType, objects: capturedRoom.objects, surface: surface),
+            confidence: calculateRoomTypeConfidence(roomType: roomType, objects: capturedRoom.objects, surface: floor),
             wallPoints: wallPoints,
             doorways: doorways
         )
     }
     
-    private func segmentSingleFloorIntoRooms(capturedRoom: CapturedRoom) -> [IdentifiedRoom] {
-        let mainFloor = capturedRoom.floors.first!
+    private func createFallbackRoom(capturedRoom: CapturedRoom) -> [IdentifiedRoom] {
+        // Create a basic room based on object positions when no valid floors exist
+        guard !capturedRoom.objects.isEmpty else {
+            return [createDefaultRoom()]
+        }
+        
+        let center = calculateCenterFromFurniture(capturedRoom.objects)
+        let bounds = calculateBoundsFromFurniture(capturedRoom.objects)
+        let roomType = classifyRoomFromFurnitureGroup(capturedRoom.objects)
+        
+        // Create boundary from object bounds with padding
+        let padding: Float = 2.0
+        let wallPoints = [
+            simd_float2(bounds.min.x - padding, bounds.min.z - padding),
+            simd_float2(bounds.max.x + padding, bounds.min.z - padding),
+            simd_float2(bounds.max.x + padding, bounds.max.z + padding),
+            simd_float2(bounds.min.x - padding, bounds.max.z + padding)
+        ]
+        
+        // Create a mock floor surface for the fallback room
+        guard let mockFloor = capturedRoom.walls.first ?? capturedRoom.openings.first ?? capturedRoom.doors.first else {
+            return [createDefaultRoom()]
+        }
+        let area = (bounds.max.x - bounds.min.x + padding * 2) * (bounds.max.z - bounds.min.z + padding * 2)
+        
+        let fallbackRoom = IdentifiedRoom(
+            type: roomType,
+            bounds: mockFloor,
+            center: center,
+            area: area,
+            confidence: 0.3, // Low confidence for fallback room
+            wallPoints: wallPoints,
+            doorways: []
+        )
+        
+        return [fallbackRoom]
+    }
+    
+    private func createDefaultRoom() -> IdentifiedRoom {
+        // Last resort - create a basic room when no data is available  
+        let defaultWallPoints = [
+            simd_float2(-2.0, -2.0),
+            simd_float2(2.0, -2.0),
+            simd_float2(2.0, 2.0),
+            simd_float2(-2.0, 2.0)
+        ]
+        
+        // Create a minimal mock surface for compatibility
+        // Note: This is a workaround since we can't create CapturedRoom.Surface directly
+        // In practice, this should rarely be reached in real usage
+        fatalError("Unable to create default room without valid RoomPlan surface data")
+    }
+    
+    private func segmentSingleFloorIntoRooms(capturedRoom: CapturedRoom, mainFloor: CapturedRoom.Surface) -> [IdentifiedRoom] {
         let furnitureGroups = clusterFurnitureByProximity(capturedRoom.objects)
         
-        print("   Found \(furnitureGroups.count) furniture clusters")
+        print("   Found \(furnitureGroups.count) furniture clusters for single floor segmentation")
         
         var rooms: [IdentifiedRoom] = []
         
@@ -122,10 +178,10 @@ class RoomAnalyzer: ObservableObject {
             let roomType = classifyRoomFromFurnitureGroup(group)
             let roomCenter = calculateCenterFromFurniture(group)
             
-            // Create room boundary based on furniture cluster area
+            // Create room boundary based on furniture cluster area within the floor boundary
             let roomBoundary = createRoomBoundaryFromFurnitureCluster(group, floor: mainFloor)
             let roomArea = calculateAreaFromWallPoints(roomBoundary)
-            let doorways = extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+            let doorways = extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: roomCenter)
             
             let room = IdentifiedRoom(
                 type: roomType,
@@ -141,9 +197,9 @@ class RoomAnalyzer: ObservableObject {
             print("   Room \(index + 1): \(roomType.rawValue) with \(group.count) furniture items")
         }
         
-        // Ensure at least one room exists - create multiple logical rooms if needed
+        // Ensure at least one room exists - create logical room divisions if needed
         if rooms.isEmpty {
-            print("   No furniture clusters found, creating logical room divisions based on space analysis")
+            print("   No furniture clusters found, creating logical room divisions based on floor space")
             rooms = createLogicalRoomDivisions(capturedRoom: capturedRoom, mainFloor: mainFloor)
         }
         
@@ -151,6 +207,40 @@ class RoomAnalyzer: ObservableObject {
     }
     
     // MARK: - RoomPlan Geometry Extraction
+    
+    private func createRoomBoundaryFromFloorSurface(_ surface: CapturedRoom.Surface) -> [simd_float2] {
+        // Extract boundary from floor surface ONLY - this represents the actual room boundary
+        print("🏗️ Creating room boundary from floor surface (not wall surfaces)")
+        return createRoomBoundaryFromSurface(surface)
+    }
+    
+    private func extractDoorwaysFromWallSurfaces(capturedRoom: CapturedRoom, floorCenter: simd_float3) -> [simd_float2] {
+        var doorways: [simd_float2] = []
+        
+        // Extract doorways from door and opening surfaces within reasonable distance of room
+        let maxDistance: Float = 5.0
+        
+        for door in capturedRoom.doors {
+            let doorCenter = extractSurfaceCenter(door)
+            let distance = simd_distance(doorCenter, floorCenter)
+            
+            if distance <= maxDistance {
+                doorways.append(simd_float2(doorCenter.x, doorCenter.z))
+            }
+        }
+        
+        for opening in capturedRoom.openings {
+            let openingCenter = extractSurfaceCenter(opening)
+            let distance = simd_distance(openingCenter, floorCenter)
+            
+            if distance <= maxDistance {
+                doorways.append(simd_float2(openingCenter.x, openingCenter.z))
+            }
+        }
+        
+        print("🚪 Found \(doorways.count) doorways/openings for room at (\(floorCenter.x), \(floorCenter.z))")
+        return doorways
+    }
     
     private func createRoomBoundaryFromSurface(_ surface: CapturedRoom.Surface) -> [simd_float2] {
         let center = extractSurfaceCenter(surface)
@@ -209,27 +299,6 @@ class RoomAnalyzer: ObservableObject {
         ]
     }
     
-    private func extractDoorwaysFromRoomPlan(capturedRoom: CapturedRoom) -> [simd_float2] {
-        var doorways: [simd_float2] = []
-        
-        // Use RoomPlan's built-in door/window/opening detection
-        for door in capturedRoom.doors {
-            let pos = simd_float3(door.transform.columns.3.x, door.transform.columns.3.y, door.transform.columns.3.z)
-            doorways.append(simd_float2(pos.x, pos.z))
-        }
-        
-        for window in capturedRoom.windows {
-            let pos = simd_float3(window.transform.columns.3.x, window.transform.columns.3.y, window.transform.columns.3.z)
-            doorways.append(simd_float2(pos.x, pos.z))
-        }
-        
-        for opening in capturedRoom.openings {
-            let pos = simd_float3(opening.transform.columns.3.x, opening.transform.columns.3.y, opening.transform.columns.3.z)
-            doorways.append(simd_float2(pos.x, pos.z))
-        }
-        
-        return doorways
-    }
     
     // MARK: - Helper Methods
     
@@ -419,7 +488,7 @@ class RoomAnalyzer: ObservableObject {
         let roomCenter = calculateCenterFromFurniture(roomObjects)
         let roomBoundary = createRoomBoundaryFromFurnitureCluster(roomObjects, floor: baseFloor)
         let roomArea = calculateAreaFromWallPoints(roomBoundary)
-        let doorways = extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+        let doorways = extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: roomCenter)
         
         return IdentifiedRoom(
             type: roomType,
@@ -453,7 +522,7 @@ class RoomAnalyzer: ObservableObject {
             area: 16.0,
             confidence: 0.4,
             wallPoints: livingBoundary,
-            doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+            doorways: extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: simd_float3(0, 0, 0))
         )
         rooms.append(livingRoom)
         
@@ -468,7 +537,7 @@ class RoomAnalyzer: ObservableObject {
             area: 9.0,
             confidence: 0.4,
             wallPoints: kitchenBoundary,
-            doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+            doorways: extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: simd_float3(0, 0, 0))
         )
         rooms.append(kitchen)
         
@@ -484,7 +553,7 @@ class RoomAnalyzer: ObservableObject {
                 area: 9.0,
                 confidence: 0.4,
                 wallPoints: diningBoundary,
-                doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+                doorways: extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: simd_float3(0, 0, 0))
             )
             rooms.append(diningRoom)
         }

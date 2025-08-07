@@ -200,9 +200,12 @@ class FloorPlanRenderer: UIView {
             print("   Point \(i): (\(point.x), \(point.y))")
         }
         
+        // Sort wall points in counterclockwise order to ensure proper room boundary
+        let sortedPoints = sortWallPointsCounterclockwise(room.wallPoints)
+        
         // Additional validation to prevent boundary assertion errors
-        let uniquePoints = room.wallPoints.reduce(into: [simd_float2]()) { result, point in
-            if !result.contains(where: { abs($0.x - point.x) < 0.001 && abs($0.y - point.y) < 0.001 }) {
+        let uniquePoints = sortedPoints.reduce(into: [simd_float2]()) { result, point in
+            if !result.contains(where: { abs($0.x - point.x) < 0.01 && abs($0.y - point.y) < 0.01 }) {
                 result.append(point)
             }
         }
@@ -212,7 +215,7 @@ class FloorPlanRenderer: UIView {
             return
         }
         
-        print("🔍 FloorPlanRenderer: Using \(uniquePoints.count) unique points after deduplication")
+        print("🔍 FloorPlanRenderer: Using \(uniquePoints.count) unique points after sorting and deduplication")
         print("🔍 FloorPlanRenderer: Transform - scale: \(scale), offsetX: \(offsetX), offsetY: \(offsetY)")
         
         // Convert room points to view coordinates using unique points
@@ -242,13 +245,16 @@ class FloorPlanRenderer: UIView {
             }
         }
         
-        // Set room fill color (light gray with transparency)
-        context.setFillColor(UIColor.systemGray5.withAlphaComponent(0.3).cgColor)
+        // Use different colors for different room types to distinguish overlaps
+        let (fillColor, strokeColor) = getRoomColors(for: room.type, roomIndex: roomIndex)
+        
+        // Set room fill color with room-specific transparency
+        context.setFillColor(fillColor.withAlphaComponent(0.2).cgColor)
         context.addPath(path)
         context.fillPath()
         
-        // Draw room boundary
-        context.setStrokeColor(UIColor.systemBlue.cgColor)
+        // Draw room boundary with room-specific color
+        context.setStrokeColor(strokeColor.cgColor)
         context.setLineWidth(roomStrokeWidth)
         context.addPath(path)
         context.strokePath()
@@ -256,6 +262,59 @@ class FloorPlanRenderer: UIView {
         // Draw room label if there's space
         if let centerPoint = calculateRoomCenter(viewPoints) {
             drawRoomLabel(room.type.rawValue, at: centerPoint, in: context)
+        }
+    }
+    
+    private func sortWallPointsCounterclockwise(_ points: [simd_float2]) -> [simd_float2] {
+        // Calculate the centroid
+        let centroidX = points.map { $0.x }.reduce(0, +) / Float(points.count)
+        let centroidY = points.map { $0.y }.reduce(0, +) / Float(points.count)
+        let centroid = simd_float2(centroidX, centroidY)
+        
+        // Sort points by angle from centroid
+        let sortedPoints = points.sorted { point1, point2 in
+            let angle1 = atan2(point1.y - centroid.y, point1.x - centroid.x)
+            let angle2 = atan2(point2.y - centroid.y, point2.x - centroid.x)
+            return angle1 < angle2
+        }
+        
+        print("🔧 Sorted \(points.count) wall points counterclockwise around centroid (\(centroidX), \(centroidY))")
+        return sortedPoints
+    }
+    
+    private func getRoomColors(for roomType: RoomType, roomIndex: Int) -> (fill: UIColor, stroke: UIColor) {
+        switch roomType {
+        case .kitchen:
+            return (.systemOrange, .systemRed)
+        case .livingRoom:
+            return (.systemBlue, .systemBlue)
+        case .bedroom:
+            return (.systemPink, .systemRed)
+        case .bathroom:
+            return (.systemCyan, .systemBlue)
+        case .diningRoom:
+            return (.systemPurple, .systemPurple)
+        case .office:
+            return (.systemGreen, .systemGreen)
+        case .hallway:
+            return (.systemGray, .systemGray2)
+        case .closet:
+            return (.systemBrown, .systemBrown)
+        case .laundryRoom:
+            return (.systemTeal, .systemBlue)
+        case .garage:
+            return (.systemIndigo, .systemPurple)
+        case .unknown:
+            // Use different colors for different room indices to help distinguish overlapping rooms
+            let colors: [(UIColor, UIColor)] = [
+                (.systemYellow, .systemOrange),
+                (.systemMint, .systemGreen), 
+                (.systemGray4, .systemGray2),
+                (.systemOrange, .systemRed),
+                (.systemYellow, .systemOrange),
+                (.systemPink, .systemRed)
+            ]
+            return colors[roomIndex % colors.count]
         }
     }
     
@@ -333,15 +392,23 @@ class FloorPlanRenderer: UIView {
         // Draw WiFi test points as colored circles - always visible
         guard !data.measurements.isEmpty else { return }
         
-        let transform = calculateCoordinateTransform(for: data.measurements, in: rect)
-        guard let transform = transform else { return }
+        // Use the SAME coordinate transform as rooms for consistency
+        let transform = calculateRoomCoordinateTransform(in: rect)
+        guard let transform = transform else { 
+            print("⚠️ FloorPlanRenderer: No coordinate transform available for WiFi points")
+            return 
+        }
         
-        // Draw measurement points
+        print("📍 FloorPlanRenderer: Drawing \(data.measurements.count) WiFi measurements with room coordinate system")
+        
+        // Draw measurement points using room coordinate system
         for measurement in data.measurements {
             let viewPoint = CGPoint(
                 x: CGFloat(measurement.location.x) * transform.scale + transform.offsetX,
                 y: CGFloat(measurement.location.z) * transform.scale + transform.offsetY
             )
+            
+            print("   WiFi Point: (\(measurement.location.x), \(measurement.location.z)) -> View: (\(viewPoint.x), \(viewPoint.y))")
             
             let color = colorForSignalStrength(Float(measurement.signalStrength))
             drawMeasurementPoint(at: viewPoint, color: color, in: context, alpha: 1.0)
@@ -352,7 +419,8 @@ class FloorPlanRenderer: UIView {
         // Draw heatmap overlay with transparency - only when heatmap toggle is on
         guard !data.measurements.isEmpty else { return }
         
-        let transform = calculateCoordinateTransform(for: data.measurements, in: rect)
+        // Use the SAME coordinate transform as rooms for consistency
+        let transform = calculateRoomCoordinateTransform(in: rect)
         guard let transform = transform else { return }
         
         // Draw semi-transparent heatmap overlay
@@ -373,67 +441,67 @@ class FloorPlanRenderer: UIView {
         let offsetY: CGFloat
     }
     
+    private func calculateRoomCoordinateTransform(in rect: CGRect) -> CoordinateTransform? {
+        // Use room wall points if available, otherwise fallback to reasonable defaults
+        if !rooms.isEmpty {
+            // Calculate bounds from all room wall points
+            let allPoints = rooms.flatMap { $0.wallPoints }
+            let minX = allPoints.map { $0.x }.min() ?? 0
+            let maxX = allPoints.map { $0.x }.max() ?? 0
+            let minY = allPoints.map { $0.y }.min() ?? 0
+            let maxY = allPoints.map { $0.y }.max() ?? 0
+            
+            let roomWidth = maxX - minX
+            let roomHeight = maxY - minY
+            
+            guard roomWidth > 0 && roomHeight > 0 else { return nil }
+            
+            let padding: CGFloat = 20
+            let availableWidth = rect.width - (padding * 2)
+            let availableHeight = rect.height - (padding * 2)
+            
+            let scaleX = availableWidth / CGFloat(roomWidth)
+            let scaleY = availableHeight / CGFloat(roomHeight)
+            let scale = min(scaleX, scaleY)
+            
+            let scaledRoomWidth = CGFloat(roomWidth) * scale
+            let scaledRoomHeight = CGFloat(roomHeight) * scale
+            let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
+            let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
+            
+            print("🔧 Room coordinate transform - scale: \(scale), offsetX: \(offsetX), offsetY: \(offsetY)")
+            print("   Room bounds: (\(minX), \(minY)) to (\(maxX), \(maxY))")
+            
+            return CoordinateTransform(scale: scale, offsetX: offsetX, offsetY: offsetY)
+        } else {
+            // Fallback for when no rooms are available - use default coordinate space
+            let defaultScale: CGFloat = 30.0  // pixels per unit
+            let centerX = rect.width / 2
+            let centerY = rect.height / 2
+            
+            print("🔧 Using fallback coordinate transform - scale: \(defaultScale)")
+            
+            return CoordinateTransform(scale: defaultScale, offsetX: centerX, offsetY: centerY)
+        }
+    }
+    
     private func calculateCoordinateTransform(for measurements: [WiFiMeasurement], in rect: CGRect) -> CoordinateTransform? {
-        let points = measurements.map { simd_float2($0.location.x, $0.location.z) }
-        let minX = points.map { $0.x }.min() ?? 0
-        let maxX = points.map { $0.x }.max() ?? 0
-        let minY = points.map { $0.y }.min() ?? 0
-        let maxY = points.map { $0.y }.max() ?? 0
-        
-        let roomWidth = maxX - minX
-        let roomHeight = maxY - minY
-        
-        guard roomWidth > 0 && roomHeight > 0 else { return nil }
-        
-        let padding: CGFloat = 20
-        let availableWidth = rect.width - (padding * 2)
-        let availableHeight = rect.height - (padding * 2)
-        
-        let scaleX = availableWidth / CGFloat(roomWidth)
-        let scaleY = availableHeight / CGFloat(roomHeight)
-        let scale = min(scaleX, scaleY)
-        
-        let scaledRoomWidth = CGFloat(roomWidth) * scale
-        let scaledRoomHeight = CGFloat(roomHeight) * scale
-        let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
-        let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
-        
-        return CoordinateTransform(scale: scale, offsetX: offsetX, offsetY: offsetY)
+        // Deprecated - use calculateRoomCoordinateTransform instead for consistency
+        return calculateRoomCoordinateTransform(in: rect)
     }
     
     private func drawNetworkDevices(in context: CGContext, rect: CGRect) {
         guard !networkDevices.isEmpty else { return }
         
-        // Calculate coordinate transform based on all room points
-        let allRoomPoints = rooms.flatMap { $0.wallPoints }
-        guard !allRoomPoints.isEmpty else { return }
-        
-        let minX = allRoomPoints.map { $0.x }.min() ?? 0
-        let maxX = allRoomPoints.map { $0.x }.max() ?? 0
-        let minY = allRoomPoints.map { $0.y }.min() ?? 0
-        let maxY = allRoomPoints.map { $0.y }.max() ?? 0
-        
-        let roomWidth = maxX - minX
-        let roomHeight = maxY - minY
-        
-        guard roomWidth > 0 && roomHeight > 0 else { return }
-        
-        let padding: CGFloat = 20
-        let availableWidth = rect.width - (padding * 2)
-        let availableHeight = rect.height - (padding * 2)
-        
-        let scaleX = availableWidth / CGFloat(roomWidth)
-        let scaleY = availableHeight / CGFloat(roomHeight)
-        let scale = min(scaleX, scaleY)
-        
-        let offsetX = (rect.width - CGFloat(roomWidth) * scale) / 2 - CGFloat(minX) * scale
-        let offsetY = (rect.height - CGFloat(roomHeight) * scale) / 2 - CGFloat(minY) * scale
+        // Use the SAME coordinate transform as rooms for consistency
+        let transform = calculateRoomCoordinateTransform(in: rect)
+        guard let transform = transform else { return }
         
         // Draw each network device
         for device in networkDevices {
             let viewPoint = CGPoint(
-                x: CGFloat(device.position.x) * scale + offsetX,
-                y: CGFloat(device.position.z) * scale + offsetY // Use Z for Y in top-down view
+                x: CGFloat(device.position.x) * transform.scale + transform.offsetX,
+                y: CGFloat(device.position.z) * transform.scale + transform.offsetY // Use Z for Y in top-down view
             )
             
             let color = device.type == .router ? UIColor.systemRed : UIColor.systemOrange
@@ -541,34 +609,13 @@ class FloorPlanRenderer: UIView {
     private func drawFurniture(in context: CGContext, rect: CGRect) {
         guard !furnitureItems.isEmpty else { return }
         
-        // Calculate coordinate transform based on all room points
-        let allRoomPoints = rooms.flatMap { $0.wallPoints }
-        guard !allRoomPoints.isEmpty else { return }
-        
-        let minX = allRoomPoints.map { $0.x }.min() ?? 0
-        let maxX = allRoomPoints.map { $0.x }.max() ?? 0
-        let minY = allRoomPoints.map { $0.y }.min() ?? 0
-        let maxY = allRoomPoints.map { $0.y }.max() ?? 0
-        
-        let roomWidth = maxX - minX
-        let roomHeight = maxY - minY
-        
-        guard roomWidth > 0 && roomHeight > 0 else { return }
-        
-        let padding: CGFloat = 20
-        let availableWidth = rect.width - (padding * 2)
-        let availableHeight = rect.height - (padding * 2)
-        
-        let scaleX = availableWidth / CGFloat(roomWidth)
-        let scaleY = availableHeight / CGFloat(roomHeight)
-        let scale = min(scaleX, scaleY)
-        
-        let offsetX = (rect.width - CGFloat(roomWidth) * scale) / 2 - CGFloat(minX) * scale
-        let offsetY = (rect.height - CGFloat(roomHeight) * scale) / 2 - CGFloat(minY) * scale
+        // Use the SAME coordinate transform as rooms for consistency
+        let transform = calculateRoomCoordinateTransform(in: rect)
+        guard let transform = transform else { return }
         
         // Draw each furniture item
         for furniture in furnitureItems {
-            drawFurnitureItem(furniture, in: context, scale: scale, offsetX: offsetX, offsetY: offsetY)
+            drawFurnitureItem(furniture, in: context, scale: transform.scale, offsetX: transform.offsetX, offsetY: transform.offsetY)
         }
     }
     
