@@ -202,7 +202,7 @@ class RoomAnalyzer: ObservableObject {
                 center: roomCenter,
                 area: roomArea,
                 confidence: calculateConfidenceFromFurniture(group, roomType: roomType),
-                wallPoints: createRoomBoundaryFromWalls(capturedRoom, centerPoint: simd_float3(groupCenter.x, 0, groupCenter.y)),
+                wallPoints: createRoomBoundaryFromWalls(capturedRoom, centerPoint: simd_float3(roomCenter.x, 0, roomCenter.z)),
                 doorways: doorways
             )
             
@@ -342,7 +342,19 @@ class RoomAnalyzer: ObservableObject {
         if wallPoints.isEmpty {
             print("   ⚠️ No walls found, creating fallback boundary")
             // Fallback to furniture-based boundary
-            return createRoomBoundaryFromFurnitureCluster(capturedRoom.objects, floor: capturedRoom.floors.first ?? CapturedRoom.Surface(anchor: ARAnchor()))
+            // Create a fallback room boundary when no valid walls found
+            if let firstFloor = capturedRoom.floors.first {
+                return createRoomBoundaryFromFurnitureCluster(capturedRoom.objects, floor: firstFloor)
+            } else {
+                // Last resort - create rectangular boundary
+                let padding: Float = 2.0
+                return [
+                    simd_float2(centerPoint.x - padding, centerPoint.z - padding),
+                    simd_float2(centerPoint.x + padding, centerPoint.z - padding),
+                    simd_float2(centerPoint.x + padding, centerPoint.z + padding),
+                    simd_float2(centerPoint.x - padding, centerPoint.z + padding)
+                ]
+            }
         }
         
         // Create convex hull or ordered boundary from wall points
@@ -371,13 +383,12 @@ class RoomAnalyzer: ObservableObject {
         
         let center2D = simd_float2(center.x, center.z)
         
-        // Generate wall corner points
-        let corners = [
-            center2D - rightVector * halfWidth - forwardVector * halfDepth,
-            center2D + rightVector * halfWidth - forwardVector * halfDepth,
-            center2D + rightVector * halfWidth + forwardVector * halfDepth,
-            center2D - rightVector * halfWidth + forwardVector * halfDepth
-        ]
+        // Generate wall corner points (broken up to avoid type-checking timeout)
+        let corner1 = center2D - rightVector * halfWidth - forwardVector * halfDepth
+        let corner2 = center2D + rightVector * halfWidth - forwardVector * halfDepth  
+        let corner3 = center2D + rightVector * halfWidth + forwardVector * halfDepth
+        let corner4 = center2D - rightVector * halfWidth + forwardVector * halfDepth
+        let corners = [corner1, corner2, corner3, corner4]
         
         return corners
     }
@@ -922,10 +933,4 @@ class RoomAnalyzer: ObservableObject {
         }
     }
     
-    func clearCache() {
-        print("🧹 RoomAnalyzer clearing cache")
-        identifiedRooms.removeAll()
-        furnitureItems.removeAll()
-        roomConnections.removeAll()
-    }
 }
