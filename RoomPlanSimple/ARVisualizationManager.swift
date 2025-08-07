@@ -1342,43 +1342,76 @@ extension ARVisualizationManager: ARSCNViewDelegate {
     private func createWallSpectrumLogoForOutline() -> SCNNode {
         let logoContainer = SCNNode()
         
-        // Create smaller logo for wall outlines
-        let logoGeometry = SCNPlane(width: 0.25, height: 0.08) // 25cm x 8cm logo
+        // Create logo background plane
+        let backgroundGeometry = SCNPlane(width: 0.25, height: 0.08) // 25cm x 8cm logo
         
-        // Create material with Spectrum branding colors - more opaque for visibility
-        let logoMaterial = SCNMaterial()
-        logoMaterial.diffuse.contents = UIColor(red: 0.45, green: 0.45, blue: 0.45, alpha: 1.0) // Spectrum gray
-        logoMaterial.emission.contents = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 0.4) // Blue glow
-        logoMaterial.isDoubleSided = true
-        logoMaterial.writesToDepthBuffer = false // Ensure visibility through walls
+        // Create material with Spectrum branding colors
+        let backgroundMaterial = SCNMaterial()
+        backgroundMaterial.diffuse.contents = UIColor(red: 0.45, green: 0.45, blue: 0.45, alpha: 0.95) // Spectrum gray background
+        backgroundMaterial.isDoubleSided = true
+        backgroundMaterial.writesToDepthBuffer = false
         
-        logoGeometry.materials = [logoMaterial]
-        logoContainer.geometry = logoGeometry
+        backgroundGeometry.materials = [backgroundMaterial]
         
-        // Add "SPECTRUM" text overlay - smaller for wall outlines
-        let textGeometry = SCNText(string: "SPECTRUM", extrusionDepth: 0.0005)
-        textGeometry.font = UIFont.systemFont(ofSize: 0.02, weight: .bold)
-        textGeometry.materials.first?.diffuse.contents = UIColor.white
-        textGeometry.materials.first?.emission.contents = UIColor.white.withAlphaComponent(0.3)
+        let backgroundNode = SCNNode(geometry: backgroundGeometry)
+        logoContainer.addChildNode(backgroundNode)
+        
+        // Create white text plane for "SPECTRUM"
+        let textGeometry = SCNPlane(width: 0.18, height: 0.04) // Text area
+        let textMaterial = SCNMaterial()
+        
+        // Create a UILabel to render the text as an image
+        let textLabel = UILabel(frame: CGRect(x: 0, y: 0, width: 200, height: 50))
+        textLabel.text = "SPECTRUM"
+        textLabel.font = UIFont.systemFont(ofSize: 28, weight: .bold)
+        textLabel.textColor = .white
+        textLabel.backgroundColor = .clear
+        textLabel.textAlignment = .center
+        
+        // Render UILabel to image
+        let renderer = UIGraphicsImageRenderer(bounds: textLabel.bounds)
+        let textImage = renderer.image { context in
+            textLabel.layer.render(in: context.cgContext)
+        }
+        
+        textMaterial.diffuse.contents = textImage
+        textMaterial.emission.contents = UIColor.white.withAlphaComponent(0.2) // Slight glow
+        textMaterial.isDoubleSided = true
+        textMaterial.transparency = 0.0 // Fully opaque
+        
+        textGeometry.materials = [textMaterial]
         
         let textNode = SCNNode(geometry: textGeometry)
-        textNode.position = SCNVector3(-0.07, -0.01, 0.0005) // Centered on smaller logo plane
-        textNode.scale = SCNVector3(0.6, 0.6, 0.6)
-        
+        textNode.position = SCNVector3(-0.02, 0, 0.001) // Slightly offset from background
         logoContainer.addChildNode(textNode)
         
-        // Add smaller blue triangle accent
-        let triangleGeometry = SCNPlane(width: 0.015, height: 0.015)
+        // Create blue triangle using simple geometry
+        let triangleGeometry = SCNPlane(width: 0.02, height: 0.02)
         let triangleMaterial = SCNMaterial()
-        triangleMaterial.diffuse.contents = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 1.0)
-        triangleMaterial.emission.contents = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 0.5)
+        
+        // Create triangle image
+        let triangleSize = CGSize(width: 40, height: 40)
+        let triangleRenderer = UIGraphicsImageRenderer(size: triangleSize)
+        let triangleImage = triangleRenderer.image { context in
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: 5, y: 35))
+            path.addLine(to: CGPoint(x: 35, y: 20))
+            path.addLine(to: CGPoint(x: 5, y: 5))
+            path.close()
+            
+            UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 1.0).setFill()
+            path.fill()
+        }
+        
+        triangleMaterial.diffuse.contents = triangleImage
+        triangleMaterial.emission.contents = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 0.3)
         triangleMaterial.isDoubleSided = true
+        triangleMaterial.transparency = 0.0
+        
         triangleGeometry.materials = [triangleMaterial]
         
         let triangleNode = SCNNode(geometry: triangleGeometry)
-        triangleNode.position = SCNVector3(0.09, -0.01, 0.0005)
-        triangleNode.rotation = SCNVector4(0, 0, 1, Float.pi/4) // 45-degree rotation
-        
+        triangleNode.position = SCNVector3(0.09, 0, 0.001)
         logoContainer.addChildNode(triangleNode)
         
         // Add subtle pulsing animation
