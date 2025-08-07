@@ -985,9 +985,16 @@ extension ARVisualizationManager: ARSCNViewDelegate {
         let roomBounds = room.bounds
         let roomCenter = room.center
         
+        // Handle optional bounds field safely
+        guard let bounds = roomBounds else {
+            // Fallback to basic distance check if no bounds available
+            let distance = simd_distance(userPosition, roomCenter)
+            return distance <= 2.0 // Within 2m of room center
+        }
+        
         // Calculate room boundaries from the surface dimensions
-        let halfWidth = roomBounds.dimensions.x / 2
-        let halfDepth = roomBounds.dimensions.z / 2
+        let halfWidth = bounds.dimensions.x / 2
+        let halfDepth = bounds.dimensions.z / 2
         
         // Check if user is within the room's horizontal boundaries
         let isWithinWidth = abs(userPosition.x - roomCenter.x) <= halfWidth

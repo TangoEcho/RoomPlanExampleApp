@@ -607,14 +607,33 @@ class FloorPlanRenderer: UIView {
     }
     
     private func drawFurniture(in context: CGContext, rect: CGRect) {
-        guard !furnitureItems.isEmpty else { return }
+        guard !furnitureItems.isEmpty else { 
+            print("🏠 No furniture items to draw")
+            return 
+        }
+        
+        print("🏠 Drawing \(furnitureItems.count) furniture items")
         
         // Use the SAME coordinate transform as rooms for consistency
         let transform = calculateRoomCoordinateTransform(in: rect)
-        guard let transform = transform else { return }
+        guard let transform = transform else { 
+            print("⚠️ No coordinate transform available for furniture rendering")
+            return 
+        }
         
-        // Draw each furniture item
-        for furniture in furnitureItems {
+        print("📏 Using transform - scale: \(transform.scale), offset: (\(transform.offsetX), \(transform.offsetY))")
+        
+        // Group furniture by type for better visualization
+        let beds = furnitureItems.filter { $0.category == .bed }
+        let tables = furnitureItems.filter { $0.category == .table }
+        let storage = furnitureItems.filter { $0.category == .storage }
+        let other = furnitureItems.filter { ![.bed, .table, .storage].contains($0.category) }
+        
+        // Draw in order: beds first (largest), then storage, tables, other
+        let drawOrder = beds + storage + tables + other
+        
+        for (index, furniture) in drawOrder.enumerated() {
+            print("   Drawing furniture \(index + 1): \(furniture.category) at (\(String(format: "%.3f", furniture.position.x)), \(String(format: "%.3f", furniture.position.z)))")
             drawFurnitureItem(furniture, in: context, scale: transform.scale, offsetX: transform.offsetX, offsetY: transform.offsetY)
         }
     }
@@ -628,38 +647,92 @@ class FloorPlanRenderer: UIView {
         let width = CGFloat(furniture.dimensions.x) * scale
         let height = CGFloat(furniture.dimensions.z) * scale // Use Z for depth in top-down view
         
+        // IMPROVED: Ensure minimum visible size for furniture
+        let minSize: CGFloat = 8.0
+        let adjustedWidth = max(width, minSize)
+        let adjustedHeight = max(height, minSize)
+        
         let furnitureRect = CGRect(
-            x: viewX - width/2,
-            y: viewY - height/2,
-            width: width,
-            height: height
+            x: viewX - adjustedWidth/2,
+            y: viewY - adjustedHeight/2,
+            width: adjustedWidth,
+            height: adjustedHeight
         )
         
-        // Choose color based on furniture category
-        let fillColor = colorForFurnitureCategory(furniture.category)
-        let strokeColor = fillColor.darker(by: 0.3)
+        print("🏠 Drawing \(furniture.category) at view pos (\(String(format: "%.1f", viewX)), \(String(format: "%.1f", viewY))) size \(String(format: "%.1fx%.1f", adjustedWidth, adjustedHeight))")
+        print("   World position: (\(String(format: "%.3f", furniture.position.x)), \(String(format: "%.3f", furniture.position.z))) -> View: (\(String(format: "%.1f", viewX)), \(String(format: "%.1f", viewY)))")
         
-        // Draw furniture as rounded rectangle
-        let cornerRadius = min(width, height) * 0.1
+        // Choose color and style based on furniture category
+        let (fillColor, strokeColor, shouldDrawAsOval) = styleForFurnitureCategory(furniture.category)
+        
+        // Create path based on furniture type
         let path = CGMutablePath()
-        path.addRoundedRect(in: furnitureRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
+        if shouldDrawAsOval {
+            // Draw round furniture (tables, chairs) as ovals
+            path.addEllipse(in: furnitureRect)
+        } else {
+            // Draw rectangular furniture with appropriate corner radius
+            let cornerRadius = min(adjustedWidth, adjustedHeight) * 0.1
+            path.addRoundedRect(in: furnitureRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
+        }
         
-        // Fill furniture
-        context.setFillColor(fillColor.withAlphaComponent(0.7).cgColor)
+        // Fill furniture with appropriate transparency
+        let alpha: CGFloat = furniture.category == .bed ? 0.8 : 0.7
+        context.setFillColor(fillColor.withAlphaComponent(alpha).cgColor)
         context.addPath(path)
         context.fillPath()
         
         // Stroke furniture outline
         context.setStrokeColor(strokeColor.cgColor)
-        context.setLineWidth(1.5)
+        context.setLineWidth(furniture.category == .bed ? 2.0 : 1.5)
         context.addPath(path)
         context.strokePath()
         
         // Add furniture label if there's space
-        if width > 30 && height > 20 {
+        if adjustedWidth > 20 && adjustedHeight > 15 {
             let emoji = emojiForFurnitureCategory(furniture.category)
             drawFurnitureLabel(emoji, at: CGPoint(x: furnitureRect.midX, y: furnitureRect.midY), in: context)
+            
+            // Add size debugging label for beds and large furniture
+            if furniture.category == .bed {
+                let sizeLabel = "\(String(format: "%.1f", furniture.dimensions.x))×\(String(format: "%.1f", furniture.dimensions.z))m"
+                drawFurnitureSizeLabel(sizeLabel, at: CGPoint(x: furnitureRect.midX, y: furnitureRect.maxY + 5), in: context)
+            }
         }
+    }
+    
+    private func styleForFurnitureCategory(_ category: CapturedRoom.Object.Category) -> (fill: UIColor, stroke: UIColor, oval: Bool) {
+        switch category {
+        case .table:
+            return (.systemBrown, .systemBrown.darker(by: 0.3), true) // Round tables
+        case .sofa:
+            return (.systemIndigo, .systemIndigo.darker(by: 0.3), false)
+        case .bed:
+            return (.systemPink, .systemPink.darker(by: 0.3), false)
+        case .storage:
+            return (.systemGreen, .systemGreen.darker(by: 0.3), false)
+        case .chair:
+            return (.systemOrange, .systemOrange.darker(by: 0.3), true) // Round chairs
+        default:
+            return (.systemGray2, .systemGray, false)
+        }
+    }
+    
+    private func drawFurnitureSizeLabel(_ text: String, at point: CGPoint, in context: CGContext) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 8, weight: .medium),
+            .foregroundColor: UIColor.secondaryLabel
+        ]
+        
+        let attributedString = NSAttributedString(string: text, attributes: attributes)
+        let size = attributedString.size()
+        
+        let rect = CGRect(x: point.x - size.width / 2,
+                         y: point.y,
+                         width: size.width,
+                         height: size.height)
+        
+        attributedString.draw(in: rect)
     }
     
     private func colorForFurnitureCategory(_ category: CapturedRoom.Object.Category) -> UIColor {
