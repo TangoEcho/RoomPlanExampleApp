@@ -1244,20 +1244,51 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     // Alternatively, `.mesh` exports a nonparametric file and `.all`
     // exports both in a single USDZ.
     @IBAction func exportResults(_ sender: UIButton) {
-        let destinationURL = FileManager.default.temporaryDirectory.appending(path: "Room.usdz")
-        do {
-            try finalResults?.export(to: destinationURL, exportOptions: .parametric)
-            
-            let activityVC = UIActivityViewController(activityItems: [destinationURL], applicationActivities: nil)
-            activityVC.modalPresentationStyle = .popover
-            
-            present(activityVC, animated: true, completion: nil)
-            if let popOver = activityVC.popoverPresentationController {
-                popOver.sourceView = self.exportButton
-            }
-        } catch {
-            print("Error = \(error)")
+        print("📊 Export Results button tapped - showing WiFi analysis results...")
+        
+        // Check if we have WiFi measurements
+        if wifiSurveyManager.measurements.count > 0 {
+            print("📊 Found \(wifiSurveyManager.measurements.count) WiFi measurements")
+            showAnalysisResults()
+        } else if roomAnalyzer.identifiedRooms.count > 0 {
+            print("📊 No WiFi measurements found, showing basic floor plan...")
+            // Show basic floor plan without WiFi data
+            let floorPlanVC = FloorPlanViewController()
+            let emptyHeatmapData = WiFiHeatmapData(
+                measurements: [],
+                coverageMap: [:],
+                optimalRouterPlacements: []
+            )
+            floorPlanVC.updateWithData(heatmapData: emptyHeatmapData, roomAnalyzer: roomAnalyzer, networkDeviceManager: networkDeviceManager)
+            floorPlanVC.modalPresentationStyle = .fullScreen
+            present(floorPlanVC, animated: true)
+        } else {
+            print("⚠️ No room data available to show results")
+            let alert = UIAlertController(title: "No Data", message: "Please complete a room scan first", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
         }
+    }
+    
+    private func showAnalysisResults() {
+        print("📊 Showing WiFi analysis results...")
+        
+        // Generate heatmap data from measurements
+        let heatmapData = WiFiHeatmapData(
+            measurements: wifiSurveyManager.measurements,
+            coverageMap: [:], // Could be calculated if needed
+            optimalRouterPlacements: [] // Could be calculated if needed
+        )
+        
+        // Present the floor plan view controller
+        let floorPlanVC = FloorPlanViewController()
+        floorPlanVC.updateWithData(
+            heatmapData: heatmapData,
+            roomAnalyzer: roomAnalyzer,
+            networkDeviceManager: networkDeviceManager
+        )
+        floorPlanVC.modalPresentationStyle = .fullScreen
+        present(floorPlanVC, animated: true)
     }
     
     private func setActiveNavBar() {

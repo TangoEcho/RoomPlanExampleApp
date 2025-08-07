@@ -1,330 +1,244 @@
 import UIKit
-import SceneKit
 import RoomPlan
 
-protocol FloorPlanInteractionDelegate: AnyObject {
-    func didSelectRoom(_ room: RoomAnalyzer.IdentifiedRoom)
-    func didSelectMeasurement(_ measurement: WiFiMeasurement)
-    func didSelectRouterPlacement(_ placement: simd_float3)
-}
-
 class FloorPlanViewController: UIViewController {
-    private var customHeaderView: UIView!
-    private var floorPlanView: UIView!
-    private var heatmapToggle: UISwitch!
-    private var heatmapLabel: UILabel!
-    private var legendView: UIView!
-    private var exportButton: UIButton!
-    private var measurementsList: UITableView!
-    private var devicePlacementButton: UIButton!
-    private var deviceStatusLabel: UILabel!
+    
+    // MARK: - Properties
     
     private var floorPlanRenderer: FloorPlanRenderer!
+    private var legendView: UIView!
+    private var measurementsList: UITableView!
+    private var heatmapToggle: UISwitch!
+    private var heatmapLabel: UILabel!
+    private var exportButton: UIButton!
+    private var closeButton: UIButton!
+    
     private var wifiHeatmapData: WiFiHeatmapData?
     private var roomAnalyzer: RoomAnalyzer?
     private var networkDeviceManager: NetworkDeviceManager?
     private var measurements: [WiFiMeasurement] = []
     
+    // MARK: - Lifecycle
+    
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupViews()
         setupUI()
-        setupConstraints()
-        setupTableView()
     }
     
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        if floorPlanRenderer == nil {
-            setupFloorPlanRenderer()
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        print("📊 FloorPlanViewController appeared with frame: \(view.frame)")
+        
+        // Force layout update
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        
+        // Log renderer frame
+        if let renderer = floorPlanRenderer {
+            print("📊 FloorPlanRenderer frame: \(renderer.frame), bounds: \(renderer.bounds)")
         }
     }
     
-    private func setupViews() {
+    // MARK: - Setup
+    
+    private func setupUI() {
         view.backgroundColor = .systemBackground
         
-        // Create main container views
-        floorPlanView = UIView()
-        floorPlanView.backgroundColor = .systemGray6
-        floorPlanView.translatesAutoresizingMaskIntoConstraints = false
+        // Create all views first
+        createViews()
+        
+        // Add all views to hierarchy
+        addSubviews()
+        
+        // Setup constraints
+        setupConstraints()
+        
+        // Configure views
+        configureViews()
+        
+        // Setup legend content
+        setupLegend()
+    }
+    
+    private func createViews() {
+        // Floor plan renderer
+        floorPlanRenderer = FloorPlanRenderer()
+        floorPlanRenderer.translatesAutoresizingMaskIntoConstraints = false
+        floorPlanRenderer.backgroundColor = .systemGray6
+        floorPlanRenderer.layer.cornerRadius = 12
+        floorPlanRenderer.layer.borderWidth = 1
+        floorPlanRenderer.layer.borderColor = UIColor.systemGray4.cgColor
+        
+        // Heatmap controls
+        heatmapLabel = UILabel()
+        heatmapLabel.translatesAutoresizingMaskIntoConstraints = false
+        heatmapLabel.text = "Show WiFi Heatmap"
+        heatmapLabel.font = .systemFont(ofSize: 16, weight: .medium)
         
         heatmapToggle = UISwitch()
         heatmapToggle.translatesAutoresizingMaskIntoConstraints = false
+        heatmapToggle.addTarget(self, action: #selector(toggleHeatmap), for: .valueChanged)
         
-        heatmapLabel = SpectrumBranding.createSpectrumLabel(text: "Show WiFi Heatmap", style: .body)
-        heatmapLabel.textAlignment = .right
-        
+        // Legend
         legendView = UIView()
-        legendView.backgroundColor = .systemBackground
-        legendView.layer.cornerRadius = 8
         legendView.translatesAutoresizingMaskIntoConstraints = false
+        legendView.backgroundColor = .secondarySystemBackground
+        legendView.layer.cornerRadius = 12
         
-        exportButton = UIButton(type: .system)
-        exportButton.setTitle("Export Report", for: .normal)
-        exportButton.setTitleColor(.white, for: .normal)
-        exportButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
-        exportButton.backgroundColor = SpectrumBranding.Colors.spectrumBlue
-        exportButton.layer.cornerRadius = 8
-        exportButton.layer.shadowColor = UIColor.black.cgColor
-        exportButton.layer.shadowOffset = CGSize(width: 0, height: 2)
-        exportButton.layer.shadowOpacity = 0.2
-        exportButton.layer.shadowRadius = 4
-        
+        // Measurements table
         measurementsList = UITableView()
         measurementsList.translatesAutoresizingMaskIntoConstraints = false
-        
-        devicePlacementButton = UIButton(type: .system)
-        devicePlacementButton.setTitle("📡 Show Network Devices", for: .normal)
-        devicePlacementButton.setTitleColor(.white, for: .normal)
-        devicePlacementButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
-        devicePlacementButton.backgroundColor = SpectrumBranding.Colors.spectrumGreen
-        devicePlacementButton.layer.cornerRadius = 8
-        devicePlacementButton.addTarget(self, action: #selector(toggleDevicePlacement), for: .touchUpInside)
-        
-        deviceStatusLabel = SpectrumBranding.createSpectrumLabel(text: "", style: .caption)
-        deviceStatusLabel.textAlignment = .center
-        deviceStatusLabel.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.9)
-        deviceStatusLabel.layer.cornerRadius = 8
-        deviceStatusLabel.layer.masksToBounds = true
-        deviceStatusLabel.isHidden = true
-        
-        // Add to view hierarchy
-        view.addSubview(floorPlanView)
-        view.addSubview(heatmapToggle)
-        view.addSubview(heatmapLabel)
-        view.addSubview(legendView)
-        view.addSubview(devicePlacementButton)
-        view.addSubview(deviceStatusLabel)
-        view.addSubview(exportButton)
-        view.addSubview(measurementsList)
-    }
-    
-    private func setupConstraints() {
-        let topConstraint: NSLayoutConstraint
-        if customHeaderView != nil {
-            topConstraint = floorPlanView.topAnchor.constraint(equalTo: customHeaderView.bottomAnchor, constant: 10)
-        } else {
-            topConstraint = floorPlanView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10)
-        }
-        
-        NSLayoutConstraint.activate([
-            topConstraint,
-            floorPlanView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
-            floorPlanView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
-            floorPlanView.heightAnchor.constraint(equalToConstant: 500),
-            
-            heatmapToggle.topAnchor.constraint(equalTo: floorPlanView.bottomAnchor, constant: 10),
-            heatmapToggle.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            
-            heatmapLabel.centerYAnchor.constraint(equalTo: heatmapToggle.centerYAnchor),
-            heatmapLabel.trailingAnchor.constraint(equalTo: heatmapToggle.leadingAnchor, constant: -10),
-            heatmapLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 20),
-            
-            legendView.topAnchor.constraint(equalTo: heatmapToggle.bottomAnchor, constant: 10),
-            legendView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
-            legendView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
-            legendView.heightAnchor.constraint(greaterThanOrEqualToConstant: 120),
-            
-            devicePlacementButton.topAnchor.constraint(equalTo: legendView.bottomAnchor, constant: 10),
-            devicePlacementButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            devicePlacementButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            devicePlacementButton.heightAnchor.constraint(equalToConstant: 44),
-            
-            deviceStatusLabel.topAnchor.constraint(equalTo: devicePlacementButton.bottomAnchor, constant: 8),
-            deviceStatusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            deviceStatusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            deviceStatusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 30),
-            
-            exportButton.topAnchor.constraint(equalTo: devicePlacementButton.bottomAnchor, constant: 60),
-            exportButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            exportButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            exportButton.heightAnchor.constraint(equalToConstant: 50),
-            
-            measurementsList.topAnchor.constraint(equalTo: exportButton.bottomAnchor, constant: 10),
-            measurementsList.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            measurementsList.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            measurementsList.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
-        ])
-    }
-    
-    private func setupFloorPlanRenderer() {
-        print("🔧 FloorPlanViewController: setupFloorPlanRenderer called")
-        print("🔧 FloorPlanView bounds: \(floorPlanView.bounds)")
-        print("🔧 FloorPlanView frame: \(floorPlanView.frame)")
-        
-        floorPlanRenderer = FloorPlanRenderer(frame: floorPlanView.bounds)
-        floorPlanView.addSubview(floorPlanRenderer)
-        floorPlanRenderer.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Make the renderer background visible for debugging
-        floorPlanRenderer.backgroundColor = UIColor.systemRed.withAlphaComponent(0.3)
-        
-        NSLayoutConstraint.activate([
-            floorPlanRenderer.topAnchor.constraint(equalTo: floorPlanView.topAnchor),
-            floorPlanRenderer.leadingAnchor.constraint(equalTo: floorPlanView.leadingAnchor),
-            floorPlanRenderer.trailingAnchor.constraint(equalTo: floorPlanView.trailingAnchor),
-            floorPlanRenderer.bottomAnchor.constraint(equalTo: floorPlanView.bottomAnchor)
-        ])
-        
-        print("🔧 FloorPlanRenderer created with frame: \(floorPlanRenderer.frame)")
-        print("🔧 FloorPlanRenderer added to view hierarchy")
-        
-        // Force layout and trigger drawing
-        floorPlanView.layoutIfNeeded()
-        floorPlanRenderer.setNeedsDisplay()
-        
-        print("🔧 FloorPlanRenderer after layout - frame: \(floorPlanRenderer.frame), bounds: \(floorPlanRenderer.bounds)")
-        
-        // Apply any pending data now that renderer is ready
-        if let roomAnalyzer = self.roomAnalyzer, let heatmapData = self.wifiHeatmapData {
-            print("🔧 Applying pending data to FloorPlanRenderer")
-            floorPlanRenderer.updateRooms(roomAnalyzer.identifiedRooms)
-            floorPlanRenderer.updateFurniture(roomAnalyzer.furnitureItems)
-            floorPlanRenderer.updateHeatmap(heatmapData)
-            if let devices = self.networkDeviceManager?.getAllDevices() {
-                let convertedDevices = devices.compactMap { device -> NetworkDevice? in
-                    let type: NetworkDevice.DeviceType = device.type == .router ? .router : .extender
-                    return NetworkDevice(type: type, position: device.position)
-                }
-                floorPlanRenderer.updateNetworkDevices(convertedDevices)
-            }
-            floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
-            print("✅ Applied pending data to FloorPlanRenderer")
-        } else {
-            print("⚠️ No pending data to apply to FloorPlanRenderer")
-            print("   roomAnalyzer: \(roomAnalyzer != nil ? "exists" : "nil")")
-            print("   heatmapData: \(wifiHeatmapData != nil ? "exists" : "nil")")
-        }
-    }
-    
-    private func setupUI() {
-        title = "Spectrum WiFi Analysis"
-        view.backgroundColor = SpectrumBranding.Colors.secondaryBackground
-        
-        // Configure navigation bar with Spectrum branding
-        if let navigationBar = navigationController?.navigationBar {
-            SpectrumBranding.configureNavigationBar(navigationBar)
-        } else {
-            // Add custom header with navigation for modal presentation
-            setupCustomHeader()
-        }
-        
-        setupLegend()
-        
-        heatmapToggle.addTarget(self, action: #selector(toggleHeatmap), for: .valueChanged)
-        exportButton.addTarget(self, action: #selector(exportReport), for: .touchUpInside)
-    }
-    
-    private func setupCustomHeader() {
-        customHeaderView = UIView()
-        customHeaderView.backgroundColor = SpectrumBranding.Colors.spectrumBlue
-        customHeaderView.translatesAutoresizingMaskIntoConstraints = false
-        
-        let titleLabel = SpectrumBranding.createSpectrumLabel(text: "Spectrum WiFi Analysis", style: .headline)
-        titleLabel.textAlignment = .center
-        titleLabel.font = UIFont.boldSystemFont(ofSize: 18)
-        
-        let newScanButton = UIButton(type: .system)
-        newScanButton.setTitle("New Scan", for: .normal)
-        newScanButton.setTitleColor(.white, for: .normal)
-        newScanButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
-        newScanButton.backgroundColor = UIColor.white.withAlphaComponent(0.2)
-        newScanButton.layer.cornerRadius = 8
-        newScanButton.layer.borderWidth = 1
-        newScanButton.layer.borderColor = UIColor.white.cgColor
-        newScanButton.addTarget(self, action: #selector(startNewScan), for: .touchUpInside)
-        
-        view.addSubview(customHeaderView)
-        customHeaderView.addSubview(titleLabel)
-        customHeaderView.addSubview(newScanButton)
-        
-        NSLayoutConstraint.activate([
-            customHeaderView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            customHeaderView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            customHeaderView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            customHeaderView.heightAnchor.constraint(equalToConstant: 60),
-            
-            titleLabel.centerXAnchor.constraint(equalTo: customHeaderView.centerXAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: customHeaderView.centerYAnchor),
-            
-            newScanButton.trailingAnchor.constraint(equalTo: customHeaderView.trailingAnchor, constant: -16),
-            newScanButton.centerYAnchor.constraint(equalTo: customHeaderView.centerYAnchor),
-            newScanButton.widthAnchor.constraint(equalToConstant: 80),
-            newScanButton.heightAnchor.constraint(equalToConstant: 32)
-        ])
-    }
-    
-    @objc private func startNewScan() {
-        dismiss(animated: true, completion: nil)
-    }
-    
-    private func setupTableView() {
         measurementsList.delegate = self
         measurementsList.dataSource = self
         measurementsList.register(UITableViewCell.self, forCellReuseIdentifier: "MeasurementCell")
+        measurementsList.backgroundColor = .systemBackground
+        measurementsList.layer.cornerRadius = 12
+        
+        // Buttons
+        exportButton = UIButton(type: .system)
+        exportButton.translatesAutoresizingMaskIntoConstraints = false
+        exportButton.setTitle("Export Report", for: .normal)
+        exportButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        exportButton.backgroundColor = .systemBlue
+        exportButton.setTitleColor(.white, for: .normal)
+        exportButton.layer.cornerRadius = 12
+        exportButton.addTarget(self, action: #selector(exportReport), for: .touchUpInside)
+        
+        closeButton = UIButton(type: .system)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setTitle("Close", for: .normal)
+        closeButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
+        closeButton.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
+    }
+    
+    private func addSubviews() {
+        view.addSubview(closeButton)
+        view.addSubview(floorPlanRenderer)
+        view.addSubview(heatmapLabel)
+        view.addSubview(heatmapToggle)
+        view.addSubview(legendView)
+        view.addSubview(measurementsList)
+        view.addSubview(exportButton)
+    }
+    
+    private func setupConstraints() {
+        NSLayoutConstraint.activate([
+            // Close button
+            closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            closeButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 60),
+            closeButton.heightAnchor.constraint(equalToConstant: 44),
+            
+            // Floor plan renderer - fixed height
+            floorPlanRenderer.topAnchor.constraint(equalTo: closeButton.bottomAnchor, constant: 16),
+            floorPlanRenderer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            floorPlanRenderer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            floorPlanRenderer.heightAnchor.constraint(equalToConstant: 300),
+            
+            // Heatmap toggle and label
+            heatmapToggle.topAnchor.constraint(equalTo: floorPlanRenderer.bottomAnchor, constant: 16),
+            heatmapToggle.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            
+            heatmapLabel.centerYAnchor.constraint(equalTo: heatmapToggle.centerYAnchor),
+            heatmapLabel.trailingAnchor.constraint(equalTo: heatmapToggle.leadingAnchor, constant: -8),
+            
+            // Legend
+            legendView.topAnchor.constraint(equalTo: heatmapToggle.bottomAnchor, constant: 16),
+            legendView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            legendView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            legendView.heightAnchor.constraint(equalToConstant: 140),
+            
+            // Export button
+            exportButton.topAnchor.constraint(equalTo: legendView.bottomAnchor, constant: 16),
+            exportButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            exportButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            exportButton.heightAnchor.constraint(equalToConstant: 50),
+            
+            // Measurements list
+            measurementsList.topAnchor.constraint(equalTo: exportButton.bottomAnchor, constant: 16),
+            measurementsList.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            measurementsList.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            measurementsList.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16)
+        ])
+    }
+    
+    private func configureViews() {
+        // Add title
+        title = "WiFi Analysis Results"
+        
+        // Configure navigation bar if in navigation controller
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .done,
+            target: self,
+            action: #selector(closeButtonTapped)
+        )
     }
     
     private func setupLegend() {
+        // Clear existing subviews
+        legendView.subviews.forEach { $0.removeFromSuperview() }
+        
         let stackView = UIStackView()
+        stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .vertical
         stackView.spacing = 8
-        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.distribution = .fillEqually
         
         let legendItems = [
-            ("Excellent (>-50dBm)", SpectrumBranding.Colors.excellentSignal),
-            ("Good (-50 to -70dBm)", SpectrumBranding.Colors.goodSignal),
-            ("Fair (-70 to -85dBm)", SpectrumBranding.Colors.fairSignal),
-            ("Poor (<-85dBm)", SpectrumBranding.Colors.poorSignal)
+            ("Excellent (>-50 dBm)", UIColor.systemGreen),
+            ("Good (-50 to -70 dBm)", UIColor.systemYellow),
+            ("Fair (-70 to -85 dBm)", UIColor.systemOrange),
+            ("Poor (<-85 dBm)", UIColor.systemRed)
         ]
         
-        for (label, color) in legendItems {
-            let itemView = createLegendItem(label: label, color: color)
+        for (text, color) in legendItems {
+            let itemView = createLegendItem(text: text, color: color)
             stackView.addArrangedSubview(itemView)
         }
         
         legendView.addSubview(stackView)
+        
         NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: legendView.topAnchor, constant: 8),
-            stackView.leadingAnchor.constraint(equalTo: legendView.leadingAnchor, constant: 8),
-            stackView.trailingAnchor.constraint(equalTo: legendView.trailingAnchor, constant: -8),
-            stackView.bottomAnchor.constraint(equalTo: legendView.bottomAnchor, constant: -8)
+            stackView.topAnchor.constraint(equalTo: legendView.topAnchor, constant: 12),
+            stackView.leadingAnchor.constraint(equalTo: legendView.leadingAnchor, constant: 16),
+            stackView.trailingAnchor.constraint(equalTo: legendView.trailingAnchor, constant: -16),
+            stackView.bottomAnchor.constraint(equalTo: legendView.bottomAnchor, constant: -12)
         ])
     }
     
-    private func createLegendItem(label: String, color: UIColor) -> UIView {
-        let containerView = UIView()
-        containerView.translatesAutoresizingMaskIntoConstraints = false
+    private func createLegendItem(text: String, color: UIColor) -> UIView {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
         
         let colorView = UIView()
+        colorView.translatesAutoresizingMaskIntoConstraints = false
         colorView.backgroundColor = color
         colorView.layer.cornerRadius = 6
-        colorView.translatesAutoresizingMaskIntoConstraints = false
         
-        let labelView = UILabel()
-        labelView.text = label
-        labelView.font = SpectrumBranding.Typography.captionFont
-        labelView.textColor = SpectrumBranding.Colors.textPrimary
-        labelView.translatesAutoresizingMaskIntoConstraints = false
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = text
+        label.font = .systemFont(ofSize: 14)
+        label.textColor = .label
         
-        containerView.addSubview(colorView)
-        containerView.addSubview(labelView)
+        container.addSubview(colorView)
+        container.addSubview(label)
         
         NSLayoutConstraint.activate([
-            colorView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            colorView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            colorView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-            colorView.widthAnchor.constraint(equalToConstant: 16),
-            colorView.heightAnchor.constraint(equalToConstant: 16),
+            colorView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            colorView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            colorView.widthAnchor.constraint(equalToConstant: 20),
+            colorView.heightAnchor.constraint(equalToConstant: 20),
             
-            labelView.leadingAnchor.constraint(equalTo: colorView.trailingAnchor, constant: 12),
-            labelView.centerYAnchor.constraint(equalTo: colorView.centerYAnchor),
-            labelView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            labelView.topAnchor.constraint(greaterThanOrEqualTo: containerView.topAnchor),
-            labelView.bottomAnchor.constraint(lessThanOrEqualTo: containerView.bottomAnchor)
+            label.leadingAnchor.constraint(equalTo: colorView.trailingAnchor, constant: 12),
+            label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor)
         ])
         
-        return containerView
+        return container
     }
+    
+    // MARK: - Public Methods
     
     func updateWithData(heatmapData: WiFiHeatmapData, roomAnalyzer: RoomAnalyzer, networkDeviceManager: NetworkDeviceManager? = nil) {
         self.wifiHeatmapData = heatmapData
@@ -332,29 +246,34 @@ class FloorPlanViewController: UIViewController {
         self.networkDeviceManager = networkDeviceManager
         self.measurements = heatmapData.measurements
         
-        DispatchQueue.main.async {
-            // Update the renderer with the new data (if it exists)
-            if let renderer = self.floorPlanRenderer {
-                renderer.updateRooms(roomAnalyzer.identifiedRooms)
-                renderer.updateFurniture(roomAnalyzer.furnitureItems)
-                renderer.updateHeatmap(heatmapData)
-                if let devices = self.networkDeviceManager?.getAllDevices() {
-                    // Convert NetworkDeviceManager.NetworkDevice to our NetworkDevice type
-                    let convertedDevices = devices.compactMap { device -> NetworkDevice? in
-                        let type: NetworkDevice.DeviceType = device.type == .router ? .router : .extender
-                        return NetworkDevice(type: type, position: device.position)
-                    }
-                    renderer.updateNetworkDevices(convertedDevices)
+        print("📊 FloorPlanViewController: Received data update")
+        print("   Rooms: \(roomAnalyzer.identifiedRooms.count)")
+        print("   Measurements: \(measurements.count)")
+        
+        // Update the renderer
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.floorPlanRenderer.updateRooms(roomAnalyzer.identifiedRooms)
+            self.floorPlanRenderer.updateFurniture(roomAnalyzer.furnitureItems)
+            self.floorPlanRenderer.updateHeatmap(heatmapData)
+            
+            if let devices = networkDeviceManager?.getAllDevices() {
+                let convertedDevices = devices.map { device in
+                    NetworkDevice(
+                        type: device.type == .router ? .router : .extender,
+                        position: device.position
+                    )
                 }
-                renderer.setShowHeatmap(self.heatmapToggle.isOn)
-            } else {
-                // Renderer not ready yet, will be updated in setupFloorPlanRenderer
-                print("⚠️ FloorPlanRenderer not ready yet, data will be applied when renderer is created")
+                self.floorPlanRenderer.updateNetworkDevices(convertedDevices)
             }
+            
+            self.floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
             self.measurementsList.reloadData()
-            self.updateDeviceStatus()
         }
     }
+    
+    // MARK: - Actions
     
     @objc private func toggleHeatmap() {
         floorPlanRenderer.setShowHeatmap(heatmapToggle.isOn)
@@ -362,7 +281,10 @@ class FloorPlanViewController: UIViewController {
     
     @objc private func exportReport() {
         guard let heatmapData = wifiHeatmapData,
-              let roomAnalyzer = roomAnalyzer else { return }
+              let roomAnalyzer = roomAnalyzer else {
+            print("⚠️ No data available for export")
+            return
+        }
         
         let reportGenerator = WiFiReportGenerator()
         let reportURL = reportGenerator.generateReport(
@@ -371,128 +293,27 @@ class FloorPlanViewController: UIViewController {
             furniture: roomAnalyzer.furnitureItems
         )
         
-        let activityVC = UIActivityViewController(activityItems: [reportURL], applicationActivities: nil)
-        activityVC.modalPresentationStyle = .popover
+        let activityVC = UIActivityViewController(
+            activityItems: [reportURL],
+            applicationActivities: nil
+        )
+        
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = exportButton
+            popover.sourceRect = exportButton.bounds
+        }
         
         present(activityVC, animated: true)
-        if let popOver = activityVC.popoverPresentationController {
-            popOver.sourceView = exportButton
-        }
     }
     
-    private func signalStrengthColor(_ strength: Float) -> UIColor {
-        switch strength {
-        case Float(-50.0)...:
-            return SpectrumBranding.Colors.excellentSignal
-        case Float(-70.0)..<Float(-50.0):
-            return SpectrumBranding.Colors.goodSignal
-        case Float(-85.0)..<Float(-70.0):
-            return SpectrumBranding.Colors.fairSignal
-        default:
-            return SpectrumBranding.Colors.poorSignal
-        }
-    }
-    
-    @objc private func toggleDevicePlacement() {
-        guard let networkDeviceManager = networkDeviceManager else { return }
-        
-        let hasDevices = networkDeviceManager.router != nil || !networkDeviceManager.extenders.isEmpty
-        
-        if hasDevices {
-            // Show device information
-            showDeviceInfo()
-        } else {
-            // Show placement recommendations
-            showPlacementRecommendations()
-        }
-    }
-    
-    private func showDeviceInfo() {
-        guard let networkDeviceManager = networkDeviceManager else { return }
-        
-        var message = "Current Network Setup:\n\n"
-        
-        if let router = networkDeviceManager.router {
-            message += "📡 Router: Placed\n"
-            message += "Position: (\(String(format: "%.1f", router.position.x)), \(String(format: "%.1f", router.position.z)))\n\n"
-        } else {
-            message += "📡 Router: Not placed\n\n"
-        }
-        
-        if !networkDeviceManager.extenders.isEmpty {
-            message += "📡 Extenders: \(networkDeviceManager.extenders.count)\n"
-            for (index, extender) in networkDeviceManager.extenders.enumerated() {
-                message += "  \(index + 1). Position: (\(String(format: "%.1f", extender.position.x)), \(String(format: "%.1f", extender.position.z)))\n"
-            }
-        } else {
-            message += "📡 Extenders: None\n"
-        }
-        
-        message += "\n\(networkDeviceManager.suitableSurfaces.count) suitable surfaces found for placement"
-        
-        let alert = UIAlertController(title: "Network Device Status", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
-    }
-    
-    private func showPlacementRecommendations() {
-        guard let networkDeviceManager = networkDeviceManager else { return }
-        
-        var message = "Network Device Placement Guide:\n\n"
-        
-        if networkDeviceManager.suitableSurfaces.isEmpty {
-            message += "⚠️ No suitable surfaces found for device placement.\n\n"
-            message += "Tips:\n"
-            message += "• Ensure room scanning captured furniture\n"
-            message += "• Tables and elevated surfaces work best\n"
-            message += "• Avoid floor-level placement\n"
-        } else {
-            message += "✅ Found \(networkDeviceManager.suitableSurfaces.count) suitable surfaces:\n\n"
-            
-            for (index, surface) in networkDeviceManager.suitableSurfaces.prefix(3).enumerated() {
-                let emoji = surface.furnitureItem.category == .table ? "📋" : "🛋️"
-                message += "\(index + 1). \(emoji) \(surface.furnitureItem.category) "
-                message += "(Score: \(String(format: "%.1f", surface.suitabilityScore * 100))%)\n"
-            }
-            
-            message += "\nTo place devices:\n"
-            message += "1. Return to AR scanning mode\n"
-            message += "2. Switch to WiFi Survey\n"
-            message += "3. Use '📡 Place Router' button\n"
-        }
-        
-        let alert = UIAlertController(title: "Device Placement Guide", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
-    }
-    
-    private func updateDeviceStatus() {
-        guard let networkDeviceManager = networkDeviceManager else {
-            deviceStatusLabel.isHidden = true
-            return
-        }
-        
-        let deviceCount = networkDeviceManager.getDeviceCount()
-        let surfaceCount = networkDeviceManager.suitableSurfaces.count
-        
-        if deviceCount.routers > 0 || deviceCount.extenders > 0 {
-            devicePlacementButton.setTitle("📡 View Network Devices", for: .normal)
-            deviceStatusLabel.text = "\(deviceCount.routers) router, \(deviceCount.extenders) extender(s) placed"
-            deviceStatusLabel.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
-            deviceStatusLabel.isHidden = false
-        } else if surfaceCount > 0 {
-            devicePlacementButton.setTitle("📡 View Placement Options", for: .normal)
-            deviceStatusLabel.text = "\(surfaceCount) suitable surfaces found for device placement"
-            deviceStatusLabel.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
-            deviceStatusLabel.isHidden = false
-        } else {
-            devicePlacementButton.setTitle("📡 Network Device Info", for: .normal)
-            deviceStatusLabel.isHidden = true
-        }
+    @objc private func closeButtonTapped() {
+        dismiss(animated: true)
     }
 }
 
-extension FloorPlanViewController: UITableViewDataSource, UITableViewDelegate {
+// MARK: - UITableViewDataSource
+
+extension FloorPlanViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         return measurements.count
     }
@@ -502,12 +323,37 @@ extension FloorPlanViewController: UITableViewDataSource, UITableViewDelegate {
         let measurement = measurements[indexPath.row]
         
         let roomName = measurement.roomType?.rawValue ?? "Unknown"
-        cell.textLabel?.text = "\(roomName): \(measurement.signalStrength)dBm, \(Int(round(measurement.speed)))Mbps"
-        cell.detailTextLabel?.text = measurement.frequency
+        let signalText = "\(measurement.signalStrength) dBm"
+        let speedText = "\(Int(measurement.speed)) Mbps"
         
-        let signalColor = signalStrengthColor(Float(measurement.signalStrength))
-        cell.backgroundColor = signalColor.withAlphaComponent(0.3)
+        cell.textLabel?.text = "\(roomName): \(signalText), \(speedText)"
+        cell.textLabel?.font = .systemFont(ofSize: 14)
+        
+        // Set background color based on signal strength
+        let signalColor = colorForSignalStrength(Float(measurement.signalStrength))
+        cell.backgroundColor = signalColor.withAlphaComponent(0.2)
         
         return cell
+    }
+    
+    private func colorForSignalStrength(_ strength: Float) -> UIColor {
+        switch strength {
+        case -50...Float.greatestFiniteMagnitude:
+            return .systemGreen
+        case -70..<(-50):
+            return .systemYellow
+        case -85..<(-70):
+            return .systemOrange
+        default:
+            return .systemRed
+        }
+    }
+}
+
+// MARK: - UITableViewDelegate
+
+extension FloorPlanViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        return 44
     }
 }

@@ -117,11 +117,6 @@ class FloorPlanRenderer: UIView {
             context.fill(rect)
         }
         
-        // Draw a test rectangle to verify rendering is working
-        context.setStrokeColor(UIColor.red.cgColor)
-        context.setLineWidth(3.0)
-        context.stroke(rect.insetBy(dx: 10, dy: 10))
-        print("🎨 FloorPlanRenderer: Drew test border rectangle")
         
         // Draw rooms
         drawRooms(in: context, rect: rect)
@@ -146,9 +141,9 @@ class FloorPlanRenderer: UIView {
     private func drawRooms(in context: CGContext, rect: CGRect) {
         print("🎨 FloorPlanRenderer: Drawing \(rooms.count) rooms")
         
-        guard !rooms.isEmpty else {
+        // Always draw placeholder room when no rooms available or in simulator
+        if rooms.isEmpty {
             print("⚠️ FloorPlanRenderer: No rooms to draw, showing placeholder")
-            // Draw placeholder room if no rooms available
             drawPlaceholderRoom(in: context, rect: rect)
             return
         }
@@ -265,27 +260,46 @@ class FloorPlanRenderer: UIView {
     }
     
     private func drawPlaceholderRoom(in context: CGContext, rect: CGRect) {
-        // Draw a simple placeholder room
+        print("🎨 FloorPlanRenderer: Drawing placeholder room in rect: \(rect)")
+        
+        // Draw a more visible placeholder room
         let padding: CGFloat = 40
         let roomRect = rect.insetBy(dx: padding, dy: padding)
         
         let path = CGMutablePath()
         path.addRect(roomRect)
         
-        // Fill
-        context.setFillColor(UIColor.systemGray5.withAlphaComponent(0.3).cgColor)
+        // Fill with more visible color
+        context.setFillColor(UIColor.systemGray4.withAlphaComponent(0.6).cgColor)
         context.addPath(path)
         context.fillPath()
         
-        // Border
+        // Border with thicker line
         context.setStrokeColor(UIColor.systemBlue.cgColor)
-        context.setLineWidth(roomStrokeWidth)
+        context.setLineWidth(3.0)
         context.addPath(path)
         context.strokePath()
         
+        // Add some furniture placeholder
+        let furnitureRect = CGRect(x: roomRect.midX - 30, y: roomRect.midY - 15, width: 60, height: 30)
+        context.setFillColor(UIColor.systemBrown.withAlphaComponent(0.7).cgColor)
+        context.fill(furnitureRect)
+        context.setStrokeColor(UIColor.systemBrown.cgColor)
+        context.setLineWidth(2.0)
+        context.stroke(furnitureRect)
+        
         // Label
-        let center = CGPoint(x: roomRect.midX, y: roomRect.midY)
-        drawRoomLabel("Room", at: center, in: context)
+        let center = CGPoint(x: roomRect.midX, y: roomRect.midY + 50)
+        drawRoomLabel("Sample Room Layout", at: center, in: context)
+        
+        // Add WiFi points placeholder
+        let wifiPoint1 = CGPoint(x: roomRect.minX + 60, y: roomRect.minY + 60)
+        let wifiPoint2 = CGPoint(x: roomRect.maxX - 60, y: roomRect.minY + 60)
+        let wifiPoint3 = CGPoint(x: roomRect.midX, y: roomRect.maxY - 60)
+        
+        for point in [wifiPoint1, wifiPoint2, wifiPoint3] {
+            drawMeasurementPoint(at: point, color: UIColor.systemGreen, in: context)
+        }
     }
     
     private func calculateRoomCenter(_ points: [CGPoint]) -> CGPoint? {

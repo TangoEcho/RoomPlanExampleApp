@@ -21,9 +21,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                      configurationForConnecting connectingSceneSession: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {
         var configurationName = "Default Configuration"
-        if !RoomCaptureSession.isSupported {
+        
+        // Check if we're in simulator - allow simulator to run the full app
+        #if targetEnvironment(simulator)
+        let isSupported = true  // Force simulator support
+        print("🎭 Simulator Mode: Using Default Configuration")
+        #else
+        let isSupported = RoomCaptureSession.isSupported
+        print("📱 Device Mode: isSupported = \(isSupported)")
+        #endif
+        
+        if !isSupported {
             configurationName = "Unsupported Device"
+            print("⚠️ Using Unsupported Device configuration")
+        } else {
+            print("✅ Using Default Configuration")
         }
+        
         return UISceneConfiguration(name: configurationName, sessionRole: connectingSceneSession.role)
     }
 }
