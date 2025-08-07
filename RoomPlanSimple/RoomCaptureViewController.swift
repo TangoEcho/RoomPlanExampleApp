@@ -639,16 +639,19 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             print("⚠️ Using separate ARSession (iOS 16)")
         }
         
-        // Switch to AR mode for WiFi visualization (this will respect shared session mode)
-        switchToARMode()
-        
-        // If we have room data, use it for additional reference
-        if let capturedRoom = capturedRoomData {
-            print("📍 Using captured room data as additional coordinate reference")
-            arVisualizationManager.setCapturedRoomData(capturedRoom)
+        // Add async dispatch to prevent UI freezing during AR mode switch
+        DispatchQueue.main.async {
+            // Switch to AR mode for WiFi visualization (this will respect shared session mode)
+            self.switchToARMode()
+            
+            // If we have room data, use it for additional reference
+            if let capturedRoom = self.capturedRoomData {
+                print("📍 Using captured room data as additional coordinate reference")
+                self.arVisualizationManager.setCapturedRoomData(capturedRoom)
+            }
+            
+            self.statusLabel?.text = "📡 WiFi survey active - Perfect coordinate alignment"
         }
-        
-        statusLabel?.text = "📡 WiFi survey active - Perfect coordinate alignment"
     }
     
     private func updateBottomNavigation() {
@@ -697,12 +700,13 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             scanSurveyToggleButton?.isEnabled = true
         }
         
-        // Floor Plan button - show results when room data is available (WiFi data is optional)
+        // Floor Plan button - only show after survey mode has been opened at least once
         let hasRoomData = capturedRoomData != nil || roomPlanPaused
         let hasWifiData = !wifiSurveyManager.measurements.isEmpty
+        let hasSurveyBeenOpened = currentMode == .surveying || currentMode == .completed || hasWifiData
         
-        if hasRoomData {
-            // Room scan completed - show Results button (WiFi data is optional)
+        if hasRoomData && hasSurveyBeenOpened {
+            // Room scan completed and survey opened - show Results button
             if hasWifiData {
                 floorPlanNavButton?.setTitle("📊 Results", for: .normal)
             } else {
@@ -711,12 +715,10 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
             floorPlanNavButton?.setTitleColor(.white, for: .normal)
             floorPlanNavButton?.isEnabled = true
+            floorPlanNavButton?.isHidden = false
         } else {
-            // No room scan data - disable button
-            floorPlanNavButton?.setTitle("📊 Results", for: .normal)
-            floorPlanNavButton?.backgroundColor = UIColor.systemGray
-            floorPlanNavButton?.setTitleColor(.white, for: .normal)
-            floorPlanNavButton?.isEnabled = false
+            // Hide button until survey mode is opened
+            floorPlanNavButton?.isHidden = true
         }
         
         // Router placement button - show in AR/surveying mode when room data exists

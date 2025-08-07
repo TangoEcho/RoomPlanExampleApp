@@ -32,6 +32,7 @@ class ARVisualizationManager: NSObject, ObservableObject {
     // Test Point Visualization - Persistent markers showing where tests were conducted
     private var testPointMarkers: [SCNNode] = []
     private var testPointNodePool: [SCNNode] = []
+    private var wallLogoNodes: [SCNNode] = []
     private let maxTestPoints = 50 // Memory limit for persistent test point markers
     
     // Performance optimization: Update throttling
@@ -111,25 +112,52 @@ class ARVisualizationManager: NSObject, ObservableObject {
         diskGeometry.materials = [diskMaterial]
         testPoint.geometry = diskGeometry
         
-        // Height indicator - vertical line showing measurement height
-        let heightLineGeometry = SCNCylinder(radius: 0.005, height: 1.5) // Thin pole 1.5m high
+        // Height indicator - thicker, taller pole extending to eye level for better visibility
+        let heightLineGeometry = SCNCylinder(radius: 0.012, height: 2.2) // Thicker pole 2.2m high
         // Use cached material for height line
-        let heightLineMaterial = getSignalMaterial(signalStrength: measurement.signalStrength, alpha: 0.7)
+        let heightLineMaterial = getSignalMaterial(signalStrength: measurement.signalStrength, alpha: 0.8)
         
         heightLineGeometry.materials = [heightLineMaterial]
         
         let heightIndicator = SCNNode(geometry: heightLineGeometry)
-        heightIndicator.position = SCNVector3(0, 0.75, 0) // Center the pole above the disk
+        heightIndicator.position = SCNVector3(0, 1.1, 0) // Center the pole above the disk
         testPoint.addChildNode(heightIndicator)
         
-        // Signal strength badge - small text showing dBm value
-        let badgeText = SCNText(string: "\(measurement.signalStrength)", extrusionDepth: 0.002)
-        badgeText.font = UIFont.boldSystemFont(ofSize: 0.03)
+        // Add eye-level marker that faces the camera for better visibility
+        let eyeLevelMarkerGeometry = SCNPlane(width: 0.12, height: 0.12) // 12cm square facing camera
+        let eyeLevelMaterial = getSignalMaterial(signalStrength: measurement.signalStrength, alpha: 0.95)
+        eyeLevelMaterial.isDoubleSided = true // Visible from both sides
+        eyeLevelMarkerGeometry.materials = [eyeLevelMaterial]
+        
+        let eyeLevelMarker = SCNNode(geometry: eyeLevelMarkerGeometry)
+        eyeLevelMarker.position = SCNVector3(0, 1.6, 0) // Eye level height
+        
+        // Make marker always face the camera using billboard constraint
+        let billboardConstraint = SCNBillboardConstraint()
+        billboardConstraint.freeAxes = [.Y] // Allow rotation around Y-axis to face camera
+        eyeLevelMarker.constraints = [billboardConstraint]
+        
+        testPoint.addChildNode(eyeLevelMarker)
+        
+        // Add pulsing animation to draw attention
+        let scaleAnimation = CABasicAnimation(keyPath: "transform.scale")
+        scaleAnimation.fromValue = 0.8
+        scaleAnimation.toValue = 1.2
+        scaleAnimation.duration = 2.0
+        scaleAnimation.repeatCount = Float.infinity
+        scaleAnimation.autoreverses = true
+        scaleAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        eyeLevelMarker.addAnimation(scaleAnimation, forKey: "eyeLevelPulse")
+        
+        // Signal strength badge - positioned at eye level for better visibility
+        let badgeText = SCNText(string: "\(measurement.signalStrength)", extrusionDepth: 0.003)
+        badgeText.font = UIFont.boldSystemFont(ofSize: 0.05)
         badgeText.materials.first?.diffuse.contents = UIColor.white
+        badgeText.materials.first?.emission.contents = UIColor.white.withAlphaComponent(0.3) // Add slight glow
         
         let badgeNode = SCNNode(geometry: badgeText)
-        badgeNode.position = SCNVector3(-0.015, 0.02, -0.015) // Center on disk
-        badgeNode.scale = SCNVector3(0.01, 0.01, 0.01)
+        badgeNode.position = SCNVector3(-0.025, 1.65, -0.025) // Position at eye level next to marker
+        badgeNode.scale = SCNVector3(0.015, 0.015, 0.015) // Slightly larger for better readability
         
         let badgeBillboard = SCNBillboardConstraint()
         badgeBillboard.freeAxes = [.Y]
@@ -138,14 +166,14 @@ class ARVisualizationManager: NSObject, ObservableObject {
         testPoint.addChildNode(badgeNode)
         
         // Subtle pulse animation to indicate active test point
-        let pulseAnimation = CABasicAnimation(keyPath: "opacity")
-        pulseAnimation.fromValue = 0.85
-        pulseAnimation.toValue = 1.0
-        pulseAnimation.duration = 2.5
-        pulseAnimation.repeatCount = .infinity
-        pulseAnimation.autoreverses = true
-        pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        testPoint.addAnimation(pulseAnimation, forKey: "testPointPulse")
+        let opacityAnimation = CABasicAnimation(keyPath: "opacity")
+        opacityAnimation.fromValue = 0.85
+        opacityAnimation.toValue = 1.0
+        opacityAnimation.duration = 2.5
+        opacityAnimation.repeatCount = Float.infinity
+        opacityAnimation.autoreverses = true
+        opacityAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        testPoint.addAnimation(opacityAnimation, forKey: "testPointPulse")
         
         return testPoint
     }
@@ -210,7 +238,7 @@ class ARVisualizationManager: NSObject, ObservableObject {
         pulseAnimation.fromValue = 0.85
         pulseAnimation.toValue = 1.0
         pulseAnimation.duration = 2.5
-        pulseAnimation.repeatCount = .infinity
+        pulseAnimation.repeatCount = Float.infinity
         pulseAnimation.autoreverses = true
         pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         marker.addAnimation(pulseAnimation, forKey: "testPointPulse")
@@ -241,6 +269,8 @@ class ARVisualizationManager: NSObject, ObservableObject {
         testPointNodePool.forEach { $0.removeFromParentNode() }
         testPointNodePool.removeAll()
         
+        // Wall logos are now part of room outlines and will be cleared when room outlines are updated
+        
         print("🧹 Cleared all test point markers for new survey session")
     }
     
@@ -261,6 +291,7 @@ class ARVisualizationManager: NSObject, ObservableObject {
         if let capturedRoom = capturedRoom {
             createRoomOutlines(from: capturedRoom)
             calculateCoordinateTransform(from: capturedRoom)
+            // Wall logos are now integrated into createRoomOutlines
         }
     }
     
@@ -361,7 +392,7 @@ class ARVisualizationManager: NSObject, ObservableObject {
         pulseAnimation.fromValue = 1.0
         pulseAnimation.toValue = 1.2
         pulseAnimation.duration = 1.0
-        pulseAnimation.repeatCount = .infinity
+        pulseAnimation.repeatCount = Float.infinity
         pulseAnimation.autoreverses = true
         node.addAnimation(pulseAnimation, forKey: "pulse")
     }
@@ -405,7 +436,7 @@ class ARVisualizationManager: NSObject, ObservableObject {
         pulseAnimation.fromValue = 0.8
         pulseAnimation.toValue = 1.1
         pulseAnimation.duration = 1.5
-        pulseAnimation.repeatCount = .infinity
+        pulseAnimation.repeatCount = Float.infinity
         pulseAnimation.autoreverses = true
         pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         node.addAnimation(pulseAnimation, forKey: "pulse")
@@ -477,7 +508,7 @@ class ARVisualizationManager: NSObject, ObservableObject {
         scaleAnimation.fromValue = 0.9
         scaleAnimation.toValue = 1.1
         scaleAnimation.duration = 2.0
-        scaleAnimation.repeatCount = .infinity
+        scaleAnimation.repeatCount = Float.infinity
         scaleAnimation.autoreverses = true
         scaleAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         node.addAnimation(scaleAnimation, forKey: "floorPulse")
@@ -546,7 +577,7 @@ class ARVisualizationManager: NSObject, ObservableObject {
         rotateAnimation.fromValue = SCNVector4(0, 1, 0, 0)
         rotateAnimation.toValue = SCNVector4(0, 1, 0, Float.pi * 2)
         rotateAnimation.duration = 4.0
-        rotateAnimation.repeatCount = .infinity
+        rotateAnimation.repeatCount = Float.infinity
         node.addAnimation(rotateAnimation, forKey: "rotate")
         
         return node
@@ -689,6 +720,18 @@ class ARVisualizationManager: NSObject, ObservableObject {
         
         node.geometry = wallGeometry
         node.simdTransform = wall.transform
+        
+        // Add Spectrum logo to wall if it's large enough
+        let wallArea = wall.dimensions.x * wall.dimensions.y
+        if wallArea > 0.5 { // Add logo to walls larger than 0.5m²
+            let logoNode = createWallSpectrumLogoForOutline()
+            
+            // Position logo at center of wall, slightly in front
+            logoNode.position = SCNVector3(0, 0, 0.015) // Just in front of wall surface
+            
+            node.addChildNode(logoNode)
+            print("📍 Added Spectrum logo to wall (area: \(String(format: "%.2f", wallArea))m²)")
+        }
         
         return node
     }
@@ -1242,5 +1285,161 @@ extension ARVisualizationManager: ARSCNViewDelegate {
             }
         }
         return nil
+    }
+    
+    // MARK: - Wall Logo Methods
+    
+    private func addSpectrumLogosToWalls(from capturedRoom: CapturedRoom) {
+        guard let sceneView = sceneView else { return }
+        
+        // Clear existing wall logos
+        clearWallLogos()
+        
+        print("🏢 Adding Spectrum logos to \(capturedRoom.walls.count) walls")
+        
+        for (index, wall) in capturedRoom.walls.enumerated() {
+            // Calculate wall area more accurately
+            let wallArea = wall.dimensions.x * wall.dimensions.y
+            print("🏢 Wall \(index + 1): area = \(String(format: "%.2f", wallArea))m² (dimensions: \(String(format: "%.2f", wall.dimensions.x))×\(String(format: "%.2f", wall.dimensions.y))×\(String(format: "%.2f", wall.dimensions.z)))")
+            
+            // Accept smaller walls too - most walls should have logos
+            guard wallArea > 0.5 else { 
+                print("   ⏭️ Skipping wall \(index + 1) - too small (\(String(format: "%.2f", wallArea))m²)")
+                continue 
+            }
+            
+            let logoNode = createWallSpectrumLogo()
+            
+            // Position logo at center of wall at appropriate height (1.8m)
+            let wallCenter = simd_float3(wall.transform.columns.3.x, wall.transform.columns.3.y, wall.transform.columns.3.z)
+            let wallNormal = simd_float3(wall.transform.columns.2.x, wall.transform.columns.2.y, wall.transform.columns.2.z)
+            
+            // Position logo slightly in front of wall surface
+            let logoPosition = wallCenter + wallNormal * 0.02 + simd_float3(0, 0.3, 0) // 30cm above wall center
+            logoNode.position = SCNVector3(logoPosition.x, logoPosition.y, logoPosition.z)
+            
+            // Orient logo to face outward from wall
+            let wallRotation = wall.transform
+            logoNode.transform = SCNMatrix4(wallRotation)
+            
+            // Add subtle rotation animation
+            let rotationAnimation = CABasicAnimation(keyPath: "rotation")
+            rotationAnimation.fromValue = NSValue(scnVector4: SCNVector4(0, 1, 0, 0))
+            rotationAnimation.toValue = NSValue(scnVector4: SCNVector4(0, 1, 0, Float.pi * 2))
+            rotationAnimation.duration = 15.0 + Double(index) * 2.0 // Stagger animations
+            rotationAnimation.repeatCount = Float.infinity
+            logoNode.addAnimation(rotationAnimation, forKey: "wallLogoRotation")
+            
+            sceneView.scene.rootNode.addChildNode(logoNode)
+            wallLogoNodes.append(logoNode)
+            
+            print("📍 Spectrum logo added to wall \(index + 1) at position (\(String(format: "%.2f", logoPosition.x)), \(String(format: "%.2f", logoPosition.y)), \(String(format: "%.2f", logoPosition.z)))")
+        }
+        
+        print("✅ Added \(wallLogoNodes.count) Spectrum logos to room walls")
+    }
+    
+    private func createWallSpectrumLogoForOutline() -> SCNNode {
+        let logoContainer = SCNNode()
+        
+        // Create smaller logo for wall outlines
+        let logoGeometry = SCNPlane(width: 0.25, height: 0.08) // 25cm x 8cm logo
+        
+        // Create material with Spectrum branding colors - more opaque for visibility
+        let logoMaterial = SCNMaterial()
+        logoMaterial.diffuse.contents = UIColor(red: 0.45, green: 0.45, blue: 0.45, alpha: 1.0) // Spectrum gray
+        logoMaterial.emission.contents = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 0.4) // Blue glow
+        logoMaterial.isDoubleSided = true
+        logoMaterial.writesToDepthBuffer = false // Ensure visibility through walls
+        
+        logoGeometry.materials = [logoMaterial]
+        logoContainer.geometry = logoGeometry
+        
+        // Add "SPECTRUM" text overlay - smaller for wall outlines
+        let textGeometry = SCNText(string: "SPECTRUM", extrusionDepth: 0.0005)
+        textGeometry.font = UIFont.systemFont(ofSize: 0.02, weight: .bold)
+        textGeometry.materials.first?.diffuse.contents = UIColor.white
+        textGeometry.materials.first?.emission.contents = UIColor.white.withAlphaComponent(0.3)
+        
+        let textNode = SCNNode(geometry: textGeometry)
+        textNode.position = SCNVector3(-0.07, -0.01, 0.0005) // Centered on smaller logo plane
+        textNode.scale = SCNVector3(0.6, 0.6, 0.6)
+        
+        logoContainer.addChildNode(textNode)
+        
+        // Add smaller blue triangle accent
+        let triangleGeometry = SCNPlane(width: 0.015, height: 0.015)
+        let triangleMaterial = SCNMaterial()
+        triangleMaterial.diffuse.contents = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 1.0)
+        triangleMaterial.emission.contents = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 0.5)
+        triangleMaterial.isDoubleSided = true
+        triangleGeometry.materials = [triangleMaterial]
+        
+        let triangleNode = SCNNode(geometry: triangleGeometry)
+        triangleNode.position = SCNVector3(0.09, -0.01, 0.0005)
+        triangleNode.rotation = SCNVector4(0, 0, 1, Float.pi/4) // 45-degree rotation
+        
+        logoContainer.addChildNode(triangleNode)
+        
+        // Add subtle pulsing animation
+        let pulseAnimation = CABasicAnimation(keyPath: "opacity")
+        pulseAnimation.fromValue = 0.8
+        pulseAnimation.toValue = 1.0
+        pulseAnimation.duration = 3.0
+        pulseAnimation.repeatCount = Float.infinity
+        pulseAnimation.autoreverses = true
+        logoContainer.addAnimation(pulseAnimation, forKey: "wallLogoPulse")
+        
+        return logoContainer
+    }
+    
+    private func createWallSpectrumLogo() -> SCNNode {
+        let logoContainer = SCNNode()
+        
+        // Create the main logo plane
+        let logoGeometry = SCNPlane(width: 0.4, height: 0.15) // 40cm x 15cm logo
+        
+        // Create material with Spectrum branding colors
+        let logoMaterial = SCNMaterial()
+        logoMaterial.diffuse.contents = UIColor(red: 0.45, green: 0.45, blue: 0.45, alpha: 0.9) // Spectrum gray
+        logoMaterial.emission.contents = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 0.3) // Slight blue glow
+        logoMaterial.isDoubleSided = true
+        
+        logoGeometry.materials = [logoMaterial]
+        logoContainer.geometry = logoGeometry
+        
+        // Add "SPECTRUM" text overlay
+        let textGeometry = SCNText(string: "SPECTRUM", extrusionDepth: 0.001)
+        textGeometry.font = UIFont.systemFont(ofSize: 0.03, weight: .medium)
+        textGeometry.materials.first?.diffuse.contents = UIColor.white
+        textGeometry.materials.first?.emission.contents = UIColor.white.withAlphaComponent(0.2)
+        
+        let textNode = SCNNode(geometry: textGeometry)
+        textNode.position = SCNVector3(-0.12, -0.015, 0.001) // Centered on logo plane
+        textNode.scale = SCNVector3(0.8, 0.8, 0.8)
+        
+        logoContainer.addChildNode(textNode)
+        
+        // Add blue triangle accent
+        let triangleGeometry = SCNPlane(width: 0.03, height: 0.03)
+        let triangleMaterial = SCNMaterial()
+        triangleMaterial.diffuse.contents = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 1.0)
+        triangleMaterial.emission.contents = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 0.4)
+        triangleGeometry.materials = [triangleMaterial]
+        
+        let triangleNode = SCNNode(geometry: triangleGeometry)
+        triangleNode.position = SCNVector3(0.15, -0.015, 0.001)
+        triangleNode.rotation = SCNVector4(0, 0, 1, Float.pi/4) // 45-degree rotation
+        
+        logoContainer.addChildNode(triangleNode)
+        
+        return logoContainer
+    }
+    
+    private func clearWallLogos() {
+        // Remove all wall logo nodes from scene
+        wallLogoNodes.forEach { $0.removeFromParentNode() }
+        wallLogoNodes.removeAll()
+        print("🧹 Cleared all wall logos")
     }
 }

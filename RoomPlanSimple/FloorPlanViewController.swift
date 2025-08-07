@@ -98,7 +98,7 @@ class FloorPlanViewController: UIViewController {
         // Debug controls
         debugLabel = UILabel()
         debugLabel.translatesAutoresizingMaskIntoConstraints = false
-        debugLabel.text = "Show Accuracy Debug"
+        debugLabel.text = "Show Debug Overlay"
         debugLabel.font = .systemFont(ofSize: 16, weight: .medium)
         
         debugToggle = UISwitch()
@@ -295,7 +295,7 @@ class FloorPlanViewController: UIViewController {
         print("📊 FloorPlanViewController: Received data update")
         print("   Rooms: \(roomAnalyzer.identifiedRooms.count)")
         print("   Measurements: \(measurements.count)")
-        if let results = validationResults {
+        if validationResults != nil {
             print("   Validation results received (details disabled for build compatibility)")
         }
         
@@ -317,18 +317,9 @@ class FloorPlanViewController: UIViewController {
                 self.floorPlanRenderer.updateNetworkDevices(convertedDevices)
             }
             
-            // Update accuracy debug renderer if we have validation results (disabled)
-            /*
-            if let results = validationResults {
-                self.accuracyDebugRenderer.updateWithValidationResults(results)
-                self.debugToggle.isEnabled = true
-            } else {
-            */
-            if false { // Disabled branch
-                self.debugToggle.isEnabled = true
-            } else {
-                self.debugToggle.isEnabled = false
-            }
+            // Enable debug toggle for enhanced visualization modes
+            // Instead of accuracy validation, use debug mode for enhanced WiFi visualization
+            self.debugToggle.isEnabled = !heatmapData.measurements.isEmpty
             
             self.floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
             self.measurementsList.reloadData()
@@ -342,12 +333,19 @@ class FloorPlanViewController: UIViewController {
     }
     
     @objc private func toggleDebugView() {
+        // Enhanced debug mode: force heatmap overlay and detailed view
         if debugToggle.isOn {
-            floorPlanRenderer.isHidden = true
-            // accuracyDebugRenderer.isHidden = false // Disabled
+            // Debug mode: Force heatmap on and enhanced visualization
+            floorPlanRenderer.setShowHeatmap(true)
+            floorPlanRenderer.setDebugMode(true)
+            heatmapToggle.isEnabled = false // Lock heatmap on in debug mode
+            print("🔬 Debug visualization mode enabled")
         } else {
-            floorPlanRenderer.isHidden = false
-            // accuracyDebugRenderer.isHidden = true // Disabled
+            // Normal mode: restore user's heatmap preference
+            floorPlanRenderer.setShowHeatmap(heatmapToggle.isOn)
+            floorPlanRenderer.setDebugMode(false)
+            heatmapToggle.isEnabled = true
+            print("🔬 Debug visualization mode disabled")
         }
     }
     

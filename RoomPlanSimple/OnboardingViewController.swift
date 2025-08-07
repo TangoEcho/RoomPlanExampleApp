@@ -36,10 +36,9 @@ class OnboardingViewController: UIViewController {
         logoContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(logoContainer)
         
-        // Spectrum logo/title section
-        let titleLabel = SpectrumBranding.createSpectrumLabel(text: "Spectrum", style: .title)
-        titleLabel.textAlignment = .center
-        titleLabel.font = UIFont.systemFont(ofSize: 48, weight: .bold)
+        // Official Spectrum logo - using bundled asset for offline support
+        let logoView = createSpectrumLogoView()
+        logoView.translatesAutoresizingMaskIntoConstraints = false
         
         let subtitleLabel = SpectrumBranding.createSpectrumLabel(text: "WiFi Analyzer", style: .headline)
         subtitleLabel.textAlignment = .center
@@ -57,7 +56,7 @@ class OnboardingViewController: UIViewController {
         
         // Stack view for centered content
         let stackView = UIStackView(arrangedSubviews: [
-            titleLabel,
+            logoView,
             subtitleLabel,
             createSpacer(height: 40),
             activityIndicator,
@@ -86,7 +85,11 @@ class OnboardingViewController: UIViewController {
             
             // Activity indicator size
             activityIndicator.widthAnchor.constraint(equalToConstant: 40),
-            activityIndicator.heightAnchor.constraint(equalToConstant: 40)
+            activityIndicator.heightAnchor.constraint(equalToConstant: 40),
+            
+            // Logo view size
+            logoView.heightAnchor.constraint(equalToConstant: 80),
+            logoView.widthAnchor.constraint(lessThanOrEqualToConstant: 280)
         ])
     }
     
@@ -95,6 +98,59 @@ class OnboardingViewController: UIViewController {
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.heightAnchor.constraint(equalToConstant: height).isActive = true
         return spacer
+    }
+    
+    private func createSpectrumLogoView() -> UIView {
+        let containerView = UIView()
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Official Spectrum colors (metallic gray and sky blue)
+        let spectrumGray = UIColor(red: 0.45, green: 0.45, blue: 0.45, alpha: 1.0)
+        let spectrumBlue = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 1.0)
+        
+        // Create "SPECTRUM" text with official styling
+        let textLabel = UILabel()
+        textLabel.text = "SPECTRUM"
+        // Use system font that matches the official sans-serif rounded look
+        textLabel.font = UIFont.systemFont(ofSize: 28, weight: .medium)
+        textLabel.textColor = spectrumGray
+        textLabel.translatesAutoresizingMaskIntoConstraints = false
+        textLabel.adjustsFontSizeToFitWidth = true
+        textLabel.minimumScaleFactor = 0.5
+        
+        // Create blue triangle pointing right
+        let triangleView = UIView()
+        triangleView.translatesAutoresizingMaskIntoConstraints = false
+        triangleView.backgroundColor = .clear
+        
+        // Draw custom triangle
+        let triangleLayer = CAShapeLayer()
+        let trianglePath = UIBezierPath()
+        trianglePath.move(to: CGPoint(x: 0, y: 0))
+        trianglePath.addLine(to: CGPoint(x: 16, y: 8))
+        trianglePath.addLine(to: CGPoint(x: 0, y: 16))
+        trianglePath.close()
+        triangleLayer.path = trianglePath.cgPath
+        triangleLayer.fillColor = spectrumBlue.cgColor
+        triangleView.layer.addSublayer(triangleLayer)
+        
+        containerView.addSubview(textLabel)
+        containerView.addSubview(triangleView)
+        
+        NSLayoutConstraint.activate([
+            textLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            textLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            textLabel.topAnchor.constraint(equalTo: containerView.topAnchor),
+            textLabel.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            
+            triangleView.leadingAnchor.constraint(equalTo: textLabel.trailingAnchor, constant: 12),
+            triangleView.centerYAnchor.constraint(equalTo: textLabel.centerYAnchor),
+            triangleView.widthAnchor.constraint(equalToConstant: 16),
+            triangleView.heightAnchor.constraint(equalToConstant: 16),
+            triangleView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor)
+        ])
+        
+        return containerView
     }
     
     private func checkDeviceCompatibility() {
@@ -112,8 +168,8 @@ class OnboardingViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         
-        // Skip splash screen entirely for better user experience
-        DispatchQueue.main.async {
+        // Display Spectrum logo prominently for 3 seconds before transitioning
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             self.transitionToRoomCapture()
         }
     }
