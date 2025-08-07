@@ -10,7 +10,7 @@ import RoomPlan
 import ARKit
 import SceneKit
 
-class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, RoomCaptureSessionDelegate {
+class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, RoomCaptureSessionDelegate, MemoryManageable {
     
     private var roomAnalyzer = RoomAnalyzer()
     private var wifiSurveyManager = WiFiSurveyManager()
@@ -95,6 +95,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        
+        // Setup error handling
+        ErrorHandler.shared.configure(presentingViewController: self)
+        
+        // Register for memory management
+        MemoryManager.shared.register(self)
         
         setupRoomCaptureView()
         setupARView()
@@ -867,6 +873,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     deinit {
         // Final cleanup to ensure no memory leaks
         print("🧹 RoomCaptureViewController deallocating - performing final cleanup")
+        
+        // Unregister from memory management
+        MemoryManager.shared.unregister(self)
+        
+        // Perform comprehensive cleanup
+        performMemoryCleanup()
         cleanupHapticGenerators()
         stopTrackingStateMonitoring()
         stopStatusUpdateTimer()
@@ -1729,6 +1741,10 @@ extension RoomCaptureViewController {
     func captureSession(_ session: RoomCaptureSession, didFailWithError error: Error) {
         print("❌ Room capture session failed with error: \(error.localizedDescription)")
         
+        // Use comprehensive error handling
+        let roomPlanError = RoomPlanError.captureSessionFailed(underlying: error)
+        ErrorHandler.shared.handleError(roomPlanError, context: "Room Capture Session")
+        
         // Handle specific error types
         if let roomCaptureError = error as? RoomCaptureSession.CaptureError {
             handleCaptureError(roomCaptureError)
@@ -1778,6 +1794,7 @@ extension RoomCaptureViewController {
         
         if let error = error {
             print("⚠️ Session ended with error: \(error.localizedDescription)")
+            ErrorHandler.shared.showWarning("Session ended with minor issues: \(error.localizedDescription)", context: "Session End")
             handleSessionEndError(error)
         } else {
             print("✅ Session ended successfully with data")
@@ -2082,6 +2099,44 @@ extension RoomCaptureViewController {
         scanningProgressTimer?.invalidate()
         scanningProgressTimer = nil
         print("📳 Stopped scanning progress haptics")
+    }
+    
+    // MARK: - Memory Management
+    
+    func performMemoryCleanup() {
+        print("🧹 RoomCaptureViewController performing memory cleanup")
+        
+        // Clear all measurement data
+        wifiSurveyManager.clearMeasurementData()
+        
+        // Clear AR visualizations
+        arVisualizationManager.clearAllVisualizations()
+        
+        // Clear network device data
+        networkDeviceManager.clearAllDevices()
+        
+        // Clear room analyzer data
+        roomAnalyzer.clearCache()
+        
+        // Stop all ongoing operations
+        if isScanning {
+            roomCaptureView?.captureSession.stop()
+        }
+        
+        wifiSurveyManager.stopSurvey()
+        
+        // Invalidate all timers
+        scanningProgressTimer?.invalidate()
+        scanningProgressTimer = nil
+        simulatorTimer?.invalidate()
+        simulatorTimer = nil
+        
+        // Clear captured data if needed during memory pressure
+        capturedRoomData = nil
+        finalResults = nil
+        
+        // Log memory usage after cleanup
+        MemoryMonitor.shared.logMemoryUsage(context: "After cleanup")
     }
 }
 

@@ -921,4 +921,11 @@ class RoomAnalyzer: ObservableObject {
             self.roomConnections = []
         }
     }
+    
+    func clearCache() {
+        print("🧹 RoomAnalyzer clearing cache")
+        identifiedRooms.removeAll()
+        furnitureItems.removeAll()
+        roomConnections.removeAll()
+    }
 }

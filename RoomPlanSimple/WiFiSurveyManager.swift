@@ -36,10 +36,23 @@ enum RoomType: String, CaseIterable {
 }
 
 class WiFiSurveyManager: NSObject, ObservableObject {
+    
+    // Error handling
+    private let errorHandler = ErrorHandler.shared
+    
+    // Thread-safe data structures
+    private let threadSafeMeasurements = ThreadSafeArray<WiFiMeasurement>()
+    private let threadSafePositionHistory = ThreadSafeArray<(position: simd_float3, timestamp: TimeInterval)>()
+    
+    // Performance optimizations
+    private let spatialIndex = SpatialIndex(cellSize: 1.0) // 1m grid for fast spatial queries
+    private let heatmapCache = ComputationCache<String, [simd_float3: Double]>(maxSize: 10, ttl: 30.0)
+    private let uiUpdateThrottler = UIUpdateThrottler(delay: 0.2) // Throttle UI updates
+    
     @Published var measurements: [WiFiMeasurement] = []
-    @Published var isRecording = false
-    @Published var currentSignalStrength: Int = 0
-    @Published var currentNetworkName: String = ""
+    @Atomic var isRecording = false
+    @Atomic var currentSignalStrength: Int = 0
+    @Atomic var currentNetworkName: String = ""
     
     private let networkMonitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "WiFiMonitor")
@@ -52,8 +65,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     private let maxMeasurements = 500 // Prevent unlimited measurement growth
     private let maxPositionHistory = 50 // Limit position tracking history
     
-    // Movement detection for smart WiFi scanning
-    private var positionHistory: [(position: simd_float3, timestamp: TimeInterval)] = []
+    // Movement detection for smart WiFi scanning - now handled by threadSafePositionHistory
     private var lastMovementTime: TimeInterval = 0
     private let movementStopThreshold: TimeInterval = 0.3 // Very responsive - 300ms for immediate testing
     private let positionHistorySize = 3 // Minimal history for immediate response
@@ -66,7 +78,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     
     private func setupNetworkMonitoring() {
         networkMonitor.pathUpdateHandler = { [weak self] (path: Network.NWPath) in
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 self?.updateNetworkInfo(path: path)
             }
         }
@@ -93,7 +105,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     func startSurvey() {
         isRecording = true
         isFirstMeasurement = true
-        positionHistory.removeAll()
+        threadSafePositionHistory.removeAll()
         lastMovementTime = Date().timeIntervalSince1970
         
         print("📡 Starting WiFi survey with simplified movement detection")
@@ -113,10 +125,11 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         
         // Schedule periodic speed tests (every 10 seconds to avoid too frequent network requests)
         speedTestTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            self?.performRealSpeedTest { result in
+            self?.performRealSpeedTest { [weak self] result in
+                guard let self = self else { return }
                 switch result {
                 case .success(let speed):
-                    self?.currentSignalStrength = self?.getCurrentSignalStrength() ?? -70
+                    self.currentSignalStrength = self.getCurrentSignalStrength()
                     print("Speed test: \(speed) Mbps")
                 case .failure(let error):
                     print("Speed test failed: \(error.localizedDescription)")
@@ -171,13 +184,27 @@ class WiFiSurveyManager: NSObject, ObservableObject {
             roomType: roomType
         )
         
-        measurements.append(measurement)
+        // Thread-safe measurement storage
+        threadSafeMeasurements.append(measurement)
+        
+        // Add to spatial index for fast lookups
+        spatialIndex.insert(
+            point: measurement.location,
+            data: measurement,
+            index: threadSafeMeasurements.count - 1
+        )
+        
+        // Throttled UI updates to improve performance
+        uiUpdateThrottler.throttle { [weak self] in
+            guard let self = self else { return }
+            self.measurements = self.threadSafeMeasurements.toArray()
+        }
         
         // Prevent unlimited memory growth by limiting measurement count
         maintainMeasurementBounds()
         
         // Debug logging
-        print("📍 WiFi measurement #\(measurements.count) recorded at (\(String(format: "%.2f", location.x)), \(String(format: "%.2f", location.y)), \(String(format: "%.2f", location.z))) in \(roomType?.rawValue ?? "Unknown room")")
+        print("📍 WiFi measurement #\(threadSafeMeasurements.count) recorded at (\(String(format: "%.2f", location.x)), \(String(format: "%.2f", location.y)), \(String(format: "%.2f", location.z))) in \(roomType?.rawValue ?? "Unknown room")")
         print("   Signal: \(currentSignalStrength)dBm, Speed: \(Int(round(measurement.speed)))Mbps")
         print("   📊 User stopped moving - measurement taken automatically")
     }
@@ -225,7 +252,10 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         request.timeoutInterval = 30.0 // 30 second timeout
         
         // Create a custom download task with progress tracking
-        let session = URLSession(configuration: .default, delegate: nil, delegateQueue: nil)
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 30.0
+        configuration.urlCache = nil // Disable caching for speed test
+        let session = URLSession(configuration: configuration, delegate: nil, delegateQueue: nil)
         let task = session.downloadTask(with: request) { [weak self] tempURL, response, error in
             let endTime = CFAbsoluteTimeGetCurrent()
             let duration = endTime - startTime
@@ -241,6 +271,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
                 
                 if let error = error {
                     let speedTestError = SpeedTestError.networkError(error.localizedDescription)
+                    self?.errorHandler.handleError(WiFiAnalysisError.speedTestFailed(underlying: error), context: "Speed Test")
                     completion(.failure(speedTestError))
                     return
                 }
@@ -288,8 +319,8 @@ class WiFiSurveyManager: NSObject, ObservableObject {
             }
         }
         
-        // Add progress observation
-        let _ = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self, weak task] timer in
+        // Add progress observation with proper weak references
+        let progressTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self, weak task] timer in
             guard let task = task, task.state == .running else {
                 timer.invalidate()
                 return
@@ -298,10 +329,11 @@ class WiFiSurveyManager: NSObject, ObservableObject {
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
             let progress = min(Float(elapsed / 10.0), 0.95) // Estimate progress over 10 seconds max
             
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 self?.speedTestProgressHandler?(progress, "Testing download speed...")
             }
         }
+        RunLoop.current.add(progressTimer, forMode: .common)
         
         task.resume()
     }
@@ -364,41 +396,49 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     }
     
     func generateHeatmapData() -> WiFiHeatmapData {
-        print("📊 Generating heatmap data from \(measurements.count) measurements")
-        
-        // Check if we have enough data for meaningful heatmap
-        guard measurements.count >= 2 else {
-            print("⚠️ Insufficient coverage data points for heatmap: \(measurements.count)")
+        return measurePerformance("HeatmapGeneration") {
+            let currentMeasurements = threadSafeMeasurements.toArray()
+            print("📊 Generating heatmap data from \(currentMeasurements.count) measurements")
+            
+            // Check if we have enough data for meaningful heatmap
+            guard currentMeasurements.count >= 2 else {
+            print("⚠️ Insufficient coverage data points for heatmap: \(currentMeasurements.count)")
             
             // Create basic coverage map from available measurements
             var coverageMap: [simd_float3: Double] = [:]
-            for measurement in measurements {
+            for measurement in currentMeasurements {
                 let normalizedSignal = Double(measurement.signalStrength + 100) / 100.0
                 coverageMap[measurement.location] = normalizedSignal
             }
             
             return WiFiHeatmapData(
-                measurements: measurements,
+                measurements: currentMeasurements,
                 coverageMap: coverageMap,
-                optimalRouterPlacements: calculateOptimalRouterPlacements()
+                optimalRouterPlacements: calculateOptimalRouterPlacements(using: currentMeasurements)
             )
         }
         
         // Generate interpolated coverage map with improved algorithm
-        let interpolatedCoverageMap = generateInterpolatedCoverageMap()
-        let optimalPlacements = calculateOptimalRouterPlacements()
+        let interpolatedCoverageMap = generateInterpolatedCoverageMap(using: currentMeasurements)
+        let optimalPlacements = calculateOptimalRouterPlacements(using: currentMeasurements)
         
         print("✅ Generated heatmap with \(interpolatedCoverageMap.count) interpolated coverage points")
         
-        return WiFiHeatmapData(
-            measurements: measurements,
-            coverageMap: interpolatedCoverageMap,
-            optimalRouterPlacements: optimalPlacements
-        )
+            return WiFiHeatmapData(
+                measurements: currentMeasurements,
+                coverageMap: interpolatedCoverageMap,
+                optimalRouterPlacements: optimalPlacements
+            )
+        }
     }
     
-    private func generateInterpolatedCoverageMap() -> [simd_float3: Double] {
-        var coverageMap: [simd_float3: Double] = [:]
+    private func generateInterpolatedCoverageMap(using measurements: [WiFiMeasurement]) -> [simd_float3: Double] {
+        // Use cache key based on measurement count and bounds for efficient caching
+        let cacheKey = "coverage_\(measurements.count)_\(measurements.hashValue)"
+        
+        return heatmapCache.getValue(for: cacheKey) {
+            return measurePerformance("CoverageMapGeneration") {
+                var coverageMap: [simd_float3: Double] = [:]
         
         // Calculate bounds from actual measurements, not arbitrary rectangles
         let positions = measurements.map { $0.location }
@@ -437,7 +477,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
                 
                 // Skip interpolation for points too far from any actual measurement
                 if nearestMeasurementDistance <= 4.0 { // Max 4m from any measurement
-                    let interpolatedStrength = interpolateSignalStrength(at: gridPoint)
+                    let interpolatedStrength = interpolateSignalStrength(at: gridPoint, using: measurements)
                     let normalizedSignal = Double(interpolatedStrength + 100) / 100.0
                     
                     // Only include points with reasonable signal strength
@@ -448,32 +488,47 @@ class WiFiSurveyManager: NSObject, ObservableObject {
             }
         }
         
-        print("   Generated \(coverageMap.count) valid interpolation points (excluding distant areas)")
-        
-        return coverageMap
+                print("   Generated \(coverageMap.count) valid interpolation points (excluding distant areas)")
+                
+                return coverageMap
+            }
+        }
     }
     
-    private func interpolateSignalStrength(at point: simd_float3) -> Float {
+    private func interpolateSignalStrength(at point: simd_float3, using measurements: [WiFiMeasurement]) -> Float {
         guard !measurements.isEmpty else { return -100 }
+        
+        // Use spatial index for faster nearest neighbor search (within 10m radius)
+        let nearbyPoints = spatialIndex.findNearby(point: point, radius: 10.0)
+        
+        // If spatial index has nearby points, use them; otherwise fall back to all measurements
+        let relevantData: [(location: simd_float3, signalStrength: Int)] = nearbyPoints.isEmpty ? 
+            measurements.map { ($0.location, $0.signalStrength) } :
+            nearbyPoints.compactMap { nearby in
+                if let measurement = nearby.data as? WiFiMeasurement {
+                    return (measurement.location, measurement.signalStrength)
+                }
+                return nil
+            }
         
         var weightedSum: Float = 0
         var totalWeight: Float = 0
         
         // Use inverse distance weighting for interpolation
-        for measurement in measurements {
-            let distance = simd_distance(point, measurement.location)
+        for (location, signalStrength) in relevantData {
+            let distance = simd_distance(point, location)
             
             // Avoid division by zero for exact matches
             let weight = distance < 0.01 ? 1000.0 : 1.0 / (distance * distance)
             
-            weightedSum += Float(measurement.signalStrength) * weight
+            weightedSum += Float(signalStrength) * weight
             totalWeight += weight
         }
         
         return totalWeight > 0 ? weightedSum / totalWeight : -100
     }
     
-    private func calculateOptimalRouterPlacements() -> [simd_float3] {
+    private func calculateOptimalRouterPlacements(using measurements: [WiFiMeasurement]) -> [simd_float3] {
         guard measurements.count >= 2 else {
             print("⚠️ Insufficient measurements for router placement analysis")
             return []
@@ -576,20 +631,21 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     
     private func updatePositionHistory(location: simd_float3, timestamp: TimeInterval) {
         // Add new position to history
-        positionHistory.append((position: location, timestamp: timestamp))
+        threadSafePositionHistory.append((position: location, timestamp: timestamp))
         
         // Maintain position history bounds
         maintainPositionHistoryBounds()
         
         // Limit history size
-        if positionHistory.count > positionHistorySize {
-            positionHistory.removeFirst(positionHistory.count - positionHistorySize)
+        if threadSafePositionHistory.count > positionHistorySize {
+            threadSafePositionHistory.removeFirst(threadSafePositionHistory.count - positionHistorySize)
         }
     }
     
     private func updateMovementTracking(location: simd_float3, timestamp: TimeInterval) {
         // Check if there was significant movement since last check
-        if let lastHistoryEntry = positionHistory.last {
+        let positionHistoryArray = threadSafePositionHistory.toArray()
+        if let lastHistoryEntry = positionHistoryArray.last {
             let distance = simd_distance(location, lastHistoryEntry.position)
             let timeDelta = timestamp - lastHistoryEntry.timestamp
             
@@ -613,7 +669,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         }
         
         // Very permissive - allow measurement with minimal history
-        guard positionHistory.count >= 2 else { 
+        guard threadSafePositionHistory.count >= 2 else { 
             print("📍 Minimal position history - allowing immediate measurement")
             return true 
         }
@@ -623,8 +679,9 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         let hasStoppedMoving = timeSinceLastMovement >= movementStopThreshold
         
         // Very simplified stability check - just check last 2 positions 
-        let recentPositions = positionHistory.suffix(2) // Only check last 2 positions for speed
-        let isStable = isPositionStable(positions: Array(recentPositions))
+        let positionHistoryArray = threadSafePositionHistory.toArray()
+        let recentPositions = Array(positionHistoryArray.suffix(2)) // Only check last 2 positions for speed
+        let isStable = isPositionStable(positions: recentPositions)
         
         // Be more permissive - allow measurement if either condition is met
         if hasStoppedMoving || isStable {
@@ -663,30 +720,55 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     
     private func maintainMeasurementBounds() {
         // Remove oldest measurements if we exceed the limit
-        if measurements.count > maxMeasurements {
-            let excess = measurements.count - maxMeasurements
-            measurements.removeFirst(excess)
-            print("🧹 Trimmed \(excess) old measurements to maintain memory bounds (now \(measurements.count)/\(maxMeasurements))")
+        if threadSafeMeasurements.count > maxMeasurements {
+            let excess = threadSafeMeasurements.count - maxMeasurements
+            threadSafeMeasurements.removeFirst(excess)
+            
+            // Update published measurements
+            MainThreadExecutor.execute { [weak self] in
+                guard let self = self else { return }
+                self.measurements = self.threadSafeMeasurements.toArray()
+            }
+            
+            print("🧹 Trimmed \(excess) old measurements to maintain memory bounds (now \(threadSafeMeasurements.count)/\(maxMeasurements))")
         }
     }
     
     private func maintainPositionHistoryBounds() {
         // Remove oldest position history if we exceed the limit
-        if positionHistory.count > maxPositionHistory {
-            let excess = positionHistory.count - maxPositionHistory
-            positionHistory.removeFirst(excess)
-            print("🧹 Trimmed \(excess) old position entries to maintain memory bounds (now \(positionHistory.count)/\(maxPositionHistory))")
+        if threadSafePositionHistory.count > maxPositionHistory {
+            let excess = threadSafePositionHistory.count - maxPositionHistory
+            threadSafePositionHistory.removeFirst(excess)
+            print("🧹 Trimmed \(excess) old position entries to maintain memory bounds (now \(threadSafePositionHistory.count)/\(maxPositionHistory))")
         }
     }
     
     func clearMeasurementData() {
         // Clean up all measurement data to free memory
-        measurements.removeAll()
-        positionHistory.removeAll()
+        threadSafeMeasurements.removeAll()
+        threadSafePositionHistory.removeAll()
+        
+        // Clear performance optimization caches
+        spatialIndex.clear()
+        heatmapCache.clear()
+        
+        // Update published measurements on main thread
+        uiUpdateThrottler.executeImmediately { [weak self] in
+            self?.measurements.removeAll()
+        }
+        
         lastMeasurementPosition = nil
         lastMeasurementTime = 0
         lastMovementTime = 0
         
-        print("🧹 Cleared all measurement data to free memory")
+        print("🧹 Cleared all measurement data and caches to free memory")
+    }
+    
+    deinit {
+        // Ensure cleanup on deallocation
+        stopSurvey()
+        networkMonitor.cancel()
+        clearMeasurementData()
+        print("♻️ WiFiSurveyManager deallocated")
     }
 }
