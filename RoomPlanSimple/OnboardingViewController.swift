@@ -104,53 +104,78 @@ class OnboardingViewController: UIViewController {
         let containerView = UIView()
         containerView.translatesAutoresizingMaskIntoConstraints = false
         
-        // Official Spectrum colors (metallic gray and sky blue)
-        let spectrumGray = UIColor(red: 0.45, green: 0.45, blue: 0.45, alpha: 1.0)
-        let spectrumBlue = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 1.0)
+        // Create the official Spectrum logo using image rendering
+        let logoImageView = UIImageView()
+        logoImageView.translatesAutoresizingMaskIntoConstraints = false
+        logoImageView.contentMode = .scaleAspectFit
         
-        // Create "SPECTRUM" text with official styling
-        let textLabel = UILabel()
-        textLabel.text = "SPECTRUM"
-        // Use system font that matches the official sans-serif rounded look
-        textLabel.font = UIFont.systemFont(ofSize: 28, weight: .medium)
-        textLabel.textColor = spectrumGray
-        textLabel.translatesAutoresizingMaskIntoConstraints = false
-        textLabel.adjustsFontSizeToFitWidth = true
-        textLabel.minimumScaleFactor = 0.5
+        // Create the official Spectrum logo image programmatically
+        let logoImage = createSpectrumLogoImage()
+        logoImageView.image = logoImage
         
-        // Create blue triangle pointing right
-        let triangleView = UIView()
-        triangleView.translatesAutoresizingMaskIntoConstraints = false
-        triangleView.backgroundColor = .clear
-        
-        // Draw custom triangle
-        let triangleLayer = CAShapeLayer()
-        let trianglePath = UIBezierPath()
-        trianglePath.move(to: CGPoint(x: 0, y: 0))
-        trianglePath.addLine(to: CGPoint(x: 16, y: 8))
-        trianglePath.addLine(to: CGPoint(x: 0, y: 16))
-        trianglePath.close()
-        triangleLayer.path = trianglePath.cgPath
-        triangleLayer.fillColor = spectrumBlue.cgColor
-        triangleView.layer.addSublayer(triangleLayer)
-        
-        containerView.addSubview(textLabel)
-        containerView.addSubview(triangleView)
+        containerView.addSubview(logoImageView)
         
         NSLayoutConstraint.activate([
-            textLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            textLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            textLabel.topAnchor.constraint(equalTo: containerView.topAnchor),
-            textLabel.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-            
-            triangleView.leadingAnchor.constraint(equalTo: textLabel.trailingAnchor, constant: 12),
-            triangleView.centerYAnchor.constraint(equalTo: textLabel.centerYAnchor),
-            triangleView.widthAnchor.constraint(equalToConstant: 16),
-            triangleView.heightAnchor.constraint(equalToConstant: 16),
-            triangleView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor)
+            logoImageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            logoImageView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            logoImageView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            logoImageView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
         ])
         
         return containerView
+    }
+    
+    private func createSpectrumLogoImage() -> UIImage {
+        // Official Spectrum logo dimensions and colors - sized to fit well
+        let logoSize = CGSize(width: 320, height: 90)
+        let spectrumNavy = UIColor(red: 0.094, green: 0.211, blue: 0.314, alpha: 1.0) // #18364F
+        let spectrumBlue = UIColor(red: 0.086, green: 0.447, blue: 0.851, alpha: 1.0) // #1672D9
+        
+        let renderer = UIGraphicsImageRenderer(size: logoSize)
+        let logoImage = renderer.image { context in
+            let cgContext = context.cgContext
+            
+            // Draw "Spectrum" text in official navy color
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.alignment = .left
+            
+            let textAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 42, weight: .bold),
+                .foregroundColor: spectrumNavy,
+                .paragraphStyle: paragraphStyle
+            ]
+            
+            let spectrumText = "Spectrum"
+            let textSize = spectrumText.size(withAttributes: textAttributes)
+            // Center the entire logo within the canvas
+            let totalLogoWidth = textSize.width + 40 // text + spacing + triangle
+            let startX = (logoSize.width - totalLogoWidth) / 2
+            
+            let textRect = CGRect(
+                x: startX,
+                y: (logoSize.height - textSize.height) / 2,
+                width: textSize.width,
+                height: textSize.height
+            )
+            
+            spectrumText.draw(in: textRect, withAttributes: textAttributes)
+            
+            // Draw the blue triangle arrow pointing right
+            let triangleStartX = startX + textSize.width + 16
+            let triangleCenterY = logoSize.height / 2
+            let triangleHeight: CGFloat = 28
+            let triangleWidth: CGFloat = 24
+            
+            cgContext.setFillColor(spectrumBlue.cgColor)
+            cgContext.beginPath()
+            cgContext.move(to: CGPoint(x: triangleStartX, y: triangleCenterY - triangleHeight/2))
+            cgContext.addLine(to: CGPoint(x: triangleStartX + triangleWidth, y: triangleCenterY))
+            cgContext.addLine(to: CGPoint(x: triangleStartX, y: triangleCenterY + triangleHeight/2))
+            cgContext.closePath()
+            cgContext.fillPath()
+        }
+        
+        return logoImage
     }
     
     private func checkDeviceCompatibility() {

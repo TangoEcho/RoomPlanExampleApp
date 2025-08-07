@@ -1345,9 +1345,9 @@ extension ARVisualizationManager: ARSCNViewDelegate {
         // Create logo background plane
         let backgroundGeometry = SCNPlane(width: 0.25, height: 0.08) // 25cm x 8cm logo
         
-        // Create material with Spectrum branding colors
+        // Create material with official Spectrum white background
         let backgroundMaterial = SCNMaterial()
-        backgroundMaterial.diffuse.contents = UIColor(red: 0.45, green: 0.45, blue: 0.45, alpha: 0.95) // Spectrum gray background
+        backgroundMaterial.diffuse.contents = UIColor.white // Official white background
         backgroundMaterial.isDoubleSided = true
         backgroundMaterial.writesToDepthBuffer = false
         
@@ -1360,11 +1360,11 @@ extension ARVisualizationManager: ARSCNViewDelegate {
         let textGeometry = SCNPlane(width: 0.18, height: 0.04) // Text area
         let textMaterial = SCNMaterial()
         
-        // Create a UILabel to render the text as an image
+        // Create a UILabel to render the text as an image with official branding
         let textLabel = UILabel(frame: CGRect(x: 0, y: 0, width: 200, height: 50))
-        textLabel.text = "SPECTRUM"
+        textLabel.text = "Spectrum"
         textLabel.font = UIFont.systemFont(ofSize: 28, weight: .bold)
-        textLabel.textColor = .white
+        textLabel.textColor = UIColor(red: 0.094, green: 0.211, blue: 0.314, alpha: 1.0) // Official navy
         textLabel.backgroundColor = .clear
         textLabel.textAlignment = .center
         
@@ -1399,7 +1399,7 @@ extension ARVisualizationManager: ARSCNViewDelegate {
             path.addLine(to: CGPoint(x: 5, y: 5))
             path.close()
             
-            UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 1.0).setFill()
+            UIColor(red: 0.086, green: 0.447, blue: 0.851, alpha: 1.0).setFill() // Official Spectrum blue
             path.fill()
         }
         
