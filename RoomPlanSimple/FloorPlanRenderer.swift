@@ -29,10 +29,12 @@ class FloorPlanRenderer: UIView {
     private var heatmapData: WiFiHeatmapData?
     private var networkDevices: [NetworkDevice] = []
     private var showHeatmap = false
+    private var showConfidence = false
     
     // Drawing properties
     private let roomStrokeWidth: CGFloat = 2.0
     private let heatmapAlpha: CGFloat = 0.6
+    private var debugMode = false
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -92,6 +94,16 @@ class FloorPlanRenderer: UIView {
         setNeedsDisplay()
     }
     
+    func setDebugMode(_ debug: Bool) {
+        self.debugMode = debug
+        setNeedsDisplay()
+    }
+    
+    func setShowConfidence(_ show: Bool) {
+        self.showConfidence = show
+        setNeedsDisplay()
+    }
+    
     // MARK: - Drawing
     
     override func draw(_ rect: CGRect) {
@@ -134,8 +146,18 @@ class FloorPlanRenderer: UIView {
             drawHeatmapOverlay(heatmapData, in: context, rect: rect)
         }
         
+        // Draw confidence overlay if enabled
+        if showConfidence, let heatmapData = heatmapData {
+            drawConfidenceOverlay(heatmapData, in: context, rect: rect)
+        }
+        
         // Draw network devices
         drawNetworkDevices(in: context, rect: rect)
+        
+        // Draw debug information overlay if in debug mode
+        if debugMode {
+            drawDebugOverlay(in: context, rect: rect)
+        }
     }
     
     private func drawRooms(in context: CGContext, rect: CGRect) {
@@ -429,7 +451,14 @@ class FloorPlanRenderer: UIView {
             
             print("   WiFi Point: (\(measurement.location.x), \(measurement.location.z)) -> View: (\(viewPoint.x), \(viewPoint.y))")
             
-            let color = colorForSignalStrength(Float(measurement.signalStrength))
+            // Choose color based on confidence mode or signal strength mode
+            let color: UIColor
+            if showConfidence {
+                color = colorForConfidenceScore(calculateConfidenceScore(for: measurement))
+            } else {
+                color = colorForSignalStrength(Float(measurement.signalStrength))
+            }
+            
             drawMeasurementPoint(at: viewPoint, color: color, in: context, alpha: 1.0)
         }
     }
@@ -541,6 +570,62 @@ class FloorPlanRenderer: UIView {
         }
     }
     
+    private func colorForConfidenceScore(_ confidence: Float) -> UIColor {
+        switch confidence {
+        case 0.8...1.0:
+            return UIColor.systemBlue     // High confidence
+        case 0.5..<0.8:
+            return UIColor.systemPurple   // Medium confidence
+        default:
+            return UIColor.systemGray     // Low confidence
+        }
+    }
+    
+    /// Calculate confidence score for a WiFi measurement
+    /// Based on signal strength, multi-band availability, and measurement stability
+    private func calculateConfidenceScore(for measurement: WiFiMeasurement) -> Float {
+        var confidence: Float = 0.0
+        
+        // Base confidence from signal strength (stronger signal = higher confidence)
+        let signalStrength = Float(measurement.signalStrength)
+        let strengthConfidence: Float
+        
+        switch signalStrength {
+        case -50...Float.greatestFiniteMagnitude:
+            strengthConfidence = 1.0  // Excellent signal = high confidence
+        case -65..<(-50):
+            strengthConfidence = 0.8  // Good signal = good confidence
+        case -75..<(-65):
+            strengthConfidence = 0.6  // Fair signal = medium confidence
+        case -85..<(-75):
+            strengthConfidence = 0.4  // Poor signal = low confidence
+        default:
+            strengthConfidence = 0.2  // Very poor signal = very low confidence
+        }
+        
+        confidence += strengthConfidence * 0.6 // 60% weight for signal strength
+        
+        // Multi-band confidence (if multi-band data is available)
+        if !measurement.bandMeasurements.isEmpty {
+            let bandCount = Float(measurement.bandMeasurements.count)
+            let maxBands: Float = 3.0 // WiFi 7 has 3 bands
+            let bandDiversityConfidence = min(1.0, bandCount / maxBands)
+            confidence += bandDiversityConfidence * 0.25 // 25% weight for band diversity
+            
+            // Consistency across bands (all bands should have reasonable signals)
+            let bandSignals = measurement.bandMeasurements.map { $0.signalStrength }
+            let avgBandSignal = bandSignals.reduce(0, +) / Float(bandSignals.count)
+            let variance = bandSignals.map { pow($0 - avgBandSignal, 2) }.reduce(0, +) / Float(bandSignals.count)
+            let consistencyScore = max(0.0, 1.0 - sqrt(variance) / 20.0) // Lower variance = higher consistency
+            confidence += consistencyScore * 0.15 // 15% weight for consistency
+        } else {
+            // No multi-band data available, reduce confidence
+            confidence += 0.3 * 0.4 // Assume medium diversity and consistency
+        }
+        
+        return min(1.0, max(0.0, confidence))
+    }
+    
     private func drawMeasurementPoint(at point: CGPoint, color: UIColor, in context: CGContext, alpha: CGFloat = 1.0) {
         let radius: CGFloat = 8
         let rect = CGRect(x: point.x - radius, y: point.y - radius, 
@@ -563,6 +648,45 @@ class FloorPlanRenderer: UIView {
         // Draw transparent heatmap area
         context.setFillColor(color.withAlphaComponent(heatmapAlpha * 0.3).cgColor)
         context.fillEllipse(in: rect)
+    }
+    
+    private func drawConfidenceOverlay(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
+        // Draw confidence overlay with transparency
+        guard !data.measurements.isEmpty else { return }
+        
+        // Use the SAME coordinate transform as rooms for consistency
+        let transform = calculateRoomCoordinateTransform(in: rect)
+        guard let transform = transform else { return }
+        
+        // Draw semi-transparent confidence overlay
+        for measurement in data.measurements {
+            let viewPoint = CGPoint(
+                x: CGFloat(measurement.location.x) * transform.scale + transform.offsetX,
+                y: CGFloat(measurement.location.z) * transform.scale + transform.offsetY
+            )
+            
+            let confidence = calculateConfidenceScore(for: measurement)
+            let color = colorForConfidenceScore(confidence)
+            
+            // Draw confidence area with varying radius based on confidence
+            let radius: CGFloat = 25 + (CGFloat(confidence) * 15) // Higher confidence = larger radius
+            drawConfidenceArea(at: viewPoint, color: color, confidence: confidence, in: context, radius: radius)
+        }
+    }
+    
+    private func drawConfidenceArea(at point: CGPoint, color: UIColor, confidence: Float, in context: CGContext, radius: CGFloat) {
+        let rect = CGRect(x: point.x - radius, y: point.y - radius, 
+                         width: radius * 2, height: radius * 2)
+        
+        // Draw confidence area with alpha based on confidence level
+        let alpha = heatmapAlpha * CGFloat(confidence) * 0.5
+        context.setFillColor(color.withAlphaComponent(alpha).cgColor)
+        context.fillEllipse(in: rect)
+        
+        // Draw confidence ring indicator
+        context.setStrokeColor(color.withAlphaComponent(CGFloat(confidence)).cgColor)
+        context.setLineWidth(2.0 + CGFloat(confidence) * 2.0) // Thicker stroke for higher confidence
+        context.strokeEllipse(in: rect.insetBy(dx: radius * 0.3, dy: radius * 0.3))
     }
     
     private func drawDeviceIcon(_ type: NetworkDevice.DeviceType, at point: CGPoint, color: UIColor, in context: CGContext) {
@@ -799,6 +923,175 @@ class FloorPlanRenderer: UIView {
                          height: size.height)
         
         attributedString.draw(in: rect)
+    }
+    
+    private func drawDebugOverlay(in context: CGContext, rect: CGRect) {
+        print("🔬 Drawing debug overlay")
+        
+        // Debug background overlay with transparency
+        context.setFillColor(UIColor.black.withAlphaComponent(0.1).cgColor)
+        context.fill(rect)
+        
+        // Debug border
+        context.setStrokeColor(UIColor.systemRed.withAlphaComponent(0.8).cgColor)
+        context.setLineWidth(2.0)
+        context.stroke(rect.insetBy(dx: 2, dy: 2))
+        
+        // Draw coordinate grid for reference
+        drawCoordinateGrid(in: context, rect: rect)
+        
+        // Draw detailed measurement labels if in debug mode
+        if let heatmapData = heatmapData {
+            drawDebugMeasurementLabels(heatmapData, in: context, rect: rect)
+        }
+        
+        // Draw confidence information if confidence mode is enabled
+        if showConfidence, let heatmapData = heatmapData {
+            drawConfidenceDebugInfo(heatmapData, in: context, rect: rect)
+        }
+        
+        // Draw debug info text
+        drawDebugInfoText(in: context, rect: rect)
+    }
+    
+    private func drawCoordinateGrid(in context: CGContext, rect: CGRect) {
+        context.setStrokeColor(UIColor.systemRed.withAlphaComponent(0.3).cgColor)
+        context.setLineWidth(1.0)
+        
+        // Draw grid lines every 40 points
+        let gridSpacing: CGFloat = 40
+        
+        // Vertical lines
+        for x in stride(from: gridSpacing, to: rect.width, by: gridSpacing) {
+            context.move(to: CGPoint(x: x, y: 0))
+            context.addLine(to: CGPoint(x: x, y: rect.height))
+            context.strokePath()
+        }
+        
+        // Horizontal lines
+        for y in stride(from: gridSpacing, to: rect.height, by: gridSpacing) {
+            context.move(to: CGPoint(x: 0, y: y))
+            context.addLine(to: CGPoint(x: rect.width, y: y))
+            context.strokePath()
+        }
+    }
+    
+    private func drawDebugMeasurementLabels(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
+        guard !rooms.isEmpty, !data.measurements.isEmpty else { return }
+        
+        // Calculate transform (same as used in drawWiFiTestPoints)
+        let allPoints = rooms.flatMap { $0.wallPoints }
+        let minX = allPoints.map { $0.x }.min() ?? 0
+        let maxX = allPoints.map { $0.x }.max() ?? 0
+        let minY = allPoints.map { $0.y }.min() ?? 0
+        let maxY = allPoints.map { $0.y }.max() ?? 0
+        
+        let roomWidth = maxX - minX
+        let roomHeight = maxY - minY
+        
+        guard roomWidth > 0 && roomHeight > 0 else { return }
+        
+        let padding: CGFloat = 20
+        let availableWidth = rect.width - (padding * 2)
+        let availableHeight = rect.height - (padding * 2)
+        
+        let scaleX = availableWidth / CGFloat(roomWidth)
+        let scaleY = availableHeight / CGFloat(roomHeight)
+        let scale = min(scaleX, scaleY)
+        
+        let scaledRoomWidth = CGFloat(roomWidth) * scale
+        let scaledRoomHeight = CGFloat(roomHeight) * scale
+        let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
+        let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
+        
+        for (index, measurement) in data.measurements.enumerated() {
+            let viewX = CGFloat(measurement.location.x) * scale + offsetX
+            let viewY = CGFloat(measurement.location.z) * scale + offsetY
+            
+            let debugText = "#\(index + 1)\n\(measurement.signalStrength)dBm\n\(Int(measurement.speed))Mbps"
+            
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 10),
+                .foregroundColor: UIColor.systemRed,
+                .backgroundColor: UIColor.white.withAlphaComponent(0.8)
+            ]
+            
+            let attributedString = NSAttributedString(string: debugText, attributes: attributes)
+            let textSize = attributedString.size()
+            
+            let textRect = CGRect(x: viewX - textSize.width / 2,
+                                y: viewY + 15, // Offset below the point
+                                width: textSize.width,
+                                height: textSize.height)
+            
+            attributedString.draw(in: textRect)
+        }
+    }
+    
+    private func drawDebugInfoText(in context: CGContext, rect: CGRect) {
+        let debugInfo = """
+        DEBUG MODE
+        Rooms: \(rooms.count)
+        Furniture: \(furnitureItems.count)
+        WiFi Points: \(heatmapData?.measurements.count ?? 0)
+        Heatmap: \(showHeatmap ? "ON" : "OFF")
+        Confidence: \(showConfidence ? "ON" : "OFF")
+        """
+        
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 12, weight: .bold),
+            .foregroundColor: UIColor.systemRed,
+            .backgroundColor: UIColor.white.withAlphaComponent(0.9)
+        ]
+        
+        let attributedString = NSAttributedString(string: debugInfo, attributes: attributes)
+        let textSize = attributedString.size()
+        
+        let textRect = CGRect(x: rect.width - textSize.width - 10,
+                            y: 10,
+                            width: textSize.width,
+                            height: textSize.height)
+        
+        attributedString.draw(in: textRect)
+    }
+    
+    private func drawConfidenceDebugInfo(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
+        // Calculate average confidence across all measurements
+        let confidenceScores = data.measurements.map { calculateConfidenceScore(for: $0) }
+        let avgConfidence = confidenceScores.reduce(0, +) / Float(confidenceScores.count)
+        let minConfidence = confidenceScores.min() ?? 0.0
+        let maxConfidence = confidenceScores.max() ?? 1.0
+        
+        let confidenceInfo = """
+        COVERAGE CONFIDENCE
+        Average: \(String(format: "%.1f", avgConfidence * 100))%
+        Range: \(String(format: "%.1f", minConfidence * 100))% - \(String(format: "%.1f", maxConfidence * 100))%
+        High Confidence Points: \(confidenceScores.filter { $0 >= 0.8 }.count)
+        Low Confidence Points: \(confidenceScores.filter { $0 < 0.5 }.count)
+        """
+        
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: UIColor.systemBlue,
+            .backgroundColor: UIColor.systemBackground.withAlphaComponent(0.9)
+        ]
+        
+        let attributedString = NSAttributedString(string: confidenceInfo, attributes: attributes)
+        let textSize = attributedString.size()
+        
+        let textRect = CGRect(x: 10,
+                            y: rect.height - textSize.height - 10,
+                            width: textSize.width,
+                            height: textSize.height)
+        
+        // Draw background for confidence info
+        context.setFillColor(UIColor.systemBackground.withAlphaComponent(0.9).cgColor)
+        let paddedRect = textRect.insetBy(dx: -8, dy: -4)
+        let path = UIBezierPath(roundedRect: paddedRect, cornerRadius: 6)
+        context.addPath(path.cgPath)
+        context.fillPath()
+        
+        attributedString.draw(in: textRect)
     }
 }
 

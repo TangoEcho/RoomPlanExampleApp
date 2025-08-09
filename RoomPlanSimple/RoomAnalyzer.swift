@@ -63,12 +63,25 @@ class RoomAnalyzer: ObservableObject {
         // CORRECT APPROACH: Only use floor surfaces as room boundaries
         // Walls/doors/windows are used for openings and connections, NOT separate rooms
         
-        let validFloors = capturedRoom.floors.filter { surface in
-            surface.dimensions.x > 0 && surface.dimensions.z > 0 &&
-            surface.dimensions.x.isFinite && surface.dimensions.z.isFinite
+        // Enhanced floor validation with detailed debugging
+        print("🔍 Analyzing floor surfaces in detail:")
+        for (i, floor) in capturedRoom.floors.enumerated() {
+            print("   Floor \(i + 1): dimensions (\(String(format: "%.3f", floor.dimensions.x)), \(String(format: "%.3f", floor.dimensions.y)), \(String(format: "%.3f", floor.dimensions.z)))")
+            print("     isFinite: x=\(floor.dimensions.x.isFinite), y=\(floor.dimensions.y.isFinite), z=\(floor.dimensions.z.isFinite)")
+            print("     > 0: x=\(floor.dimensions.x > 0), z=\(floor.dimensions.z > 0)")
         }
         
-        print("🔍 Found \(validFloors.count) valid floor surfaces")
+        let validFloors = capturedRoom.floors.filter { surface in
+            let xValid = surface.dimensions.x > 0 && surface.dimensions.x.isFinite
+            let zValid = surface.dimensions.z > 0 && surface.dimensions.z.isFinite
+            let yValid = surface.dimensions.y.isFinite  // Y can be 0 for floor height
+            
+            let isValid = xValid && zValid && yValid
+            print("   Floor validation: x=\(xValid), z=\(zValid), y=\(yValid) -> valid=\(isValid)")
+            return isValid
+        }
+        
+        print("🔍 Found \(validFloors.count) valid floor surfaces (out of \(capturedRoom.floors.count) total)")
         
         if validFloors.count == 1 {
             // Single floor area - segment into logical rooms based on furniture
@@ -323,45 +336,104 @@ class RoomAnalyzer: ObservableObject {
         // Create proper room boundaries using wall surface positions
         print("🧱 Creating room boundary from \(capturedRoom.walls.count) wall surfaces")
         
-        var wallPoints: [simd_float2] = []
-        let maxDistance: Float = 10.0 // Maximum distance to consider walls as part of this room
+        // ENHANCED: Always try to use actual wall data first, even with lenient criteria
+        var wallSegments: [(start: simd_float2, end: simd_float2)] = []
+        let maxDistance: Float = 15.0 // Increased range to catch more walls
         
-        // Extract wall endpoints and centers
-        for wall in capturedRoom.walls {
+        // Extract wall segments instead of just corner points
+        for (wallIndex, wall) in capturedRoom.walls.enumerated() {
             let wallCenter = extractSurfaceCenter(wall)
             let distance = simd_distance(wallCenter, centerPoint)
             
+            print("   Wall \(wallIndex + 1): center (\(String(format: "%.2f", wallCenter.x)), \(String(format: "%.2f", wallCenter.z))), distance \(String(format: "%.2f", distance))m")
+            
             if distance <= maxDistance {
-                // Extract wall corner points based on dimensions and transform
-                let wallCorners = extractWallCornerPoints(wall)
-                wallPoints.append(contentsOf: wallCorners)
-                print("   Wall at (\(String(format: "%.2f", wallCenter.x)), \(String(format: "%.2f", wallCenter.z))) added \(wallCorners.count) points")
-            }
-        }
-        
-        if wallPoints.isEmpty {
-            print("   ⚠️ No walls found, creating fallback boundary")
-            // Fallback to furniture-based boundary
-            // Create a fallback room boundary when no valid walls found
-            if let firstFloor = capturedRoom.floors.first {
-                return createRoomBoundaryFromFurnitureCluster(capturedRoom.objects, floor: firstFloor)
+                // Extract wall as line segment
+                let wallSegment = extractWallLineSegment(wall)
+                wallSegments.append(wallSegment)
+                print("     ✅ Wall \(wallIndex + 1) included: (\(String(format: "%.2f", wallSegment.start.x)), \(String(format: "%.2f", wallSegment.start.y))) to (\(String(format: "%.2f", wallSegment.end.x)), \(String(format: "%.2f", wallSegment.end.y)))")
             } else {
-                // Last resort - create rectangular boundary
-                let padding: Float = 2.0
-                return [
-                    simd_float2(centerPoint.x - padding, centerPoint.z - padding),
-                    simd_float2(centerPoint.x + padding, centerPoint.z - padding),
-                    simd_float2(centerPoint.x + padding, centerPoint.z + padding),
-                    simd_float2(centerPoint.x - padding, centerPoint.z + padding)
-                ]
+                print("     ❌ Wall \(wallIndex + 1) too far (\(String(format: "%.2f", distance))m)")
             }
         }
         
-        // Create convex hull or ordered boundary from wall points
-        let orderedBoundary = createOrderedBoundaryFromPoints(wallPoints, center: simd_float2(centerPoint.x, centerPoint.z))
-        print("   ✅ Created room boundary with \(orderedBoundary.count) wall-based points")
+        if !wallSegments.isEmpty {
+            // Create room boundary from wall segments
+            let wallBoundary = createBoundaryFromWallSegments(wallSegments)
+            if wallBoundary.count >= 3 {
+                print("   ✅ Created room boundary with \(wallBoundary.count) wall-based points")
+                return wallBoundary
+            }
+        }
         
-        return orderedBoundary
+        print("   ⚠️ Could not create wall-based boundary, falling back to furniture boundary")
+        // Fallback to furniture-based boundary
+        if let firstFloor = capturedRoom.floors.first {
+            return createRoomBoundaryFromFurnitureCluster(capturedRoom.objects, floor: firstFloor)
+        } else {
+            // Last resort - create rectangular boundary
+            let padding: Float = 2.0
+            return [
+                simd_float2(centerPoint.x - padding, centerPoint.z - padding),
+                simd_float2(centerPoint.x + padding, centerPoint.z - padding),
+                simd_float2(centerPoint.x + padding, centerPoint.z + padding),
+                simd_float2(centerPoint.x - padding, centerPoint.z + padding)
+            ]
+        }
+    }
+    
+    private func extractWallLineSegment(_ wall: CapturedRoom.Surface) -> (start: simd_float2, end: simd_float2) {
+        let center = extractSurfaceCenter(wall)
+        let dimensions = wall.dimensions
+        let transform = wall.transform
+        
+        // Extract wall orientation from transform matrix
+        let rightVector = simd_float3(transform.columns.0.x, 0, transform.columns.0.z)
+        let normalizedRight = simd_normalize(rightVector)
+        
+        // Calculate wall endpoints along its length
+        let halfLength = dimensions.x / 2  // Wall length
+        let center2D = simd_float2(center.x, center.z)
+        let rightVector2D = simd_float2(normalizedRight.x, normalizedRight.z)
+        
+        let start = center2D - rightVector2D * halfLength
+        let end = center2D + rightVector2D * halfLength
+        
+        return (start: start, end: end)
+    }
+    
+    private func createBoundaryFromWallSegments(_ wallSegments: [(start: simd_float2, end: simd_float2)]) -> [simd_float2] {
+        // Collect all wall endpoints
+        var allPoints: [simd_float2] = []
+        for segment in wallSegments {
+            allPoints.append(segment.start)
+            allPoints.append(segment.end)
+        }
+        
+        // Remove duplicates (endpoints that are very close together)
+        let uniquePoints = allPoints.reduce(into: [simd_float2]()) { result, point in
+            if !result.contains(where: { simd_distance($0, point) < 0.2 }) {
+                result.append(point)
+            }
+        }
+        
+        guard uniquePoints.count >= 3 else { 
+            print("   ❌ Insufficient unique wall points (\(uniquePoints.count))")
+            return []
+        }
+        
+        // Calculate centroid for ordering
+        let centroid = uniquePoints.reduce(simd_float2(0, 0), +) / Float(uniquePoints.count)
+        
+        // Sort points by angle to create a proper room boundary
+        let sortedPoints = uniquePoints.sorted { point1, point2 in
+            let angle1 = atan2(point1.y - centroid.y, point1.x - centroid.x)
+            let angle2 = atan2(point2.y - centroid.y, point2.x - centroid.x)
+            return angle1 < angle2
+        }
+        
+        print("   📐 Wall boundary: \(sortedPoints.count) points around centroid (\(String(format: "%.2f", centroid.x)), \(String(format: "%.2f", centroid.y)))")
+        return sortedPoints
     }
     
     private func extractWallCornerPoints(_ wall: CapturedRoom.Surface) -> [simd_float2] {
@@ -428,6 +500,18 @@ class RoomAnalyzer: ObservableObject {
         let furnitureCenter = calculateCenterFromFurniture(furniture)
         let furnitureBounds = calculateBoundsFromFurniture(furniture)
         
+        print("🧱 Creating room boundary from furniture cluster:")
+        print("   Furniture center: (\(String(format: "%.3f", furnitureCenter.x)), \(String(format: "%.3f", furnitureCenter.z)))")
+        print("   Furniture bounds: (\(String(format: "%.3f", furnitureBounds.min.x)), \(String(format: "%.3f", furnitureBounds.min.z))) to (\(String(format: "%.3f", furnitureBounds.max.x)), \(String(format: "%.3f", furnitureBounds.max.z)))")
+        
+        // Analyze furniture layout to infer room orientation and potential rotation
+        let roomOrientation = inferRoomOrientation(from: furniture)
+        print("   Inferred room orientation: \(roomOrientation)")
+        
+        // Determine if coordinate system rotation is needed based on furniture analysis
+        let coordinateRotation = determineCoordinateRotation(from: furniture)
+        print("   Coordinate rotation needed: \(coordinateRotation)°")
+        
         // Create room boundary with padding around furniture
         let padding: Float = 1.5
         let roomWidth = max(furnitureBounds.max.x - furnitureBounds.min.x + padding * 2, 2.0)
@@ -437,12 +521,149 @@ class RoomAnalyzer: ObservableObject {
         let halfDepth = roomDepth / 2
         let center2D = simd_float2(furnitureCenter.x, furnitureCenter.z)
         
-        return [
+        // Apply coordinate rotation if needed
+        var boundary = [
             center2D + simd_float2(-halfWidth, -halfDepth), // bottom-left
             center2D + simd_float2(halfWidth, -halfDepth),  // bottom-right
             center2D + simd_float2(halfWidth, halfDepth),   // top-right
             center2D + simd_float2(-halfWidth, halfDepth)   // top-left
         ]
+        
+        // Apply rotation transformation if needed
+        if coordinateRotation != 0 {
+            let rotationRadians = coordinateRotation * Float.pi / 180
+            boundary = boundary.map { point in
+                let relativePoint = point - center2D
+                let rotatedX = relativePoint.x * cos(rotationRadians) - relativePoint.y * sin(rotationRadians)
+                let rotatedY = relativePoint.x * sin(rotationRadians) + relativePoint.y * cos(rotationRadians)
+                return center2D + simd_float2(rotatedX, rotatedY)
+            }
+            print("   Applied \(coordinateRotation)° rotation to room boundary")
+        }
+        
+        print("   Generated room boundary:")
+        for (i, point) in boundary.enumerated() {
+            print("     Corner \(i): (\(String(format: "%.3f", point.x)), \(String(format: "%.3f", point.y)))")
+        }
+        
+        return boundary
+    }
+    
+    private func inferRoomOrientation(from furniture: [CapturedRoom.Object]) -> String {
+        // Analyze furniture positioning to understand room layout
+        let beds = furniture.filter { $0.category == .bed }
+        let storage = furniture.filter { $0.category == .storage }
+        
+        // If we have bed + storage, analyze their relative positions
+        if let bed = beds.first, !storage.isEmpty {
+            let bedPos = simd_float2(bed.transform.columns.3.x, bed.transform.columns.3.z)
+            
+            // Find storage items near the bed (potential nightstands)
+            let nearbyStorage = storage.filter { storageItem in
+                let storagePos = simd_float2(storageItem.transform.columns.3.x, storageItem.transform.columns.3.z)
+                let distance = simd_distance(bedPos, storagePos)
+                return distance < 2.0 // Within 2 meters of bed
+            }
+            
+            if nearbyStorage.count >= 2 {
+                let storagePositions = nearbyStorage.map { simd_float2($0.transform.columns.3.x, $0.transform.columns.3.z) }
+                
+                // Check if storage items are on opposite sides of the bed
+                let bedToCentroid = storagePositions.reduce(simd_float2(0, 0), +) / Float(storagePositions.count) - bedPos
+                let arrangement = abs(bedToCentroid.x) > abs(bedToCentroid.y) ? "horizontal" : "vertical"
+                
+                return "bedroom_\(arrangement)_with_nightstands"
+            }
+        }
+        
+        return "standard_rectangular"
+    }
+    
+    private func determineCoordinateRotation(from furniture: [CapturedRoom.Object]) -> Float {
+        // Analyze furniture arrangement to determine if coordinate system rotation is needed
+        let beds = furniture.filter { $0.category == .bed }
+        let storage = furniture.filter { $0.category == .storage }
+        
+        guard let bed = beds.first else { return 0 }
+        
+        let bedPos = simd_float2(bed.transform.columns.3.x, bed.transform.columns.3.z)
+        print("🔄 Analyzing coordinate system for bed at (\(String(format: "%.3f", bedPos.x)), \(String(format: "%.3f", bedPos.y)))")
+        
+        // Find nearby storage items (potential nightstands)
+        let nearbyStorage = storage.filter { storageItem in
+            let storagePos = simd_float2(storageItem.transform.columns.3.x, storageItem.transform.columns.3.z)
+            let distance = simd_distance(bedPos, storagePos)
+            return distance < 2.0
+        }
+        
+        print("   Found \(nearbyStorage.count) nearby storage items:")
+        for (i, storageItem) in nearbyStorage.enumerated() {
+            let storagePos = simd_float2(storageItem.transform.columns.3.x, storageItem.transform.columns.3.z)
+            let direction = storagePos - bedPos
+            let angle = atan2(direction.y, direction.x) * 180 / Float.pi
+            let distance = simd_distance(bedPos, storagePos)
+            
+            print("     Storage \(i+1): (\(String(format: "%.3f", storagePos.x)), \(String(format: "%.3f", storagePos.y))) - \(String(format: "%.1f", angle))° at \(String(format: "%.2f", distance))m")
+        }
+        
+        // If we have exactly 2 nearby storage items, analyze their arrangement
+        if nearbyStorage.count >= 2 {
+            let storagePositions = nearbyStorage.prefix(2).map { 
+                simd_float2($0.transform.columns.3.x, $0.transform.columns.3.z) 
+            }
+            
+            let pos1 = storagePositions[0]
+            let pos2 = storagePositions[1]
+            
+            // Calculate angles of both storage items relative to bed
+            let dir1 = pos1 - bedPos
+            let dir2 = pos2 - bedPos
+            let angle1 = atan2(dir1.y, dir1.x) * 180 / Float.pi
+            let angle2 = atan2(dir2.y, dir2.x) * 180 / Float.pi
+            
+            print("   Storage arrangement analysis:")
+            print("     Storage 1 angle: \(String(format: "%.1f", angle1))°")
+            print("     Storage 2 angle: \(String(format: "%.1f", angle2))°")
+            
+            // Check if they form an east-west pattern (should be around ±90° apart)
+            let angleDiff = abs(angle1 - angle2)
+            let normalizedDiff = min(angleDiff, 360 - angleDiff)
+            
+            print("     Angle difference: \(String(format: "%.1f", normalizedDiff))°")
+            
+            // If storage items are roughly opposite (150-210° apart), they might be nightstands
+            if normalizedDiff > 120 && normalizedDiff < 240 {
+                // Check current orientation - are they more north-south or east-west?
+                let avgAngle = (angle1 + angle2) / 2
+                
+                // Normalize to find the perpendicular axis
+                let perpAngle = avgAngle + 90
+                let normalizedPerpAngle = fmod(perpAngle + 360, 360)
+                
+                print("     Average angle: \(String(format: "%.1f", avgAngle))°")
+                print("     Perpendicular axis: \(String(format: "%.1f", normalizedPerpAngle))°")
+                
+                // If the perpendicular axis is closer to north-south (0°, 180°), 
+                // nightstands are currently east-west aligned
+                // If closer to east-west (90°, 270°), nightstands are north-south aligned
+                
+                let distFromNorthSouth = min(abs(normalizedPerpAngle), abs(normalizedPerpAngle - 180), abs(normalizedPerpAngle - 360))
+                let distFromEastWest = min(abs(normalizedPerpAngle - 90), abs(normalizedPerpAngle - 270))
+                
+                if distFromEastWest < distFromNorthSouth {
+                    // Nightstands are currently north-south, but user expects east-west
+                    print("     🔄 Nightstands are north-south aligned, suggesting 90° rotation needed")
+                    return 90
+                } else {
+                    print("     ✅ Nightstands are already east-west aligned")
+                    return 0
+                }
+            }
+        }
+        
+        // No clear nightstand pattern found - use default orientation
+        print("   No clear nightstand pattern found - using default orientation")
+        return 0
     }
     
     
@@ -905,24 +1126,90 @@ class RoomAnalyzer: ObservableObject {
     private func catalogFurniture(from capturedRoom: CapturedRoom) {
         var furniture: [FurnitureItem] = []
         
-        for object in capturedRoom.objects {
+        print("🏠 Cataloging \(capturedRoom.objects.count) furniture items:")
+        
+        for (index, object) in capturedRoom.objects.enumerated() {
             // Extract RoomPlan's confidence score for this object
             let roomPlanConfidence = object.confidence
+            let position = simd_float3(object.transform.columns.3.x, object.transform.columns.3.y, object.transform.columns.3.z)
             
             let item = FurnitureItem(
                 category: object.category,
-                position: simd_float3(object.transform.columns.3.x, object.transform.columns.3.y, object.transform.columns.3.z),
+                position: position,
                 dimensions: object.dimensions,
                 roomId: nil, // Could be assigned based on containment
                 confidence: confidenceToFloat(roomPlanConfidence) // Use RoomPlan's actual confidence converted to Float
             )
             furniture.append(item)
             
-            print("📦 Object \(object.category) detected with confidence: \(String(format: "%.2f", confidenceToFloat(roomPlanConfidence)))")
+            // Enhanced debugging for spatial relationships
+            print("📦 Item \(index + 1): \(object.category)")
+            print("   Position: (\(String(format: "%.3f", position.x)), \(String(format: "%.3f", position.y)), \(String(format: "%.3f", position.z)))")
+            print("   Dimensions: \(String(format: "%.2f", object.dimensions.x)) × \(String(format: "%.2f", object.dimensions.y)) × \(String(format: "%.2f", object.dimensions.z))")
+            print("   Confidence: \(String(format: "%.2f", confidenceToFloat(roomPlanConfidence)))")
+            
+            // Extract rotation info from transform matrix
+            let transform = object.transform
+            let rightVector = simd_float3(transform.columns.0.x, transform.columns.0.y, transform.columns.0.z)
+            let upVector = simd_float3(transform.columns.1.x, transform.columns.1.y, transform.columns.1.z)
+            let forwardVector = simd_float3(transform.columns.2.x, transform.columns.2.y, transform.columns.2.z)
+            
+            let yRotation = atan2(forwardVector.x, forwardVector.z) * 180 / Float.pi
+            print("   Y-rotation: \(String(format: "%.1f", yRotation))°")
         }
+        
+        // Analyze spatial relationships between furniture items
+        analyzeFurnitureSpatialRelationships(furniture)
         
         DispatchQueue.main.async {
             self.furnitureItems = furniture
+        }
+    }
+    
+    private func analyzeFurnitureSpatialRelationships(_ furniture: [FurnitureItem]) {
+        guard furniture.count > 1 else { return }
+        
+        print("🔍 Analyzing spatial relationships between furniture:")
+        
+        let beds = furniture.filter { $0.category == .bed }
+        let storage = furniture.filter { $0.category == .storage }
+        let tables = furniture.filter { $0.category == .table }
+        
+        if let bed = beds.first {
+            print("   Bed at: (\(String(format: "%.3f", bed.position.x)), \(String(format: "%.3f", bed.position.z)))")
+            
+            // Find nearby storage (potential nightstands)
+            for storageItem in storage {
+                let distance = simd_distance(simd_float2(bed.position.x, bed.position.z), 
+                                           simd_float2(storageItem.position.x, storageItem.position.z))
+                let direction = simd_float2(storageItem.position.x - bed.position.x, 
+                                          storageItem.position.z - bed.position.z)
+                let angle = atan2(direction.y, direction.x) * 180 / Float.pi
+                
+                print("   Storage \(distance < 2.0 ? "NEAR" : "FAR") bed: distance \(String(format: "%.2f", distance))m, angle \(String(format: "%.1f", angle))°")
+                
+                if distance < 2.0 {
+                    let relativePosition = distance < 1.0 ? "very close" : "close"
+                    let cardinalDirection = getCardinalDirection(from: angle)
+                    print("     -> \(relativePosition) \(cardinalDirection) of bed")
+                }
+            }
+        }
+    }
+    
+    private func getCardinalDirection(from angle: Float) -> String {
+        let normalizedAngle = angle < 0 ? angle + 360 : angle
+        switch normalizedAngle {
+        case 315...360, 0..<45:
+            return "east"
+        case 45..<135:
+            return "south"
+        case 135..<225:
+            return "west"
+        case 225..<315:
+            return "north"
+        default:
+            return "unknown"
         }
     }
     

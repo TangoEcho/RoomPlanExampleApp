@@ -13,7 +13,10 @@ class FloorPlanViewController: UIViewController {
     private var heatmapLabel: UILabel!
     private var debugToggle: UISwitch!
     private var debugLabel: UILabel!
+    private var confidenceToggle: UISwitch!
+    private var confidenceLabel: UILabel!
     private var exportButton: UIButton!
+    private var compareButton: UIButton!
     private var closeButton: UIButton!
     
     private var wifiHeatmapData: WiFiHeatmapData?
@@ -27,6 +30,10 @@ class FloorPlanViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        
+        // Test RF propagation models integration
+        let wifiSurveyManager = WiFiSurveyManager()
+        wifiSurveyManager.testRFPropagationModels()
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -105,6 +112,16 @@ class FloorPlanViewController: UIViewController {
         debugToggle.translatesAutoresizingMaskIntoConstraints = false
         debugToggle.addTarget(self, action: #selector(toggleDebugView), for: .valueChanged)
         
+        // Confidence visualization controls
+        confidenceLabel = UILabel()
+        confidenceLabel.translatesAutoresizingMaskIntoConstraints = false
+        confidenceLabel.text = "Show Coverage Confidence"
+        confidenceLabel.font = .systemFont(ofSize: 16, weight: .medium)
+        
+        confidenceToggle = UISwitch()
+        confidenceToggle.translatesAutoresizingMaskIntoConstraints = false
+        confidenceToggle.addTarget(self, action: #selector(toggleConfidenceView), for: .valueChanged)
+        
         // Legend
         legendView = UIView()
         legendView.translatesAutoresizingMaskIntoConstraints = false
@@ -130,6 +147,15 @@ class FloorPlanViewController: UIViewController {
         exportButton.layer.cornerRadius = 12
         exportButton.addTarget(self, action: #selector(exportReport), for: .touchUpInside)
         
+        compareButton = UIButton(type: .system)
+        compareButton.translatesAutoresizingMaskIntoConstraints = false
+        compareButton.setTitle("📊 View Coverage Comparison", for: .normal)
+        compareButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        compareButton.backgroundColor = SpectrumBranding.Colors.accent
+        compareButton.setTitleColor(.white, for: .normal)
+        compareButton.layer.cornerRadius = 12
+        compareButton.addTarget(self, action: #selector(showCoverageComparison), for: .touchUpInside)
+        
         closeButton = UIButton(type: .system)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.setTitle("Close", for: .normal)
@@ -145,9 +171,12 @@ class FloorPlanViewController: UIViewController {
         view.addSubview(heatmapToggle)
         view.addSubview(debugLabel)
         view.addSubview(debugToggle)
+        view.addSubview(confidenceLabel)
+        view.addSubview(confidenceToggle)
         view.addSubview(legendView)
         view.addSubview(measurementsList)
         view.addSubview(exportButton)
+        view.addSubview(compareButton)
     }
     
     private func setupConstraints() {
@@ -187,8 +216,15 @@ class FloorPlanViewController: UIViewController {
             debugLabel.centerYAnchor.constraint(equalTo: debugToggle.centerYAnchor),
             debugLabel.trailingAnchor.constraint(equalTo: debugToggle.leadingAnchor, constant: -8),
             
+            // Confidence toggle and label
+            confidenceToggle.topAnchor.constraint(equalTo: debugToggle.bottomAnchor, constant: 8),
+            confidenceToggle.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            
+            confidenceLabel.centerYAnchor.constraint(equalTo: confidenceToggle.centerYAnchor),
+            confidenceLabel.trailingAnchor.constraint(equalTo: confidenceToggle.leadingAnchor, constant: -8),
+            
             // Legend
-            legendView.topAnchor.constraint(equalTo: debugToggle.bottomAnchor, constant: 16),
+            legendView.topAnchor.constraint(equalTo: confidenceToggle.bottomAnchor, constant: 16),
             legendView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             legendView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             legendView.heightAnchor.constraint(equalToConstant: 140),
@@ -199,8 +235,14 @@ class FloorPlanViewController: UIViewController {
             exportButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             exportButton.heightAnchor.constraint(equalToConstant: 50),
             
+            // Compare button
+            compareButton.topAnchor.constraint(equalTo: exportButton.bottomAnchor, constant: 12),
+            compareButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            compareButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            compareButton.heightAnchor.constraint(equalToConstant: 50),
+            
             // Measurements list
-            measurementsList.topAnchor.constraint(equalTo: exportButton.bottomAnchor, constant: 16),
+            measurementsList.topAnchor.constraint(equalTo: compareButton.bottomAnchor, constant: 16),
             measurementsList.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             measurementsList.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             measurementsList.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16)
@@ -233,10 +275,18 @@ class FloorPlanViewController: UIViewController {
             ("Excellent (>-50 dBm)", UIColor.systemGreen),
             ("Good (-50 to -70 dBm)", UIColor.systemYellow),
             ("Fair (-70 to -85 dBm)", UIColor.systemOrange),
-            ("Poor (<-85 dBm)", UIColor.systemRed)
+            ("Poor (<-85 dBm)", UIColor.systemRed),
+            ("High Confidence (>80%)", UIColor.systemBlue),
+            ("Medium Confidence (50-80%)", UIColor.systemPurple),
+            ("Low Confidence (<50%)", UIColor.systemGray)
         ]
         
-        for (text, color) in legendItems {
+        // Show different legend based on confidence mode
+        let filteredItems = confidenceToggle.isOn ? 
+            Array(legendItems.suffix(3)) : // Show confidence legend
+            Array(legendItems.prefix(4))   // Show signal strength legend
+        
+        for (text, color) in filteredItems {
             let itemView = createLegendItem(text: text, color: color)
             stackView.addArrangedSubview(itemView)
         }
@@ -317,11 +367,12 @@ class FloorPlanViewController: UIViewController {
                 self.floorPlanRenderer.updateNetworkDevices(convertedDevices)
             }
             
-            // Enable debug toggle for enhanced visualization modes
-            // Instead of accuracy validation, use debug mode for enhanced WiFi visualization
+            // Enable debug and confidence toggles for enhanced visualization modes
             self.debugToggle.isEnabled = !heatmapData.measurements.isEmpty
+            self.confidenceToggle.isEnabled = !heatmapData.measurements.isEmpty
             
             self.floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
+            self.floorPlanRenderer.setShowConfidence(self.confidenceToggle.isOn)
             self.measurementsList.reloadData()
         }
     }
@@ -349,6 +400,17 @@ class FloorPlanViewController: UIViewController {
         }
     }
     
+    @objc private func toggleConfidenceView() {
+        floorPlanRenderer.setShowConfidence(confidenceToggle.isOn)
+        // Update legend to show confidence scale or signal strength scale
+        setupLegend()
+        if confidenceToggle.isOn {
+            print("📊 Coverage confidence visualization enabled")
+        } else {
+            print("📊 Coverage confidence visualization disabled")
+        }
+    }
+    
     @objc private func exportReport() {
         guard let heatmapData = wifiHeatmapData,
               let roomAnalyzer = roomAnalyzer else {
@@ -360,7 +422,8 @@ class FloorPlanViewController: UIViewController {
         let reportURL = reportGenerator.generateReport(
             heatmapData: heatmapData,
             rooms: roomAnalyzer.identifiedRooms,
-            furniture: roomAnalyzer.furnitureItems
+            furniture: roomAnalyzer.furnitureItems,
+            networkDeviceManager: networkDeviceManager
         )
         
         let activityVC = UIActivityViewController(
@@ -374,6 +437,18 @@ class FloorPlanViewController: UIViewController {
         }
         
         present(activityVC, animated: true)
+    }
+    
+    @objc private func showCoverageComparison() {
+        print("📊 Coverage comparison feature temporarily disabled during integration")
+        
+        let alert = UIAlertController(
+            title: "Coverage Comparison",
+            message: "This feature is being enhanced and will be available soon.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
     
     @objc private func closeButtonTapped() {

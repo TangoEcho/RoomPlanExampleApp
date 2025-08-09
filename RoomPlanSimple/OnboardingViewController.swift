@@ -184,7 +184,7 @@ class OnboardingViewController: UIViewController {
         print("🎭 Running in simulator - bypassing RoomPlan compatibility check")
         #else
         if !RoomCaptureSession.isSupported {
-            showUnsupportedDeviceAlert()
+            print("⚠️ Device doesn't support RoomCapture, but continuing anyway")
         }
         #endif
         // Auto-start will be triggered after view appears
@@ -203,10 +203,8 @@ class OnboardingViewController: UIViewController {
         #if targetEnvironment(simulator)
         print("🎭 Simulator: Transitioning to RoomCaptureViewController with mock data")
         #else
-        guard RoomCaptureSession.isSupported else {
-            showUnsupportedDeviceAlert()
-            return
-        }
+        // Continue even if RoomCapture isn't supported - the view controller will show a placeholder
+        print("📱 Transitioning to RoomCaptureViewController")
         #endif
         
         // Create RoomCaptureViewController directly without navigation controller
@@ -218,10 +216,8 @@ class OnboardingViewController: UIViewController {
     }
     
     private func startScanAutomatically() {
-        guard RoomCaptureSession.isSupported else {
-            showUnsupportedDeviceAlert()
-            return
-        }
+        // Continue even if not supported - the RoomCaptureViewController will handle it
+        print("📱 Starting scan (will show placeholder if unsupported)")
         
         if let viewController = self.storyboard?.instantiateViewController(
             withIdentifier: "RoomCaptureViewNavigationController") {
@@ -241,10 +237,7 @@ class OnboardingViewController: UIViewController {
     }
     
     @IBAction func startScan(_ sender: UIButton) {
-        guard RoomCaptureSession.isSupported else {
-            showUnsupportedDeviceAlert()
-            return
-        }
+        // Continue even if not supported - the RoomCaptureViewController will handle it
         
         if let viewController = self.storyboard?.instantiateViewController(
             withIdentifier: "RoomCaptureViewNavigationController") {

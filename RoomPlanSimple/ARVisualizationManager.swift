@@ -721,16 +721,21 @@ class ARVisualizationManager: NSObject, ObservableObject {
         node.geometry = wallGeometry
         node.simdTransform = wall.transform
         
-        // Add Spectrum logo to wall if it's large enough
+        // Add Spectrum logo to wall if it's large enough, with smart sizing
         let wallArea = wall.dimensions.x * wall.dimensions.y
-        if wallArea > 0.5 { // Add logo to walls larger than 0.5m²
-            let logoNode = createWallSpectrumLogoForOutline()
+        let wallWidth = wall.dimensions.x
+        let wallHeight = wall.dimensions.y
+        
+        if wallArea > 1.0 { // Only add logos to walls larger than 1m²
+            let logoNode = createWallSpectrumLogoForOutline(wallWidth: wallWidth, wallHeight: wallHeight)
             
             // Position logo at center of wall, slightly in front
             logoNode.position = SCNVector3(0, 0, 0.015) // Just in front of wall surface
             
             node.addChildNode(logoNode)
-            print("📍 Added Spectrum logo to wall (area: \(String(format: "%.2f", wallArea))m²)")
+            print("📍 Added Spectrum logo to wall (area: \(String(format: "%.2f", wallArea))m², width: \(String(format: "%.2f", wallWidth))m)")
+        } else {
+            print("   ⏭️ Skipping logo - wall too small (area: \(String(format: "%.2f", wallArea))m²)")
         }
         
         return node
@@ -1339,91 +1344,117 @@ extension ARVisualizationManager: ARSCNViewDelegate {
         print("✅ Added \(wallLogoNodes.count) Spectrum logos to room walls")
     }
     
-    private func createWallSpectrumLogoForOutline() -> SCNNode {
-        let logoContainer = SCNNode()
+    private func createWallSpectrumLogoForOutline(wallWidth: Float, wallHeight: Float) -> SCNNode {
+        // Create official Spectrum logo image for walls
+        let logoImage = createOfficialSpectrumLogoImage()
         
-        // Create logo background plane
-        let backgroundGeometry = SCNPlane(width: 0.25, height: 0.08) // 25cm x 8cm logo
+        // Smart sizing: aim for 2 feet (0.61m) wide but scale down if wall is too small
+        let idealWidth: Float = 0.61 // 2 feet
+        let aspectRatio: Float = 0.18 / 0.61 // height/width ratio
         
-        // Create material with official Spectrum white background
-        let backgroundMaterial = SCNMaterial()
-        backgroundMaterial.diffuse.contents = UIColor.white // Official white background
-        backgroundMaterial.isDoubleSided = true
-        backgroundMaterial.writesToDepthBuffer = false
+        // Leave 20% margin on each side of the wall
+        let maxAllowedWidth = wallWidth * 0.6
+        let maxAllowedHeight = wallHeight * 0.4 // Keep logo in middle portion of wall
         
-        backgroundGeometry.materials = [backgroundMaterial]
+        // Calculate final logo size
+        var logoWidth = min(idealWidth, maxAllowedWidth)
+        var logoHeight = logoWidth * aspectRatio
         
-        let backgroundNode = SCNNode(geometry: backgroundGeometry)
-        logoContainer.addChildNode(backgroundNode)
-        
-        // Create white text plane for "SPECTRUM"
-        let textGeometry = SCNPlane(width: 0.18, height: 0.04) // Text area
-        let textMaterial = SCNMaterial()
-        
-        // Create a UILabel to render the text as an image with official branding
-        let textLabel = UILabel(frame: CGRect(x: 0, y: 0, width: 200, height: 50))
-        textLabel.text = "Spectrum"
-        textLabel.font = UIFont.systemFont(ofSize: 28, weight: .bold)
-        textLabel.textColor = UIColor(red: 0.094, green: 0.211, blue: 0.314, alpha: 1.0) // Official navy
-        textLabel.backgroundColor = .clear
-        textLabel.textAlignment = .center
-        
-        // Render UILabel to image
-        let renderer = UIGraphicsImageRenderer(bounds: textLabel.bounds)
-        let textImage = renderer.image { context in
-            textLabel.layer.render(in: context.cgContext)
+        // Check if height fits, if not scale down further
+        if logoHeight > maxAllowedHeight {
+            logoHeight = maxAllowedHeight
+            logoWidth = logoHeight / aspectRatio
         }
         
-        textMaterial.diffuse.contents = textImage
-        textMaterial.emission.contents = UIColor.white.withAlphaComponent(0.2) // Slight glow
-        textMaterial.isDoubleSided = true
-        textMaterial.transparency = 0.0 // Fully opaque
-        
-        textGeometry.materials = [textMaterial]
-        
-        let textNode = SCNNode(geometry: textGeometry)
-        textNode.position = SCNVector3(-0.02, 0, 0.001) // Slightly offset from background
-        logoContainer.addChildNode(textNode)
-        
-        // Create blue triangle using simple geometry
-        let triangleGeometry = SCNPlane(width: 0.02, height: 0.02)
-        let triangleMaterial = SCNMaterial()
-        
-        // Create triangle image
-        let triangleSize = CGSize(width: 40, height: 40)
-        let triangleRenderer = UIGraphicsImageRenderer(size: triangleSize)
-        let triangleImage = triangleRenderer.image { context in
-            let path = UIBezierPath()
-            path.move(to: CGPoint(x: 5, y: 35))
-            path.addLine(to: CGPoint(x: 35, y: 20))
-            path.addLine(to: CGPoint(x: 5, y: 5))
-            path.close()
-            
-            UIColor(red: 0.086, green: 0.447, blue: 0.851, alpha: 1.0).setFill() // Official Spectrum blue
-            path.fill()
+        // Minimum size check - don't make logos too tiny
+        let minWidth: Float = 0.25 // 10 inches minimum
+        if logoWidth < minWidth {
+            logoWidth = minWidth
+            logoHeight = logoWidth * aspectRatio
         }
         
-        triangleMaterial.diffuse.contents = triangleImage
-        triangleMaterial.emission.contents = UIColor(red: 0.0, green: 0.64, blue: 1.0, alpha: 0.3)
-        triangleMaterial.isDoubleSided = true
-        triangleMaterial.transparency = 0.0
+        let logoGeometry = SCNPlane(width: CGFloat(logoWidth), height: CGFloat(logoHeight))
         
-        triangleGeometry.materials = [triangleMaterial]
+        let logoMaterial = SCNMaterial()
+        logoMaterial.diffuse.contents = logoImage
+        logoMaterial.isDoubleSided = true
+        logoMaterial.writesToDepthBuffer = false
+        logoMaterial.transparency = 0.0
         
-        let triangleNode = SCNNode(geometry: triangleGeometry)
-        triangleNode.position = SCNVector3(0.09, 0, 0.001)
-        logoContainer.addChildNode(triangleNode)
+        logoGeometry.materials = [logoMaterial]
+        
+        let logoNode = SCNNode(geometry: logoGeometry)
         
         // Add subtle pulsing animation
         let pulseAnimation = CABasicAnimation(keyPath: "opacity")
-        pulseAnimation.fromValue = 0.8
+        pulseAnimation.fromValue = 0.85
         pulseAnimation.toValue = 1.0
-        pulseAnimation.duration = 3.0
+        pulseAnimation.duration = 4.0
         pulseAnimation.repeatCount = Float.infinity
         pulseAnimation.autoreverses = true
-        logoContainer.addAnimation(pulseAnimation, forKey: "wallLogoPulse")
+        logoNode.addAnimation(pulseAnimation, forKey: "wallLogoPulse")
         
-        return logoContainer
+        print("   📏 Logo sized: \(String(format: "%.2f", logoWidth))m × \(String(format: "%.2f", logoHeight))m for wall \(String(format: "%.2f", wallWidth))m × \(String(format: "%.2f", wallHeight))m")
+        
+        return logoNode
+    }
+    
+    private func createOfficialSpectrumLogoImage() -> UIImage {
+        // Create high-resolution official Spectrum logo for walls
+        let logoSize = CGSize(width: 800, height: 240) // High resolution for crisp wall display
+        let spectrumNavy = UIColor(red: 0.094, green: 0.211, blue: 0.314, alpha: 1.0) // #18364F
+        let spectrumBlue = UIColor(red: 0.086, green: 0.447, blue: 0.851, alpha: 1.0) // #1672D9
+        
+        let renderer = UIGraphicsImageRenderer(size: logoSize)
+        let logoImage = renderer.image { context in
+            let cgContext = context.cgContext
+            
+            // Fill with white background
+            cgContext.setFillColor(UIColor.white.cgColor)
+            cgContext.fill(CGRect(origin: .zero, size: logoSize))
+            
+            // Draw "Spectrum" text in official navy color
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.alignment = .left
+            
+            let textAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 120, weight: .bold), // Large font for wall display
+                .foregroundColor: spectrumNavy,
+                .paragraphStyle: paragraphStyle
+            ]
+            
+            let spectrumText = "Spectrum"
+            let textSize = spectrumText.size(withAttributes: textAttributes)
+            
+            // Center the entire logo within the canvas
+            let totalLogoWidth = textSize.width + 80 // text + spacing + triangle
+            let startX = (logoSize.width - totalLogoWidth) / 2
+            
+            let textRect = CGRect(
+                x: startX,
+                y: (logoSize.height - textSize.height) / 2,
+                width: textSize.width,
+                height: textSize.height
+            )
+            
+            spectrumText.draw(in: textRect, withAttributes: textAttributes)
+            
+            // Draw the blue triangle arrow pointing right
+            let triangleStartX = startX + textSize.width + 40
+            let triangleCenterY = logoSize.height / 2
+            let triangleHeight: CGFloat = 80
+            let triangleWidth: CGFloat = 60
+            
+            cgContext.setFillColor(spectrumBlue.cgColor)
+            cgContext.beginPath()
+            cgContext.move(to: CGPoint(x: triangleStartX, y: triangleCenterY - triangleHeight/2))
+            cgContext.addLine(to: CGPoint(x: triangleStartX + triangleWidth, y: triangleCenterY))
+            cgContext.addLine(to: CGPoint(x: triangleStartX, y: triangleCenterY + triangleHeight/2))
+            cgContext.closePath()
+            cgContext.fillPath()
+        }
+        
+        return logoImage
     }
     
     private func createWallSpectrumLogo() -> SCNNode {

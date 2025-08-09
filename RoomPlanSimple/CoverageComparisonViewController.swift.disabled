@@ -1,0 +1,718 @@
+import UIKit
+import RoomPlan
+import simd
+
+/// Customer-friendly coverage comparison view showing before/after scenarios
+class CoverageComparisonViewController: UIViewController {
+    
+    // MARK: - Properties
+    
+    private var currentScenario: CoverageScenario?
+    private var improvedScenario: CoverageScenario?
+    private var roomAnalyzer: RoomAnalyzer?
+    private var networkDeviceManager: NetworkDeviceManager?
+    
+    // UI Components
+    private var scrollView: UIScrollView!
+    private var contentView: UIView!
+    
+    private var headerView: UIView!
+    private var titleLabel: UILabel!
+    private var summaryCard: UIView!
+    private var improvementMetricsView: UIView!
+    
+    private var comparisonContainer: UIView!
+    private var beforeSection: ComparisonSectionView!
+    private var afterSection: ComparisonSectionView!
+    private var vsLabel: UILabel!
+    
+    private var benefitsSection: UIView!
+    private var recommendationsSection: UIView!
+    private var actionButton: UIButton!
+    private var closeButton: UIButton!
+    
+    // MARK: - Lifecycle
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupUI()
+        setupConstraints()
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        
+        if let current = currentScenario, let improved = improvedScenario {
+            animateComparisonEntrance()
+            updateComparisonData(current: current, improved: improved)
+        }
+    }
+    
+    // MARK: - Public Methods
+    
+    func updateWithComparison(current: CoverageScenario, improved: CoverageScenario, 
+                            roomAnalyzer: RoomAnalyzer, 
+                            networkDeviceManager: NetworkDeviceManager) {
+        self.currentScenario = current
+        self.improvedScenario = improved
+        self.roomAnalyzer = roomAnalyzer
+        self.networkDeviceManager = networkDeviceManager
+        
+        if isViewLoaded {
+            updateComparisonData(current: current, improved: improved)
+        }
+    }
+    
+    // MARK: - UI Setup
+    
+    private func setupUI() {
+        view.backgroundColor = SpectrumBranding.Colors.background
+        
+        // Create scroll view for large content
+        scrollView = UIScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.showsVerticalScrollIndicator = true
+        scrollView.alwaysBounceVertical = true
+        
+        contentView = UIView()
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Header with title and close button
+        setupHeaderView()
+        
+        // Summary improvement card
+        setupSummaryCard()
+        
+        // Main comparison view
+        setupComparisonViews()
+        
+        // Benefits section
+        setupBenefitsSection()
+        
+        // Recommendations section
+        setupRecommendationsSection()
+        
+        // Action button
+        setupActionButton()
+        
+        // Add to hierarchy
+        view.addSubview(scrollView)
+        scrollView.addSubview(contentView)
+        
+        contentView.addSubview(headerView)
+        contentView.addSubview(summaryCard)
+        contentView.addSubview(comparisonContainer)
+        contentView.addSubview(benefitsSection)
+        contentView.addSubview(recommendationsSection)
+        contentView.addSubview(actionButton)
+    }
+    
+    private func setupHeaderView() {
+        headerView = UIView()
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        headerView.backgroundColor = SpectrumBranding.Colors.primary
+        headerView.layer.cornerRadius = 16
+        headerView.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        
+        titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = "📶 WiFi Coverage Improvement"
+        titleLabel.font = .systemFont(ofSize: 24, weight: .bold)
+        titleLabel.textColor = .white
+        titleLabel.textAlignment = .center
+        
+        closeButton = UIButton(type: .system)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setTitle("✕", for: .normal)
+        closeButton.titleLabel?.font = .systemFont(ofSize: 24, weight: .bold)
+        closeButton.setTitleColor(.white, for: .normal)
+        closeButton.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
+        
+        headerView.addSubview(titleLabel)
+        headerView.addSubview(closeButton)
+    }
+    
+    private func setupSummaryCard() {
+        summaryCard = UIView()
+        summaryCard.translatesAutoresizingMaskIntoConstraints = false
+        summaryCard.backgroundColor = .systemBackground
+        summaryCard.layer.cornerRadius = 16
+        summaryCard.layer.shadowOffset = CGSize(width: 0, height: 2)
+        summaryCard.layer.shadowOpacity = 0.1
+        summaryCard.layer.shadowRadius = 8
+        
+        improvementMetricsView = UIView()
+        improvementMetricsView.translatesAutoresizingMaskIntoConstraints = false
+        
+        summaryCard.addSubview(improvementMetricsView)
+    }
+    
+    private func setupComparisonViews() {
+        comparisonContainer = UIView()
+        comparisonContainer.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Before section
+        beforeSection = ComparisonSectionView()
+        beforeSection.translatesAutoresizingMaskIntoConstraints = false
+        beforeSection.configure(title: "Current Setup", 
+                               subtitle: "Your existing WiFi coverage",
+                               color: SpectrumBranding.Colors.warning)
+        
+        // VS label
+        vsLabel = UILabel()
+        vsLabel.translatesAutoresizingMaskIntoConstraints = false
+        vsLabel.text = "VS"
+        vsLabel.font = .systemFont(ofSize: 20, weight: .black)
+        vsLabel.textColor = SpectrumBranding.Colors.primary
+        vsLabel.textAlignment = .center
+        vsLabel.backgroundColor = .systemBackground
+        vsLabel.layer.cornerRadius = 20
+        vsLabel.layer.borderWidth = 3
+        vsLabel.layer.borderColor = SpectrumBranding.Colors.primary.cgColor
+        
+        // After section
+        afterSection = ComparisonSectionView()
+        afterSection.translatesAutoresizingMaskIntoConstraints = false
+        afterSection.configure(title: "Recommended Setup", 
+                              subtitle: "With our WiFi optimization",
+                              color: SpectrumBranding.Colors.success)
+        
+        comparisonContainer.addSubview(beforeSection)
+        comparisonContainer.addSubview(vsLabel)
+        comparisonContainer.addSubview(afterSection)
+    }
+    
+    private func setupBenefitsSection() {
+        benefitsSection = UIView()
+        benefitsSection.translatesAutoresizingMaskIntoConstraints = false
+        benefitsSection.backgroundColor = .systemBackground
+        benefitsSection.layer.cornerRadius = 16
+        benefitsSection.layer.shadowOffset = CGSize(width: 0, height: 2)
+        benefitsSection.layer.shadowOpacity = 0.1
+        benefitsSection.layer.shadowRadius = 8
+        
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = "🎯 What You'll Get"
+        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
+        titleLabel.textColor = SpectrumBranding.Colors.primary
+        
+        benefitsSection.addSubview(titleLabel)
+        
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: benefitsSection.topAnchor, constant: 20),
+            titleLabel.leadingAnchor.constraint(equalTo: benefitsSection.leadingAnchor, constant: 20),
+            titleLabel.trailingAnchor.constraint(equalTo: benefitsSection.trailingAnchor, constant: -20)
+        ])
+    }
+    
+    private func setupRecommendationsSection() {
+        recommendationsSection = UIView()
+        recommendationsSection.translatesAutoresizingMaskIntoConstraints = false
+        recommendationsSection.backgroundColor = SpectrumBranding.Colors.accent.withAlphaComponent(0.1)
+        recommendationsSection.layer.cornerRadius = 16
+        recommendationsSection.layer.borderWidth = 2
+        recommendationsSection.layer.borderColor = SpectrumBranding.Colors.accent.cgColor
+        
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = "💡 Our Recommendations"
+        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
+        titleLabel.textColor = SpectrumBranding.Colors.primary
+        
+        recommendationsSection.addSubview(titleLabel)
+        
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: recommendationsSection.topAnchor, constant: 20),
+            titleLabel.leadingAnchor.constraint(equalTo: recommendationsSection.leadingAnchor, constant: 20),
+            titleLabel.trailingAnchor.constraint(equalTo: recommendationsSection.trailingAnchor, constant: -20)
+        ])
+    }
+    
+    private func setupActionButton() {
+        actionButton = UIButton(type: .system)
+        actionButton.translatesAutoresizingMaskIntoConstraints = false
+        actionButton.setTitle("📞 Schedule Installation", for: .normal)
+        actionButton.titleLabel?.font = .systemFont(ofSize: 18, weight: .semibold)
+        actionButton.setTitleColor(.white, for: .normal)
+        actionButton.backgroundColor = SpectrumBranding.Colors.accent
+        actionButton.layer.cornerRadius = 25
+        actionButton.layer.shadowOffset = CGSize(width: 0, height: 4)
+        actionButton.layer.shadowOpacity = 0.3
+        actionButton.layer.shadowRadius = 8
+        actionButton.addTarget(self, action: #selector(actionButtonTapped), for: .touchUpInside)
+    }
+    
+    private func setupConstraints() {
+        NSLayoutConstraint.activate([
+            // Scroll view
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            
+            // Content view
+            contentView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+            
+            // Header view
+            headerView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: 100),
+            
+            // Title and close button in header
+            titleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            
+            closeButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -20),
+            closeButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 44),
+            closeButton.heightAnchor.constraint(equalToConstant: 44),
+            
+            // Summary card
+            summaryCard.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 20),
+            summaryCard.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            summaryCard.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            summaryCard.heightAnchor.constraint(equalToConstant: 120),
+            
+            improvementMetricsView.topAnchor.constraint(equalTo: summaryCard.topAnchor, constant: 16),
+            improvementMetricsView.leadingAnchor.constraint(equalTo: summaryCard.leadingAnchor, constant: 16),
+            improvementMetricsView.trailingAnchor.constraint(equalTo: summaryCard.trailingAnchor, constant: -16),
+            improvementMetricsView.bottomAnchor.constraint(equalTo: summaryCard.bottomAnchor, constant: -16),
+            
+            // Comparison container
+            comparisonContainer.topAnchor.constraint(equalTo: summaryCard.bottomAnchor, constant: 24),
+            comparisonContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            comparisonContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            comparisonContainer.heightAnchor.constraint(equalToConstant: 300),
+            
+            // Before section
+            beforeSection.topAnchor.constraint(equalTo: comparisonContainer.topAnchor),
+            beforeSection.leadingAnchor.constraint(equalTo: comparisonContainer.leadingAnchor),
+            beforeSection.bottomAnchor.constraint(equalTo: comparisonContainer.bottomAnchor),
+            beforeSection.widthAnchor.constraint(equalTo: comparisonContainer.widthAnchor, multiplier: 0.45),
+            
+            // VS label
+            vsLabel.centerXAnchor.constraint(equalTo: comparisonContainer.centerXAnchor),
+            vsLabel.centerYAnchor.constraint(equalTo: comparisonContainer.centerYAnchor),
+            vsLabel.widthAnchor.constraint(equalToConstant: 40),
+            vsLabel.heightAnchor.constraint(equalToConstant: 40),
+            
+            // After section
+            afterSection.topAnchor.constraint(equalTo: comparisonContainer.topAnchor),
+            afterSection.trailingAnchor.constraint(equalTo: comparisonContainer.trailingAnchor),
+            afterSection.bottomAnchor.constraint(equalTo: comparisonContainer.bottomAnchor),
+            afterSection.widthAnchor.constraint(equalTo: comparisonContainer.widthAnchor, multiplier: 0.45),
+            
+            // Benefits section
+            benefitsSection.topAnchor.constraint(equalTo: comparisonContainer.bottomAnchor, constant: 24),
+            benefitsSection.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            benefitsSection.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            benefitsSection.heightAnchor.constraint(greaterThanOrEqualToConstant: 150),
+            
+            // Recommendations section
+            recommendationsSection.topAnchor.constraint(equalTo: benefitsSection.bottomAnchor, constant: 24),
+            recommendationsSection.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            recommendationsSection.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            recommendationsSection.heightAnchor.constraint(greaterThanOrEqualToConstant: 150),
+            
+            // Action button
+            actionButton.topAnchor.constraint(equalTo: recommendationsSection.bottomAnchor, constant: 32),
+            actionButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 40),
+            actionButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -40),
+            actionButton.heightAnchor.constraint(equalToConstant: 50),
+            actionButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -40)
+        ])
+    }
+    
+    // MARK: - Data Updates
+    
+    private func updateComparisonData(current: CoverageScenario, improved: CoverageScenario) {
+        updateSummaryMetrics(current: current, improved: improved)
+        updateComparisonSections(current: current, improved: improved)
+        updateBenefitsSection(current: current, improved: improved)
+        updateRecommendationsSection(improved: improved)
+    }
+    
+    private func updateSummaryMetrics(current: CoverageScenario, improved: CoverageScenario) {
+        // Clear existing metrics
+        improvementMetricsView.subviews.forEach { $0.removeFromSuperview() }
+        
+        let improvements = CoverageImprovementCalculator.calculate(current: current, improved: improved)
+        
+        let stackView = UIStackView()
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.axis = .horizontal
+        stackView.distribution = .fillEqually
+        stackView.spacing = 12
+        
+        // Coverage improvement
+        let coverageMetric = createMetricCard(
+            title: "Coverage",
+            currentValue: "\(Int(current.coveragePercentage))%",
+            improvedValue: "\(Int(improved.coveragePercentage))%",
+            improvement: "+\(Int(improvements.coverageImprovement))%",
+            color: SpectrumBranding.Colors.success
+        )
+        
+        // Speed improvement
+        let speedMetric = createMetricCard(
+            title: "Avg Speed",
+            currentValue: "\(Int(current.averageSpeed)) Mbps",
+            improvedValue: "\(Int(improved.averageSpeed)) Mbps",
+            improvement: "+\(Int(improvements.speedImprovement))%",
+            color: SpectrumBranding.Colors.accent
+        )
+        
+        // Reliability improvement
+        let reliabilityMetric = createMetricCard(
+            title: "Reliability",
+            currentValue: "\(Int(current.reliabilityScore * 100))%",
+            improvedValue: "\(Int(improved.reliabilityScore * 100))%",
+            improvement: "+\(Int(improvements.reliabilityImprovement))%",
+            color: SpectrumBranding.Colors.primary
+        )
+        
+        stackView.addArrangedSubview(coverageMetric)
+        stackView.addArrangedSubview(speedMetric)
+        stackView.addArrangedSubview(reliabilityMetric)
+        
+        improvementMetricsView.addSubview(stackView)
+        
+        NSLayoutConstraint.activate([
+            stackView.topAnchor.constraint(equalTo: improvementMetricsView.topAnchor),
+            stackView.leadingAnchor.constraint(equalTo: improvementMetricsView.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: improvementMetricsView.trailingAnchor),
+            stackView.bottomAnchor.constraint(equalTo: improvementMetricsView.bottomAnchor)
+        ])
+    }
+    
+    private func createMetricCard(title: String, currentValue: String, improvedValue: String, 
+                                 improvement: String, color: UIColor) -> UIView {
+        let container = UIView()
+        container.backgroundColor = color.withAlphaComponent(0.1)
+        container.layer.cornerRadius = 8
+        container.layer.borderWidth = 1
+        container.layer.borderColor = color.withAlphaComponent(0.3).cgColor
+        
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = title
+        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        titleLabel.textColor = color
+        titleLabel.textAlignment = .center
+        
+        let improvementLabel = UILabel()
+        improvementLabel.translatesAutoresizingMaskIntoConstraints = false
+        improvementLabel.text = improvement
+        improvementLabel.font = .systemFont(ofSize: 16, weight: .bold)
+        improvementLabel.textColor = color
+        improvementLabel.textAlignment = .center
+        
+        let fromToLabel = UILabel()
+        fromToLabel.translatesAutoresizingMaskIntoConstraints = false
+        fromToLabel.text = "\(currentValue) → \(improvedValue)"
+        fromToLabel.font = .systemFont(ofSize: 10, weight: .medium)
+        fromToLabel.textColor = .secondaryLabel
+        fromToLabel.textAlignment = .center
+        
+        container.addSubview(titleLabel)
+        container.addSubview(improvementLabel)
+        container.addSubview(fromToLabel)
+        
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
+            titleLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -4),
+            
+            improvementLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            improvementLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
+            improvementLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -4),
+            
+            fromToLabel.topAnchor.constraint(equalTo: improvementLabel.bottomAnchor, constant: 2),
+            fromToLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
+            fromToLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -4),
+            fromToLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8)
+        ])
+        
+        return container
+    }
+    
+    private func updateComparisonSections(current: CoverageScenario, improved: CoverageScenario) {
+        beforeSection.updateWithScenario(current, isImproved: false)
+        afterSection.updateWithScenario(improved, isImproved: true)
+    }
+    
+    private func updateBenefitsSection(current: CoverageScenario, improved: CoverageScenario) {
+        // Add benefits content
+        let benefits = CustomerBenefitsGenerator.generateBenefits(current: current, improved: improved)
+        addBenefitsList(benefits, to: benefitsSection)
+    }
+    
+    private func updateRecommendationsSection(improved: CoverageScenario) {
+        // Add recommendations content
+        if let recommendations = improved.recommendations {
+            addRecommendationsList(recommendations, to: recommendationsSection)
+        }
+    }
+    
+    private func addBenefitsList(_ benefits: [CustomerBenefit], to container: UIView) {
+        let stackView = UIStackView()
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.axis = .vertical
+        stackView.spacing = 12
+        
+        for benefit in benefits {
+            let benefitView = createBenefitView(benefit)
+            stackView.addArrangedSubview(benefitView)
+        }
+        
+        container.addSubview(stackView)
+        
+        NSLayoutConstraint.activate([
+            stackView.topAnchor.constraint(equalTo: container.subviews.first!.bottomAnchor, constant: 16),
+            stackView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            stackView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            stackView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -20)
+        ])
+    }
+    
+    private func createBenefitView(_ benefit: CustomerBenefit) -> UIView {
+        let container = UIView()
+        
+        let iconLabel = UILabel()
+        iconLabel.translatesAutoresizingMaskIntoConstraints = false
+        iconLabel.text = benefit.icon
+        iconLabel.font = .systemFont(ofSize: 20)
+        
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = benefit.title
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.textColor = SpectrumBranding.Colors.primary
+        
+        let descriptionLabel = UILabel()
+        descriptionLabel.translatesAutoresizingMaskIntoConstraints = false
+        descriptionLabel.text = benefit.description
+        descriptionLabel.font = .systemFont(ofSize: 14)
+        descriptionLabel.textColor = .secondaryLabel
+        descriptionLabel.numberOfLines = 0
+        
+        container.addSubview(iconLabel)
+        container.addSubview(titleLabel)
+        container.addSubview(descriptionLabel)
+        
+        NSLayoutConstraint.activate([
+            iconLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            iconLabel.topAnchor.constraint(equalTo: container.topAnchor),
+            iconLabel.widthAnchor.constraint(equalToConstant: 30),
+            
+            titleLabel.leadingAnchor.constraint(equalTo: iconLabel.trailingAnchor, constant: 12),
+            titleLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            titleLabel.topAnchor.constraint(equalTo: container.topAnchor),
+            
+            descriptionLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            descriptionLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            descriptionLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            descriptionLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+        
+        return container
+    }
+    
+    private func addRecommendationsList(_ recommendations: [CustomerRecommendation], to container: UIView) {
+        let stackView = UIStackView()
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.axis = .vertical
+        stackView.spacing = 16
+        
+        for recommendation in recommendations {
+            let recommendationView = createRecommendationView(recommendation)
+            stackView.addArrangedSubview(recommendationView)
+        }
+        
+        container.addSubview(stackView)
+        
+        NSLayoutConstraint.activate([
+            stackView.topAnchor.constraint(equalTo: container.subviews.first!.bottomAnchor, constant: 16),
+            stackView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            stackView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            stackView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -20)
+        ])
+    }
+    
+    private func createRecommendationView(_ recommendation: CustomerRecommendation) -> UIView {
+        let container = UIView()
+        container.backgroundColor = .systemBackground
+        container.layer.cornerRadius = 12
+        container.layer.shadowOffset = CGSize(width: 0, height: 1)
+        container.layer.shadowOpacity = 0.1
+        container.layer.shadowRadius = 4
+        
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = recommendation.title
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.textColor = SpectrumBranding.Colors.primary
+        
+        let descriptionLabel = UILabel()
+        descriptionLabel.translatesAutoresizingMaskIntoConstraints = false
+        descriptionLabel.text = recommendation.description
+        descriptionLabel.font = .systemFont(ofSize: 14)
+        descriptionLabel.textColor = .label
+        descriptionLabel.numberOfLines = 0
+        
+        let costLabel = UILabel()
+        costLabel.translatesAutoresizingMaskIntoConstraints = false
+        costLabel.text = recommendation.estimatedCost
+        costLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        costLabel.textColor = SpectrumBranding.Colors.accent
+        
+        container.addSubview(titleLabel)
+        container.addSubview(descriptionLabel)
+        container.addSubview(costLabel)
+        
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            
+            descriptionLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
+            descriptionLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            descriptionLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            
+            costLabel.topAnchor.constraint(equalTo: descriptionLabel.bottomAnchor, constant: 8),
+            costLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            costLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16)
+        ])
+        
+        return container
+    }
+    
+    // MARK: - Animations
+    
+    private func animateComparisonEntrance() {
+        // Initial state
+        summaryCard.transform = CGAffineTransform(translationX: 0, y: -50)
+        summaryCard.alpha = 0
+        
+        comparisonContainer.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+        comparisonContainer.alpha = 0
+        
+        benefitsSection.transform = CGAffineTransform(translationX: -50, y: 0)
+        benefitsSection.alpha = 0
+        
+        recommendationsSection.transform = CGAffineTransform(translationX: 50, y: 0)
+        recommendationsSection.alpha = 0
+        
+        actionButton.transform = CGAffineTransform(translationX: 0, y: 50)
+        actionButton.alpha = 0
+        
+        // Animate in sequence
+        UIView.animate(withDuration: 0.6, delay: 0.2, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: []) {
+            self.summaryCard.transform = .identity
+            self.summaryCard.alpha = 1
+        }
+        
+        UIView.animate(withDuration: 0.6, delay: 0.4, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: []) {
+            self.comparisonContainer.transform = .identity
+            self.comparisonContainer.alpha = 1
+        }
+        
+        UIView.animate(withDuration: 0.6, delay: 0.6, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: []) {
+            self.benefitsSection.transform = .identity
+            self.benefitsSection.alpha = 1
+        }
+        
+        UIView.animate(withDuration: 0.6, delay: 0.8, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: []) {
+            self.recommendationsSection.transform = .identity
+            self.recommendationsSection.alpha = 1
+        }
+        
+        UIView.animate(withDuration: 0.6, delay: 1.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: []) {
+            self.actionButton.transform = .identity
+            self.actionButton.alpha = 1
+        }
+    }
+    
+    // MARK: - Actions
+    
+    @objc private func closeButtonTapped() {
+        dismiss(animated: true)
+    }
+    
+    @objc private func actionButtonTapped() {
+        // Show installation scheduling or contact options
+        showInstallationOptions()
+    }
+    
+    private func showInstallationOptions() {
+        let alert = UIAlertController(title: "Schedule Installation", 
+                                    message: "How would you like to proceed with your WiFi upgrade?", 
+                                    preferredStyle: .actionSheet)
+        
+        alert.addAction(UIAlertAction(title: "📞 Call Now", style: .default) { _ in
+            self.initiatePhoneCall()
+        })
+        
+        alert.addAction(UIAlertAction(title: "📧 Send Email", style: .default) { _ in
+            self.sendEmail()
+        })
+        
+        alert.addAction(UIAlertAction(title: "📅 Schedule Online", style: .default) { _ in
+            self.openSchedulingWebsite()
+        })
+        
+        alert.addAction(UIAlertAction(title: "📤 Share Report", style: .default) { _ in
+            self.shareReport()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = actionButton
+            popover.sourceRect = actionButton.bounds
+        }
+        
+        present(alert, animated: true)
+    }
+    
+    private func initiatePhoneCall() {
+        if let url = URL(string: "tel://1-800-SPECTRUM") {
+            UIApplication.shared.open(url)
+        }
+    }
+    
+    private func sendEmail() {
+        if let url = URL(string: "mailto:wifi-support@spectrum.com?subject=WiFi%20Upgrade%20Request") {
+            UIApplication.shared.open(url)
+        }
+    }
+    
+    private func openSchedulingWebsite() {
+        if let url = URL(string: "https://spectrum.com/schedule") {
+            UIApplication.shared.open(url)
+        }
+    }
+    
+    private func shareReport() {
+        // Generate and share comparison report
+        guard let current = currentScenario, let improved = improvedScenario else { return }
+        
+        let reportGenerator = CustomerReportGenerator()
+        let reportURL = reportGenerator.generateComparisonReport(current: current, improved: improved)
+        
+        let activityVC = UIActivityViewController(activityItems: [reportURL], applicationActivities: nil)
+        
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = actionButton
+            popover.sourceRect = actionButton.bounds
+        }
+        
+        present(activityVC, animated: true)
+    }
+}

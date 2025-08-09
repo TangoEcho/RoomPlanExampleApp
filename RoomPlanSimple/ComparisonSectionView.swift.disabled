@@ -1,0 +1,434 @@
+import UIKit
+import simd
+
+/// Individual section view showing before or after scenario in the comparison
+class ComparisonSectionView: UIView {
+    
+    // MARK: - Properties
+    
+    private var headerView: UIView!
+    private var titleLabel: UILabel!
+    private var subtitleLabel: UILabel!
+    private var miniMapView: CoverageMiniMapView!
+    private var metricsStackView: UIStackView!
+    private var highlightsLabel: UILabel!
+    
+    private var sectionColor: UIColor = SpectrumBranding.Colors.primary
+    
+    // MARK: - Initialization
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupUI()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupUI()
+    }
+    
+    // MARK: - UI Setup
+    
+    private func setupUI() {
+        backgroundColor = .systemBackground
+        layer.cornerRadius = 16
+        layer.shadowOffset = CGSize(width: 0, height: 2)
+        layer.shadowOpacity = 0.1
+        layer.shadowRadius = 8
+        
+        setupHeaderView()
+        setupMiniMapView()
+        setupMetricsView()
+        setupHighlightsLabel()
+        setupConstraints()
+    }
+    
+    private func setupHeaderView() {
+        headerView = UIView()
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        headerView.backgroundColor = sectionColor
+        headerView.layer.cornerRadius = 16
+        headerView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        
+        titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 16, weight: .bold)
+        titleLabel.textColor = .white
+        titleLabel.textAlignment = .center
+        
+        subtitleLabel = UILabel()
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        subtitleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        subtitleLabel.textColor = UIColor.white.withAlphaComponent(0.9)
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.numberOfLines = 2
+        
+        headerView.addSubview(titleLabel)
+        headerView.addSubview(subtitleLabel)
+        addSubview(headerView)
+    }
+    
+    private func setupMiniMapView() {
+        miniMapView = CoverageMiniMapView()
+        miniMapView.translatesAutoresizingMaskIntoConstraints = false
+        miniMapView.backgroundColor = .systemGray6
+        miniMapView.layer.cornerRadius = 8
+        addSubview(miniMapView)
+    }
+    
+    private func setupMetricsView() {
+        metricsStackView = UIStackView()
+        metricsStackView.translatesAutoresizingMaskIntoConstraints = false
+        metricsStackView.axis = .vertical
+        metricsStackView.spacing = 8
+        metricsStackView.distribution = .fillEqually
+        addSubview(metricsStackView)
+    }
+    
+    private func setupHighlightsLabel() {
+        highlightsLabel = UILabel()
+        highlightsLabel.translatesAutoresizingMaskIntoConstraints = false
+        highlightsLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        highlightsLabel.textColor = .secondaryLabel
+        highlightsLabel.numberOfLines = 0
+        highlightsLabel.textAlignment = .center
+        addSubview(highlightsLabel)
+    }
+    
+    private func setupConstraints() {
+        NSLayoutConstraint.activate([
+            // Header view
+            headerView.topAnchor.constraint(equalTo: topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: 70),
+            
+            // Title and subtitle in header
+            titleLabel.topAnchor.constraint(equalTo: headerView.topAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 8),
+            titleLabel.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -8),
+            
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            subtitleLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 8),
+            subtitleLabel.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -8),
+            subtitleLabel.bottomAnchor.constraint(equalTo: headerView.bottomAnchor, constant: -8),
+            
+            // Mini map view
+            miniMapView.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 12),
+            miniMapView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            miniMapView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            miniMapView.heightAnchor.constraint(equalToConstant: 100),
+            
+            // Metrics stack view
+            metricsStackView.topAnchor.constraint(equalTo: miniMapView.bottomAnchor, constant: 12),
+            metricsStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            metricsStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            metricsStackView.heightAnchor.constraint(equalToConstant: 60),
+            
+            // Highlights label
+            highlightsLabel.topAnchor.constraint(equalTo: metricsStackView.bottomAnchor, constant: 8),
+            highlightsLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            highlightsLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            highlightsLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12)
+        ])
+    }
+    
+    // MARK: - Public Methods
+    
+    func configure(title: String, subtitle: String, color: UIColor) {
+        self.sectionColor = color
+        titleLabel.text = title
+        subtitleLabel.text = subtitle
+        headerView.backgroundColor = color
+        
+        // Update mini map border color to match
+        miniMapView.layer.borderWidth = 2
+        miniMapView.layer.borderColor = color.withAlphaComponent(0.3).cgColor
+    }
+    
+    func updateWithScenario(_ scenario: CoverageScenario, isImproved: Bool) {
+        updateMiniMap(with: scenario)
+        updateMetrics(with: scenario, isImproved: isImproved)
+        updateHighlights(with: scenario, isImproved: isImproved)
+    }
+    
+    private func updateMiniMap(with scenario: CoverageScenario) {
+        miniMapView.updateWithScenario(scenario)
+    }
+    
+    private func updateMetrics(with scenario: CoverageScenario, isImproved: Bool) {
+        // Clear existing metrics
+        metricsStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        
+        // Coverage metric
+        let coverageMetric = createMetricView(
+            title: "Coverage",
+            value: "\(Int(scenario.coveragePercentage))%",
+            color: CoverageLevel.fromSignalStrength(-60 + scenario.coveragePercentage * 0.3).color
+        )
+        
+        // Speed metric
+        let speedMetric = createMetricView(
+            title: "Avg Speed",
+            value: "\(Int(scenario.averageSpeed)) Mbps",
+            color: scenario.averageSpeed > 100 ? SpectrumBranding.Colors.success : 
+                   scenario.averageSpeed > 50 ? SpectrumBranding.Colors.warning : SpectrumBranding.Colors.error
+        )
+        
+        // Reliability metric
+        let reliabilityMetric = createMetricView(
+            title: "Reliability",
+            value: "\(Int(scenario.reliabilityScore * 100))%",
+            color: scenario.reliabilityScore > 0.8 ? SpectrumBranding.Colors.success :
+                   scenario.reliabilityScore > 0.6 ? SpectrumBranding.Colors.warning : SpectrumBranding.Colors.error
+        )
+        
+        metricsStackView.addArrangedSubview(coverageMetric)
+        metricsStackView.addArrangedSubview(speedMetric)
+        metricsStackView.addArrangedSubview(reliabilityMetric)
+    }
+    
+    private func createMetricView(title: String, value: String, color: UIColor) -> UIView {
+        let container = UIView()
+        
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = title
+        titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        titleLabel.textColor = .secondaryLabel
+        titleLabel.textAlignment = .left
+        
+        let valueLabel = UILabel()
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
+        valueLabel.text = value
+        valueLabel.font = .systemFont(ofSize: 14, weight: .bold)
+        valueLabel.textColor = color
+        valueLabel.textAlignment = .right
+        
+        container.addSubview(titleLabel)
+        container.addSubview(valueLabel)
+        
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            
+            valueLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            valueLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            valueLabel.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 8)
+        ])
+        
+        return container
+    }
+    
+    private func updateHighlights(with scenario: CoverageScenario, isImproved: Bool) {
+        var highlights: [String] = []
+        
+        if isImproved {
+            // Highlight improvements
+            if scenario.deadZones.count == 0 {
+                highlights.append("✅ No dead zones")
+            } else if scenario.deadZones.count <= 2 {
+                highlights.append("🎯 Minimal dead zones")
+            }
+            
+            if scenario.networkDevices.contains(where: { $0.capabilities.contains("WiFi 7") }) {
+                highlights.append("🚀 WiFi 7 Ready")
+            }
+            
+            if scenario.coveragePercentage >= 95 {
+                highlights.append("📶 Full Coverage")
+            }
+            
+            let deviceCount = scenario.networkDevices.count
+            if deviceCount > 1 {
+                highlights.append("📡 \(deviceCount) Access Points")
+            }
+            
+        } else {
+            // Highlight current issues
+            if scenario.deadZones.count > 0 {
+                highlights.append("⚠️ \(scenario.deadZones.count) Dead Zone\(scenario.deadZones.count > 1 ? "s" : "")")
+            }
+            
+            if scenario.averageSpeed < 50 {
+                highlights.append("🐌 Slow Speeds")
+            }
+            
+            if scenario.reliabilityScore < 0.7 {
+                highlights.append("📉 Reliability Issues")
+            }
+            
+            if scenario.coveragePercentage < 80 {
+                highlights.append("📶 Limited Coverage")
+            }
+        }
+        
+        highlightsLabel.text = highlights.joined(separator: " • ")
+        
+        // Add subtle pulse animation for improved scenario
+        if isImproved && !highlights.isEmpty {
+            addSuccessAnimation()
+        }
+    }
+    
+    private func addSuccessAnimation() {
+        UIView.animate(withDuration: 0.8, delay: 1.0, options: [.repeat, .autoreverse], animations: {
+            self.highlightsLabel.alpha = 0.7
+        }) { _ in
+            self.highlightsLabel.alpha = 1.0
+        }
+    }
+}
+
+// MARK: - Coverage Mini Map View
+
+class CoverageMiniMapView: UIView {
+    
+    private var scenario: CoverageScenario?
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .systemGray6
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        backgroundColor = .systemGray6
+    }
+    
+    func updateWithScenario(_ scenario: CoverageScenario) {
+        self.scenario = scenario
+        setNeedsDisplay()
+    }
+    
+    override func draw(_ rect: CGRect) {
+        super.draw(rect)
+        
+        guard let context = UIGraphicsGetCurrentContext(),
+              let scenario = scenario else { return }
+        
+        // Clear background
+        context.setFillColor(UIColor.systemGray6.cgColor)
+        context.fill(rect)
+        
+        // Draw simplified room layout
+        drawSimplifiedRoomLayout(in: context, rect: rect)
+        
+        // Draw coverage zones
+        drawCoverageZones(scenario, in: context, rect: rect)
+        
+        // Draw network devices
+        drawNetworkDevices(scenario, in: context, rect: rect)
+        
+        // Draw dead zones
+        drawDeadZones(scenario, in: context, rect: rect)
+    }
+    
+    private func drawSimplifiedRoomLayout(in context: CGContext, rect: CGRect) {
+        // Draw a simplified rectangular room layout
+        let roomRect = rect.insetBy(dx: 10, dy: 10)
+        
+        context.setStrokeColor(UIColor.systemGray3.cgColor)
+        context.setLineWidth(2)
+        context.stroke(roomRect)
+        
+        // Add some internal walls to suggest rooms
+        let centerX = roomRect.midX
+        let centerY = roomRect.midY
+        
+        // Vertical divider
+        context.move(to: CGPoint(x: centerX, y: roomRect.minY))
+        context.addLine(to: CGPoint(x: centerX, y: centerY))
+        context.strokePath()
+        
+        // Horizontal divider
+        context.move(to: CGPoint(x: roomRect.minX, y: centerY))
+        context.addLine(to: CGPoint(x: centerX, y: centerY))
+        context.strokePath()
+    }
+    
+    private func drawCoverageZones(_ scenario: CoverageScenario, in context: CGContext, rect: CGRect) {
+        let roomRect = rect.insetBy(dx: 10, dy: 10)
+        
+        // Draw coverage based on room coverage data
+        for (index, roomCoverage) in scenario.roomCoverage.enumerated() {
+            let color = roomCoverage.coverageLevel.color
+            context.setFillColor(color.withAlphaComponent(0.3).cgColor)
+            
+            // Simple grid-based coverage representation
+            let cols = 2
+            let rows = 2
+            let cellWidth = roomRect.width / CGFloat(cols)
+            let cellHeight = roomRect.height / CGFloat(rows)
+            
+            let row = index / cols
+            let col = index % cols
+            
+            guard row < rows else { break }
+            
+            let cellRect = CGRect(
+                x: roomRect.minX + CGFloat(col) * cellWidth,
+                y: roomRect.minY + CGFloat(row) * cellHeight,
+                width: cellWidth,
+                height: cellHeight
+            )
+            
+            context.fill(cellRect.insetBy(dx: 2, dy: 2))
+        }
+    }
+    
+    private func drawNetworkDevices(_ scenario: CoverageScenario, in context: CGContext, rect: CGRect) {
+        let roomRect = rect.insetBy(dx: 10, dy: 10)
+        
+        for (index, device) in scenario.networkDevices.enumerated() {
+            let color = device.deviceType == .router ? SpectrumBranding.Colors.accent : SpectrumBranding.Colors.secondary
+            
+            // Simple positioning - distribute devices across the space
+            let x = roomRect.minX + (roomRect.width / CGFloat(scenario.networkDevices.count + 1)) * CGFloat(index + 1)
+            let y = roomRect.midY
+            
+            // Draw device as circle
+            let deviceRadius: CGFloat = 4
+            let deviceRect = CGRect(x: x - deviceRadius, y: y - deviceRadius, 
+                                  width: deviceRadius * 2, height: deviceRadius * 2)
+            
+            context.setFillColor(color.cgColor)
+            context.fillEllipse(in: deviceRect)
+            
+            // Draw coverage radius
+            let coverageRadius: CGFloat = deviceRadius * 3
+            let coverageRect = CGRect(x: x - coverageRadius, y: y - coverageRadius,
+                                    width: coverageRadius * 2, height: coverageRadius * 2)
+            
+            context.setStrokeColor(color.withAlphaComponent(0.3).cgColor)
+            context.setLineWidth(1)
+            context.strokeEllipse(in: coverageRect)
+        }
+    }
+    
+    private func drawDeadZones(_ scenario: CoverageScenario, in context: CGContext, rect: CGRect) {
+        let roomRect = rect.insetBy(dx: 10, dy: 10)
+        
+        for deadZone in scenario.deadZones {
+            let color = deadZone.severity.color
+            context.setFillColor(color.withAlphaComponent(0.4).cgColor)
+            
+            // Draw dead zone as small rectangle
+            let deadZoneSize: CGFloat = 8
+            let x = roomRect.minX + (roomRect.width * 0.8) // Position towards edges
+            let y = roomRect.minY + (roomRect.height * 0.2)
+            
+            let deadZoneRect = CGRect(x: x, y: y, width: deadZoneSize, height: deadZoneSize)
+            context.fill(deadZoneRect)
+            
+            // Draw X to indicate problem area
+            context.setStrokeColor(UIColor.white.cgColor)
+            context.setLineWidth(1)
+            context.move(to: CGPoint(x: x, y: y))
+            context.addLine(to: CGPoint(x: x + deadZoneSize, y: y + deadZoneSize))
+            context.move(to: CGPoint(x: x + deadZoneSize, y: y))
+            context.addLine(to: CGPoint(x: x, y: y + deadZoneSize))
+            context.strokePath()
+        }
+    }
+}

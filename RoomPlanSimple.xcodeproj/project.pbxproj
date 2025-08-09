@@ -24,7 +24,6 @@
 		NETWORK001100220033044 /* NetworkDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = NETWORK001100220033055 /* NetworkDeviceManager.swift */; };
 		NETWORK001100220033045 /* NetworkDevice3DModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = NETWORK001100220033056 /* NetworkDevice3DModels.swift */; };
 		FLOORPLAN12345678901 /* FloorPlanRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FLOORPLAN12345678900 /* FloorPlanRenderer.swift */; };
-		SIMULATOR12345678901 /* SimulatorMockData.swift in Sources */ = {isa = PBXBuildFile; fileRef = SIMULATOR12345678900 /* SimulatorMockData.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,7 +49,6 @@
 		NETWORK001100220033055 /* NetworkDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDeviceManager.swift; sourceTree = "<group>"; };
 		NETWORK001100220033056 /* NetworkDevice3DModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDevice3DModels.swift; sourceTree = "<group>"; };
 		FLOORPLAN12345678900 /* FloorPlanRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloorPlanRenderer.swift; sourceTree = "<group>"; };
-		SIMULATOR12345678900 /* SimulatorMockData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorMockData.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -112,7 +110,6 @@
 				NETWORK001100220033055 /* NetworkDeviceManager.swift */,
 				NETWORK001100220033056 /* NetworkDevice3DModels.swift */,
 				FLOORPLAN12345678900 /* FloorPlanRenderer.swift */,
-				SIMULATOR12345678900 /* SimulatorMockData.swift */,
 			);
 			path = RoomPlanSimple;
 			sourceTree = "<group>";
@@ -211,7 +208,6 @@
 				NETWORK001100220033044 /* NetworkDeviceManager.swift in Sources */,
 				NETWORK001100220033045 /* NetworkDevice3DModels.swift in Sources */,
 				FLOORPLAN12345678901 /* FloorPlanRenderer.swift in Sources */,
-				SIMULATOR12345678901 /* SimulatorMockData.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
