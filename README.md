@@ -11,6 +11,7 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - **Professional Reports**: Generate detailed WiFi analysis reports with floor plans
 - **Architectural Floor Plans**: Professional-style floor plans with proper symbols
 - **🎭 iOS Simulator Support**: Complete UI testing with mock data (no hardware required)
+- **📱 Universal Device Support**: Graceful degradation on non-LiDAR devices with placeholder views
 
 ### Key Capabilities
 - **Smart Room Detection**: Automatically identifies room types (kitchen, bedroom, bathroom, etc.)
@@ -28,6 +29,9 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - **🎛️ User-Controlled Completion**: Only user can declare survey complete - no premature system completion
 - **🔧 Optimized UI Layout**: Buttons positioned to avoid obstructing RoomPlan 3D model
 - **📡 Router & Extender Placement**: Interactive AR system for optimal network device positioning
+- **🔬 Advanced RF Propagation**: ITU indoor path loss models for accurate signal prediction
+- **📊 Multi-band WiFi 7 Support**: 2.4GHz, 5GHz, and 6GHz frequency band analysis
+- **🎯 Coverage Confidence Scoring**: Weighted confidence calculations for prediction accuracy
 
 ## 🎯 User Experience
 
@@ -760,11 +764,31 @@ print("🎯 Room confidence breakdown - Surface: 0.92, Furniture: 0.80, Objects:
 - **IoT Integration**: Monitor smart home device connectivity
 - **Network Optimization**: Automatic router configuration recommendations
 
+## 🆕 Recent Improvements (Latest Version)
+
+### Universal Device Support
+- **Non-LiDAR Device Handling**: Graceful degradation with red placeholder view instead of blocking alerts
+- **Accessible Features**: WiFi analysis, floor plan view, and report generation work on all devices
+- **Clear User Messaging**: Informative placeholder explains available features when room capture unavailable
+
+### RF Propagation Models Integration  
+- **ITU Indoor Path Loss**: Industry-standard propagation models for accurate signal prediction
+- **Multi-band Support**: Comprehensive 2.4GHz, 5GHz, and 6GHz (WiFi 7) frequency analysis
+- **Environment Factors**: Accounts for residential, office, commercial, and industrial environments
+- **Floor Penetration**: Models signal loss through floors (15dB per floor)
+- **Coverage Confidence**: Weighted scoring based on signal strength, band diversity, and consistency
+
+### Enhanced WiFi Analysis
+- **Propagation Testing**: Built-in validation suite for RF calculations
+- **Distance-based Path Loss**: Accurate signal strength prediction at various distances
+- **Multi-band Measurements**: Simultaneous analysis across all WiFi frequency bands
+- **Professional Accuracy Metrics**: Confidence scoring and prediction accuracy in reports
+
 ## 📝 Development Notes
 
 ### iOS Version Requirements
 - **iOS 17.0+**: Required for full RoomPlan functionality
-- **ARKit Support**: iPhone/iPad with LiDAR sensor recommended
+- **ARKit Support**: iPhone/iPad with LiDAR sensor recommended (but not required)
 - **Network Access**: WiFi connection required for speed testing
 
 ### Performance Considerations
