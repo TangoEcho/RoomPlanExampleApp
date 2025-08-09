@@ -94,11 +94,15 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
   - Separate test point markers (50 max) for survey guidance
 
 #### `FloorPlanViewController`
-- Professional architectural-style floor plan rendering
+- Professional architectural-style floor plan rendering with scrollable layout
+- Architectural doorway visualization with proper wall gaps and orientation
 - Realistic furniture and appliance symbols
-- Interactive heatmap visualization
+- Interactive heatmap visualization with toggle controls
 - **Visual Features:**
-  - Proper door symbols with swing arcs
+  - Fixed scroll view layout for proper content display
+  - Professional doorway gaps integrated into wall structures
+  - Wall-aware doorway positioning with correct angles
+  - Clean architectural symbols matching industry standards
   - Furniture symbols matching architectural standards
   - Room shape accuracy using wall detection
 
@@ -802,13 +806,24 @@ print("🎯 Room confidence breakdown - Surface: 0.92, Furniture: 0.80, Objects:
 
 ### Recent UI Improvements (Latest Version)
 
-#### User Experience Enhancements
+#### Floor Plan Layout & Doorway Visualization
+- **Fixed Floor Plan Display**: Resolved missing floor plan renderer in scroll view layout
+- **Architectural Doorways**: Professional doorway gaps integrated into wall structures with proper orientation  
+- **Wall-Aware Positioning**: Doorways now calculate nearest wall angle for correct placement
+- **Scrollable Content**: Added proper scroll view container for better content organization
+- **Toggle Control Alignment**: Fixed constraint issues with WiFi heatmap, debug, and coverage confidence controls
+
+#### User Experience Enhancements  
 - **Unobstructed 3D View**: Repositioned bottom navigation buttons 64 points higher to prevent obstruction of RoomPlan 3D model
 - **Button Text Visibility**: Fixed WiFi survey button text truncation with adaptive font sizing and increased width constraints
 - **User-Controlled Completion**: Removed premature "survey complete" messages - only user can declare completion via explicit "Results" button tap
 - **Clear Status Messages**: Status label now shows "📊 Data available - Use 'Results' button when you're ready to view analysis" instead of automatic completion
 
 #### Technical Implementation
+- **Scroll View Architecture**: Added `UIScrollView` with `contentView` for proper layout hierarchy
+- **Doorway Algorithm**: `findNearestWall()` calculates wall angles using `atan2()` for precise orientation
+- **Constraint Updates**: All controls now reference `contentView` instead of main `view` for proper positioning
+- **Sample Data Integration**: Added comprehensive demo data with 3 rooms, 4 furniture items, and 10 WiFi measurements
 - Button positioning: Moved from `bottomAnchor.constraint(constant: -16)` to `constant: -80`
 - Button width: Increased scan/survey toggle from 180pt to 200pt maximum width
 - Font adaptation: Added `adjustsFontSizeToFitWidth = true` with `minimumScaleFactor = 0.8`
