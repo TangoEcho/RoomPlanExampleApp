@@ -146,8 +146,25 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         messageLabel.numberOfLines = 0
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
         
+        // Add demo button
+        let demoButton = UIButton(type: .system)
+        demoButton.setTitle("📊 View Floor Plan Demo", for: .normal)
+        demoButton.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+        demoButton.setTitleColor(.white, for: .normal)
+        demoButton.layer.cornerRadius = 12
+        demoButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        demoButton.translatesAutoresizingMaskIntoConstraints = false
+        demoButton.addTarget(self, action: #selector(showFloorPlanDemo), for: .touchUpInside)
+        
         placeholderView.addSubview(messageLabel)
+        placeholderView.addSubview(demoButton)
         view.insertSubview(placeholderView, at: 0)
+        
+        // Auto-show demo after 3 seconds for demonstration purposes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            print("🎯 Auto-launching Floor Plan Demo")
+            self.showFloorPlanDemo()
+        }
         
         NSLayoutConstraint.activate([
             placeholderView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -156,10 +173,22 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             placeholderView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             
             messageLabel.centerXAnchor.constraint(equalTo: placeholderView.centerXAnchor),
-            messageLabel.centerYAnchor.constraint(equalTo: placeholderView.centerYAnchor),
+            messageLabel.centerYAnchor.constraint(equalTo: placeholderView.centerYAnchor, constant: -60),
             messageLabel.leadingAnchor.constraint(equalTo: placeholderView.leadingAnchor, constant: 40),
-            messageLabel.trailingAnchor.constraint(equalTo: placeholderView.trailingAnchor, constant: -40)
+            messageLabel.trailingAnchor.constraint(equalTo: placeholderView.trailingAnchor, constant: -40),
+            
+            demoButton.centerXAnchor.constraint(equalTo: placeholderView.centerXAnchor),
+            demoButton.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 40),
+            demoButton.widthAnchor.constraint(equalToConstant: 220),
+            demoButton.heightAnchor.constraint(equalToConstant: 50)
         ])
+    }
+    
+    @objc private func showFloorPlanDemo() {
+        print("📊 Showing Floor Plan Demo")
+        let floorPlanVC = FloorPlanViewController()
+        floorPlanVC.modalPresentationStyle = .fullScreen
+        present(floorPlanVC, animated: true)
     }
     
     

@@ -207,6 +207,9 @@ class FloorPlanRenderer: UIView {
         for (index, room) in rooms.enumerated() {
             drawRoom(room, in: context, scale: scale, offsetX: offsetX, offsetY: offsetY, roomIndex: index)
         }
+        
+        // Draw all doorways after rooms to ensure they properly cut through walls
+        drawSimplifiedDoorways(in: context, scale: scale, offsetX: offsetX, offsetY: offsetY)
     }
     
     private func drawRoom(_ room: RoomAnalyzer.IdentifiedRoom, in context: CGContext, scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat, roomIndex: Int) {
@@ -300,6 +303,8 @@ class FloorPlanRenderer: UIView {
             print("⚠️ FloorPlanRenderer: Empty path, skipping room drawing")
         }
         
+        // Note: Doorways will be drawn after all rooms to ensure they cut through walls properly
+        
         // Draw room label if there's space
         if let centerPoint = calculateRoomCenter(viewPoints) {
             drawRoomLabel(room.type.rawValue, at: centerPoint, in: context)
@@ -357,6 +362,145 @@ class FloorPlanRenderer: UIView {
             ]
             return colors[roomIndex % colors.count]
         }
+    }
+    
+    // MARK: - Doorway Drawing
+    
+    private func drawSimplifiedDoorways(in context: CGContext, scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat) {
+        print("🚪 Drawing simplified doorways for all rooms")
+        
+        for room in rooms {
+            guard !room.doorways.isEmpty else { continue }
+            
+            print("🚪 Drawing \(room.doorways.count) doorways for \(room.type.rawValue)")
+            
+            for doorway in room.doorways {
+                drawArchitecturalDoorway(room: room, doorwayPoint: doorway, scale: scale, offsetX: offsetX, offsetY: offsetY, in: context)
+            }
+        }
+    }
+    
+    private func drawArchitecturalDoorway(room: RoomAnalyzer.IdentifiedRoom, doorwayPoint: simd_float2, scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat, in context: CGContext) {
+        // Find the nearest wall segment to place the doorway
+        guard let wallInfo = findNearestWall(to: doorwayPoint, in: room.wallPoints) else {
+            print("🚪 Could not find nearest wall for doorway at (\(doorwayPoint.x), \(doorwayPoint.y))")
+            return
+        }
+        
+        let doorViewX = CGFloat(doorwayPoint.x) * scale + offsetX
+        let doorViewY = CGFloat(doorwayPoint.y) * scale + offsetY
+        let doorPoint = CGPoint(x: doorViewX, y: doorViewY)
+        
+        // Draw doorway as a gap in the wall with proper orientation
+        let doorWidth: CGFloat = 30 // Scaled doorway width
+        
+        // Calculate perpendicular direction to the wall for the doorway gap
+        let wallAngle = wallInfo.angle
+        let perpAngle = wallAngle + .pi / 2
+        
+        let gapHalfWidth = doorWidth / 2
+        let gapStart = CGPoint(
+            x: doorPoint.x + cos(perpAngle) * gapHalfWidth,
+            y: doorPoint.y + sin(perpAngle) * gapHalfWidth
+        )
+        let gapEnd = CGPoint(
+            x: doorPoint.x - cos(perpAngle) * gapHalfWidth,
+            y: doorPoint.y - sin(perpAngle) * gapHalfWidth
+        )
+        
+        // Clear the wall area for the doorway gap
+        context.setFillColor(UIColor.systemBackground.cgColor)
+        let clearWidth: CGFloat = doorWidth + 6
+        let clearHeight: CGFloat = 8
+        
+        context.saveGState()
+        context.translateBy(x: doorPoint.x, y: doorPoint.y)
+        context.rotate(by: wallAngle)
+        
+        let clearRect = CGRect(x: -clearWidth/2, y: -clearHeight/2, width: clearWidth, height: clearHeight)
+        context.fill(clearRect)
+        context.restoreGState()
+        
+        // Draw minimal doorway indicators (small lines at gap edges)
+        context.setStrokeColor(UIColor.systemGray3.cgColor)
+        context.setLineWidth(2.0)
+        
+        // Draw small perpendicular marks at doorway edges
+        let markLength: CGFloat = 6
+        let wallDirection = CGPoint(x: cos(wallAngle), y: sin(wallAngle))
+        
+        // Start mark
+        let startMark1 = CGPoint(
+            x: gapStart.x - wallDirection.x * markLength/2,
+            y: gapStart.y - wallDirection.y * markLength/2
+        )
+        let startMark2 = CGPoint(
+            x: gapStart.x + wallDirection.x * markLength/2,
+            y: gapStart.y + wallDirection.y * markLength/2
+        )
+        
+        context.move(to: startMark1)
+        context.addLine(to: startMark2)
+        context.strokePath()
+        
+        // End mark  
+        let endMark1 = CGPoint(
+            x: gapEnd.x - wallDirection.x * markLength/2,
+            y: gapEnd.y - wallDirection.y * markLength/2
+        )
+        let endMark2 = CGPoint(
+            x: gapEnd.x + wallDirection.x * markLength/2,
+            y: gapEnd.y + wallDirection.y * markLength/2
+        )
+        
+        context.move(to: endMark1)
+        context.addLine(to: endMark2)
+        context.strokePath()
+        
+        print("🚪 Drew architectural doorway at (\(doorPoint.x), \(doorPoint.y)) with angle \(wallAngle * 180 / .pi)°")
+    }
+    
+    private func findNearestWall(to point: simd_float2, in wallPoints: [simd_float2]) -> (angle: CGFloat, distance: Float)? {
+        guard wallPoints.count >= 2 else { return nil }
+        
+        var nearestWallInfo: (angle: CGFloat, distance: Float)?
+        var minDistance: Float = Float.greatestFiniteMagnitude
+        
+        // Check each wall segment
+        for i in 0..<wallPoints.count {
+            let startPoint = wallPoints[i]
+            let endPoint = wallPoints[(i + 1) % wallPoints.count]
+            
+            // Calculate wall direction and angle
+            let wallVector = endPoint - startPoint
+            let wallLength = simd_length(wallVector)
+            guard wallLength > 0 else { continue }
+            
+            let wallDirection = wallVector / wallLength
+            let wallAngle = CGFloat(atan2(wallDirection.y, wallDirection.x))
+            
+            // Calculate distance from point to wall segment
+            let toPoint = point - startPoint
+            let projection = simd_dot(toPoint, wallDirection)
+            
+            let closestPointOnWall: simd_float2
+            if projection <= 0 {
+                closestPointOnWall = startPoint
+            } else if projection >= wallLength {
+                closestPointOnWall = endPoint
+            } else {
+                closestPointOnWall = startPoint + wallDirection * projection
+            }
+            
+            let distance = simd_length(point - closestPointOnWall)
+            
+            if distance < minDistance {
+                minDistance = distance
+                nearestWallInfo = (angle: wallAngle, distance: distance)
+            }
+        }
+        
+        return nearestWallInfo
     }
     
     private func drawPlaceholderRoom(in context: CGContext, rect: CGRect) {

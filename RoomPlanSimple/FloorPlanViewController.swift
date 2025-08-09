@@ -1,5 +1,6 @@
 import UIKit
 import RoomPlan
+import simd
 
 class FloorPlanViewController: UIViewController {
     
@@ -8,6 +9,8 @@ class FloorPlanViewController: UIViewController {
     private var floorPlanRenderer: FloorPlanRenderer!
     // Accuracy debug renderer disabled for build compatibility
     private var legendView: UIView!
+    private var scrollView: UIScrollView!
+    private var contentView: UIView!
     private var measurementsList: UITableView!
     private var heatmapToggle: UISwitch!
     private var heatmapLabel: UILabel!
@@ -25,6 +28,11 @@ class FloorPlanViewController: UIViewController {
     // Validation results disabled for build compatibility
     private var measurements: [WiFiMeasurement] = []
     
+    // Sample data properties
+    private var rooms: [RoomAnalyzer.IdentifiedRoom] = []
+    private var furniture: [RoomAnalyzer.FurnitureItem] = []
+    private var heatmapData: WiFiHeatmapData?
+    
     // MARK: - Lifecycle
     
     override func viewDidLoad() {
@@ -34,6 +42,9 @@ class FloorPlanViewController: UIViewController {
         // Test RF propagation models integration
         let wifiSurveyManager = WiFiSurveyManager()
         wifiSurveyManager.testRFPropagationModels()
+        
+        // Load sample data for demonstration
+        loadSampleData()
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -43,13 +54,229 @@ class FloorPlanViewController: UIViewController {
         // Force layout update
         view.setNeedsLayout()
         view.layoutIfNeeded()
+        scrollView.setNeedsLayout()
+        scrollView.layoutIfNeeded()
+        contentView.setNeedsLayout()
+        contentView.layoutIfNeeded()
         
-        // Log renderer frame
+        // Log all view frames
+        print("📊 ScrollView frame: \(scrollView.frame)")
+        print("📊 ContentView frame: \(contentView.frame)")
         if let renderer = floorPlanRenderer {
             print("📊 FloorPlanRenderer frame: \(renderer.frame), bounds: \(renderer.bounds)")
+            print("📊 FloorPlanRenderer superview: \(renderer.superview?.description ?? "nil")")
+            // Force the renderer to redraw
+            renderer.setNeedsDisplay()
+        }
+        
+        // Show sample data if available
+        if !rooms.isEmpty {
+            updateVisualization()
+        } else {
+            print("📊 No rooms available, forcing renderer to draw placeholder")
+            floorPlanRenderer.setNeedsDisplay()
         }
     }
     
+    // MARK: - Sample Data
+    
+    private func loadSampleData() {
+        print("📊 Loading sample data for demonstration")
+        
+        // Create sample rooms (a typical house layout)
+        let livingRoom = RoomAnalyzer.IdentifiedRoom(
+            type: .livingRoom,
+            bounds: createMockSurface(width: 6.0, height: 5.0, centerX: 0, centerY: -2.5),
+            center: simd_float3(0, 0, -2.5),
+            area: 30.0,
+            confidence: 0.9,
+            wallPoints: [
+                simd_float2(-3, 0), simd_float2(3, 0), simd_float2(3, -5), simd_float2(-3, -5)
+            ],
+            doorways: [simd_float2(1.5, 0), simd_float2(-3, -1.5)]
+        )
+        
+        let kitchen = RoomAnalyzer.IdentifiedRoom(
+            type: .kitchen,
+            bounds: createMockSurface(width: 4.0, height: 3.0, centerX: 2, centerY: 1.5),
+            center: simd_float3(2, 0, 1.5),
+            area: 12.0,
+            confidence: 0.85,
+            wallPoints: [
+                simd_float2(0, 3), simd_float2(4, 3), simd_float2(4, 0), simd_float2(0, 0)
+            ],
+            doorways: [simd_float2(1, 0)]
+        )
+        
+        let bedroom = RoomAnalyzer.IdentifiedRoom(
+            type: .bedroom,
+            bounds: createMockSurface(width: 4.0, height: 3.5, centerX: -2, centerY: 1.75),
+            center: simd_float3(-2, 0, 1.75),
+            area: 14.0,
+            confidence: 0.88,
+            wallPoints: [
+                simd_float2(-4, 3.5), simd_float2(0, 3.5), simd_float2(0, 0), simd_float2(-4, 0)
+            ],
+            doorways: [simd_float2(-2, 0)]
+        )
+        
+        rooms = [livingRoom, kitchen, bedroom]
+        
+        // Create sample furniture
+        furniture = [
+            RoomAnalyzer.FurnitureItem(
+                category: .sofa,
+                position: simd_float3(-1, 0.4, -3),
+                dimensions: simd_float3(2.0, 0.8, 0.9),
+                roomId: livingRoom.id,
+                confidence: 0.9
+            ),
+            RoomAnalyzer.FurnitureItem(
+                category: .table,
+                position: simd_float3(1, 0.4, -2),
+                dimensions: simd_float3(1.2, 0.8, 0.8),
+                roomId: livingRoom.id,
+                confidence: 0.85
+            ),
+            RoomAnalyzer.FurnitureItem(
+                category: .refrigerator,
+                position: simd_float3(3.5, 0.9, 2.8),
+                dimensions: simd_float3(0.7, 1.8, 0.7),
+                roomId: kitchen.id,
+                confidence: 0.95
+            ),
+            RoomAnalyzer.FurnitureItem(
+                category: .bed,
+                position: simd_float3(-3, 0.3, 2.5),
+                dimensions: simd_float3(1.4, 0.6, 2.0),
+                roomId: bedroom.id,
+                confidence: 0.92
+            )
+        ]
+        
+        // Create sample WiFi measurements with multi-band data
+        let sampleMeasurements = createSampleWiFiMeasurements()
+        measurements = sampleMeasurements
+        
+        // Create basic heatmap data from measurements  
+        let basicCoverageMap = createCoverageMap(from: measurements)
+        heatmapData = WiFiHeatmapData(
+            measurements: measurements,
+            coverageMap: basicCoverageMap,
+            optimalRouterPlacements: [simd_float3(0, 0.5, 0)] // Center of living room
+        )
+        
+        print("📊 Sample data loaded: \(rooms.count) rooms, \(furniture.count) furniture items, \(measurements.count) WiFi measurements")
+    }
+    
+    private func createMockSurface(width: Float, height: Float, centerX: Float, centerY: Float) -> CapturedRoom.Surface? {
+        // This is a simplified mock - in reality this would be more complex RoomPlan data
+        // For now, we'll return nil and use our wall points instead of RoomPlan geometry
+        return nil
+    }
+    
+    private func createSampleWiFiMeasurements() -> [WiFiMeasurement] {
+        var measurements: [WiFiMeasurement] = []
+        
+        // Create measurements positioned within the actual room boundaries
+        // Living room: center=(0,0,-2.5), bounds=(-3,0) to (3,-5)
+        // Kitchen: center=(2,0,1.5), bounds=(0,0) to (4,3) 
+        // Bedroom: center=(-2,0,1.75), bounds=(-4,0) to (0,3.5)
+        let positions = [
+            // Living room measurements (good signal - close to router) - within bounds (-3,0) to (3,-5)
+            (simd_float3(-1.5, 0, -1.5), RoomType.livingRoom, -45, 180.0),
+            (simd_float3(0, 0, -2.5), RoomType.livingRoom, -42, 195.0),
+            (simd_float3(1.5, 0, -3.5), RoomType.livingRoom, -48, 165.0),
+            (simd_float3(-1, 0, -4), RoomType.livingRoom, -40, 210.0),
+            
+            // Kitchen measurements (moderate signal) - within bounds (0,0) to (4,3)
+            (simd_float3(1.5, 0, 1.5), RoomType.kitchen, -55, 120.0),
+            (simd_float3(3, 0, 2.5), RoomType.kitchen, -58, 95.0),
+            (simd_float3(2.5, 0, 1), RoomType.kitchen, -60, 85.0),
+            
+            // Bedroom measurements (weaker signal - far from router) - within bounds (-4,0) to (0,3.5)
+            (simd_float3(-3, 0, 1.5), RoomType.bedroom, -68, 45.0),
+            (simd_float3(-1.5, 0, 2.5), RoomType.bedroom, -72, 35.0),
+            (simd_float3(-2.5, 0, 3), RoomType.bedroom, -65, 55.0),
+        ]
+        
+        for (index, (position, roomType, signalStrength, speed)) in positions.enumerated() {
+            // Create multi-band measurements for WiFi 7
+            let bandMeasurements = [
+                BandMeasurement(
+                    band: .band2_4GHz,
+                    signalStrength: Float(signalStrength + 5), // 2.4GHz typically stronger
+                    snr: 25.0,
+                    channelWidth: 20,
+                    speed: Float(speed * 0.3), // 2.4GHz slower
+                    utilization: 0.6
+                ),
+                BandMeasurement(
+                    band: .band5GHz,
+                    signalStrength: Float(signalStrength),
+                    snr: 28.0,
+                    channelWidth: 80,
+                    speed: Float(speed),
+                    utilization: 0.3
+                ),
+                BandMeasurement(
+                    band: .band6GHz,
+                    signalStrength: Float(signalStrength - 3), // 6GHz typically weaker but less congested
+                    snr: 32.0,
+                    channelWidth: 160,
+                    speed: Float(speed * 1.5), // 6GHz faster when available
+                    utilization: 0.1
+                )
+            ]
+            
+            let measurement = WiFiMeasurement(
+                location: position,
+                timestamp: Date().addingTimeInterval(TimeInterval(index * 30)),
+                signalStrength: signalStrength,
+                networkName: "Spectrum-WiFi7-Demo",
+                speed: speed,
+                frequency: "Multi-band",
+                roomType: roomType,
+                bandMeasurements: bandMeasurements
+            )
+            
+            measurements.append(measurement)
+        }
+        
+        return measurements
+    }
+    
+    private func createCoverageMap(from measurements: [WiFiMeasurement]) -> [simd_float3: Double] {
+        var coverageMap: [simd_float3: Double] = [:]
+        
+        for measurement in measurements {
+            // Convert signal strength to coverage percentage
+            let coverage: Double
+            switch measurement.signalStrength {
+            case -50...0: coverage = 1.0
+            case -65..<(-50): coverage = 0.8
+            case -75..<(-65): coverage = 0.6
+            case -85..<(-75): coverage = 0.4
+            default: coverage = 0.2
+            }
+            
+            coverageMap[measurement.location] = coverage
+        }
+        
+        return coverageMap
+    }
+    
+    private func updateVisualization() {
+        guard let heatmapData = heatmapData else { return }
+        
+        // Update floor plan renderer with sample data
+        floorPlanRenderer.updateRooms(rooms)
+        floorPlanRenderer.updateFurniture(furniture)
+        floorPlanRenderer.updateHeatmap(heatmapData)
+        
+        print("📊 Updated visualization with sample data")
+    }
+
     // MARK: - Setup
     
     private func setupUI() {
@@ -72,6 +299,15 @@ class FloorPlanViewController: UIViewController {
     }
     
     private func createViews() {
+        // Scroll view and content view
+        scrollView = UIScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.showsVerticalScrollIndicator = true
+        scrollView.alwaysBounceVertical = true
+        
+        contentView = UIView()
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        
         // Floor plan renderer
         floorPlanRenderer = FloorPlanRenderer()
         floorPlanRenderer.translatesAutoresizingMaskIntoConstraints = false
@@ -94,33 +330,43 @@ class FloorPlanViewController: UIViewController {
         
         // Heatmap controls
         heatmapLabel = UILabel()
-        heatmapLabel.translatesAutoresizingMaskIntoConstraints = false
         heatmapLabel.text = "Show WiFi Heatmap"
         heatmapLabel.font = .systemFont(ofSize: 16, weight: .medium)
+        heatmapLabel.textAlignment = .left
+        heatmapLabel.setContentHuggingPriority(.required, for: .horizontal)
+        // heatmapLabel.backgroundColor = .clear  // Removed debug color
+        heatmapLabel.translatesAutoresizingMaskIntoConstraints = false
         
         heatmapToggle = UISwitch()
-        heatmapToggle.translatesAutoresizingMaskIntoConstraints = false
         heatmapToggle.addTarget(self, action: #selector(toggleHeatmap), for: .valueChanged)
+        heatmapToggle.setContentHuggingPriority(.required, for: .horizontal)
+        heatmapToggle.translatesAutoresizingMaskIntoConstraints = false
         
         // Debug controls
         debugLabel = UILabel()
-        debugLabel.translatesAutoresizingMaskIntoConstraints = false
         debugLabel.text = "Show Debug Overlay"
         debugLabel.font = .systemFont(ofSize: 16, weight: .medium)
+        debugLabel.textAlignment = .left
+        debugLabel.setContentHuggingPriority(.required, for: .horizontal)
+        debugLabel.translatesAutoresizingMaskIntoConstraints = false
         
         debugToggle = UISwitch()
-        debugToggle.translatesAutoresizingMaskIntoConstraints = false
         debugToggle.addTarget(self, action: #selector(toggleDebugView), for: .valueChanged)
+        debugToggle.setContentHuggingPriority(.required, for: .horizontal)
+        debugToggle.translatesAutoresizingMaskIntoConstraints = false
         
         // Confidence visualization controls
         confidenceLabel = UILabel()
-        confidenceLabel.translatesAutoresizingMaskIntoConstraints = false
         confidenceLabel.text = "Show Coverage Confidence"
         confidenceLabel.font = .systemFont(ofSize: 16, weight: .medium)
+        confidenceLabel.textAlignment = .left
+        confidenceLabel.setContentHuggingPriority(.required, for: .horizontal)
+        confidenceLabel.translatesAutoresizingMaskIntoConstraints = false
         
         confidenceToggle = UISwitch()
-        confidenceToggle.translatesAutoresizingMaskIntoConstraints = false
         confidenceToggle.addTarget(self, action: #selector(toggleConfidenceView), for: .valueChanged)
+        confidenceToggle.setContentHuggingPriority(.required, for: .horizontal)
+        confidenceToggle.translatesAutoresizingMaskIntoConstraints = false
         
         // Legend
         legendView = UIView()
@@ -164,19 +410,27 @@ class FloorPlanViewController: UIViewController {
     }
     
     private func addSubviews() {
+        // Add main views to view controller
         view.addSubview(closeButton)
-        view.addSubview(floorPlanRenderer)
-        // view.addSubview(accuracyDebugRenderer) // Disabled
-        view.addSubview(heatmapLabel)
-        view.addSubview(heatmapToggle)
-        view.addSubview(debugLabel)
-        view.addSubview(debugToggle)
-        view.addSubview(confidenceLabel)
-        view.addSubview(confidenceToggle)
-        view.addSubview(legendView)
-        view.addSubview(measurementsList)
-        view.addSubview(exportButton)
-        view.addSubview(compareButton)
+        view.addSubview(scrollView)
+        
+        // Add content view to scroll view
+        scrollView.addSubview(contentView)
+        
+        // Add all content to content view
+        contentView.addSubview(floorPlanRenderer)
+        contentView.addSubview(heatmapLabel)
+        contentView.addSubview(heatmapToggle)
+        contentView.addSubview(debugLabel)
+        contentView.addSubview(debugToggle)
+        contentView.addSubview(confidenceLabel)
+        contentView.addSubview(confidenceToggle)
+        contentView.addSubview(legendView)
+        contentView.addSubview(exportButton)
+        contentView.addSubview(compareButton)
+        contentView.addSubview(measurementsList)
+        
+        print("📊 Added all subviews to content view")
     }
     
     private func setupConstraints() {
@@ -187,10 +441,23 @@ class FloorPlanViewController: UIViewController {
             closeButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 60),
             closeButton.heightAnchor.constraint(equalToConstant: 44),
             
+            // Scroll view
+            scrollView.topAnchor.constraint(equalTo: closeButton.bottomAnchor, constant: 16),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            
+            // Content view
+            contentView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+            
             // Floor plan renderer - fixed height
-            floorPlanRenderer.topAnchor.constraint(equalTo: closeButton.bottomAnchor, constant: 16),
-            floorPlanRenderer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            floorPlanRenderer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            floorPlanRenderer.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            floorPlanRenderer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            floorPlanRenderer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             floorPlanRenderer.heightAnchor.constraint(equalToConstant: 300),
             
             // Accuracy debug renderer - same position as floor plan renderer
@@ -202,50 +469,54 @@ class FloorPlanViewController: UIViewController {
             accuracyDebugRenderer.bottomAnchor.constraint(equalTo: floorPlanRenderer.bottomAnchor),
             */
             
-            // Heatmap toggle and label
-            heatmapToggle.topAnchor.constraint(equalTo: floorPlanRenderer.bottomAnchor, constant: 16),
-            heatmapToggle.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            // Heatmap toggle and label - better alignment
+            heatmapToggle.topAnchor.constraint(equalTo: floorPlanRenderer.bottomAnchor, constant: 20),
+            heatmapToggle.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
             
             heatmapLabel.centerYAnchor.constraint(equalTo: heatmapToggle.centerYAnchor),
-            heatmapLabel.trailingAnchor.constraint(equalTo: heatmapToggle.leadingAnchor, constant: -8),
+            heatmapLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            heatmapLabel.trailingAnchor.constraint(lessThanOrEqualTo: heatmapToggle.leadingAnchor, constant: -12),
             
-            // Debug toggle and label
-            debugToggle.topAnchor.constraint(equalTo: heatmapToggle.bottomAnchor, constant: 8),
-            debugToggle.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            // Debug toggle and label - consistent alignment
+            debugToggle.topAnchor.constraint(equalTo: heatmapToggle.bottomAnchor, constant: 12),
+            debugToggle.trailingAnchor.constraint(equalTo: heatmapToggle.trailingAnchor),
             
             debugLabel.centerYAnchor.constraint(equalTo: debugToggle.centerYAnchor),
-            debugLabel.trailingAnchor.constraint(equalTo: debugToggle.leadingAnchor, constant: -8),
+            debugLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            debugLabel.trailingAnchor.constraint(lessThanOrEqualTo: debugToggle.leadingAnchor, constant: -12),
             
-            // Confidence toggle and label
-            confidenceToggle.topAnchor.constraint(equalTo: debugToggle.bottomAnchor, constant: 8),
-            confidenceToggle.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            // Confidence toggle and label - consistent alignment
+            confidenceToggle.topAnchor.constraint(equalTo: debugToggle.bottomAnchor, constant: 12),
+            confidenceToggle.trailingAnchor.constraint(equalTo: heatmapToggle.trailingAnchor),
             
             confidenceLabel.centerYAnchor.constraint(equalTo: confidenceToggle.centerYAnchor),
-            confidenceLabel.trailingAnchor.constraint(equalTo: confidenceToggle.leadingAnchor, constant: -8),
+            confidenceLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            confidenceLabel.trailingAnchor.constraint(lessThanOrEqualTo: confidenceToggle.leadingAnchor, constant: -12),
             
-            // Legend
-            legendView.topAnchor.constraint(equalTo: confidenceToggle.bottomAnchor, constant: 16),
-            legendView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            legendView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            legendView.heightAnchor.constraint(equalToConstant: 140),
+            // Legend - better spacing
+            legendView.topAnchor.constraint(equalTo: confidenceToggle.bottomAnchor, constant: 20),
+            legendView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            legendView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            legendView.heightAnchor.constraint(equalToConstant: 120),
             
-            // Export button
-            exportButton.topAnchor.constraint(equalTo: legendView.bottomAnchor, constant: 16),
-            exportButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            exportButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            exportButton.heightAnchor.constraint(equalToConstant: 50),
+            // Export button - consistent spacing
+            exportButton.topAnchor.constraint(equalTo: legendView.bottomAnchor, constant: 20),
+            exportButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            exportButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            exportButton.heightAnchor.constraint(equalToConstant: 48),
             
-            // Compare button
+            // Compare button - consistent spacing
             compareButton.topAnchor.constraint(equalTo: exportButton.bottomAnchor, constant: 12),
-            compareButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            compareButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            compareButton.heightAnchor.constraint(equalToConstant: 50),
+            compareButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            compareButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            compareButton.heightAnchor.constraint(equalToConstant: 48),
             
-            // Measurements list
-            measurementsList.topAnchor.constraint(equalTo: compareButton.bottomAnchor, constant: 16),
-            measurementsList.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            measurementsList.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            measurementsList.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16)
+            // Measurements list - fixed height with bottom constraint to contentView
+            measurementsList.topAnchor.constraint(equalTo: compareButton.bottomAnchor, constant: 20),
+            measurementsList.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            measurementsList.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            measurementsList.heightAnchor.constraint(equalToConstant: 200),
+            measurementsList.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -20)
         ])
     }
     
