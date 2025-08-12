@@ -750,6 +750,14 @@ print("🎯 Room confidence breakdown - Surface: 0.92, Furniture: 0.80, Objects:
 
 ## 🚀 Future Enhancements
 
+### Planned: Plume API Integration
+- **Device Connection Monitoring**: Real-time tracking of device connectivity across routers/extenders
+- **Band Steering Control**: Automated steering between 2.4GHz, 5GHz, and 6GHz bands for comprehensive signal data
+- **Router/Extender Handoffs**: Systematic device switching to gather coverage data from all access points
+- **Data Correlation**: Sub-second timestamp matching between location measurements and Plume API connection data
+- **Steering Orchestration**: Intelligent workflow coordinating band/device changes with user movement patterns
+- **Signal Validation**: Cross-reference app measurements with Plume's network analytics for accuracy verification
+
 ### Potential Improvements
 - **Cloud Sync**: Store room layouts and measurements in Spectrum backend
 - **Historical Analysis**: Track WiFi performance over time
@@ -764,9 +772,185 @@ print("🎯 Room confidence breakdown - Surface: 0.92, Furniture: 0.80, Objects:
 - **Survey Completeness Scoring**: Percentage-based coverage assessment
 
 ### Integration Opportunities
+- **Plume API Integration**: Device steering and connection monitoring for comprehensive WiFi analysis
 - **Spectrum Systems**: Connect with customer service and technical support
 - **IoT Integration**: Monitor smart home device connectivity
 - **Network Optimization**: Automatic router configuration recommendations
+
+## 📡 Plume API Integration Design
+
+### Architecture Overview
+
+The Plume API integration extends the existing WiFi analysis capabilities with active network control and real-time device monitoring. This creates a comprehensive system that can gather signal data across all available bands and devices while tracking user movement through their home.
+
+### Core Components
+
+#### PlumeAPIManager
+Central coordinator for all Plume interactions:
+
+```swift
+class PlumeAPIManager: ObservableObject {
+    @Published var connectedDevices: [PlumeDevice] = []
+    @Published var availableBands: [WiFiFrequencyBand] = []
+    @Published var currentConnection: PlumeConnection?
+    
+    // Device connection monitoring
+    func monitorDeviceConnections() async
+    func getConnectionStatus(for deviceMAC: String) -> PlumeConnectionStatus
+    
+    // Band steering operations
+    func steerToBand(_ band: WiFiFrequencyBand) async throws
+    func steerToDevice(_ deviceID: String) async throws
+    
+    // Data correlation
+    func getConnectionHistory(from startTime: Date, to endTime: Date) -> [PlumeConnectionEvent]
+}
+```
+
+#### PlumeSurveyOrchestrator
+Coordinates steering operations with location-based measurements:
+
+```swift
+class PlumeSurveyOrchestrator {
+    private let plumeAPI: PlumeAPIManager
+    private let wifiSurveyManager: WiFiSurveyManager
+    
+    // Steering workflow management
+    func beginComprehensiveSurvey(at location: simd_float3) async
+    func performBandCycling() async -> [SteeringMeasurement]
+    func performDeviceHandoffs() async -> [DeviceConnectionData]
+    
+    // Movement-triggered analysis
+    func onUserMovement(to location: simd_float3) async
+}
+```
+
+#### DataCorrelationEngine
+Matches location measurements with Plume connection data:
+
+```swift
+struct DataCorrelationEngine {
+    // Timestamp correlation with ±2 second tolerance
+    func correlateLocationData(_ measurements: [WiFiMeasurement], 
+                             with plumeData: [PlumeConnectionEvent]) -> [CorrelatedDataPoint]
+    
+    // Location-based device mapping
+    func mapDeviceToLocation(_ device: PlumeDevice, 
+                           using measurements: [WiFiMeasurement]) -> LocationMapping
+    
+    // Signal validation between sources
+    func validateSignalStrength(_ appMeasurement: Float, 
+                              against plumeReading: Float) -> ValidationResult
+}
+```
+
+### Integration with Existing Architecture
+
+#### WiFiSurveyManager Extension
+Extends current measurement collection with Plume coordination:
+
+```swift
+extension WiFiSurveyManager {
+    // Enhanced measurement with Plume context
+    func recordMeasurementWithPlumeData(at location: simd_float3, 
+                                       roomType: RoomType?,
+                                       plumeContext: PlumeConnectionContext) {
+        // Existing measurement logic
+        // + Plume API state capture
+        // + Data correlation tagging
+    }
+    
+    // Movement-triggered steering workflow  
+    func onSignificantMovement(to location: simd_float3) {
+        // Existing distance checking
+        // + Trigger Plume steering orchestration
+        // + Coordinated multi-source data collection
+    }
+}
+```
+
+### Data Structures
+
+#### Plume-Enhanced Measurement
+```swift
+struct PlumeMeasurement {
+    let location: simd_float3
+    let timestamp: Date
+    let appSignalStrength: Int
+    let plumeSignalStrength: Int
+    let connectedDevice: PlumeDevice
+    let currentBand: WiFiFrequencyBand
+    let steeringHistory: [SteeringEvent]
+    let correlationConfidence: Float // 0-1 matching accuracy
+}
+```
+
+#### Steering Event Tracking
+```swift
+struct SteeringEvent {
+    let eventType: SteeringType // bandChange, deviceHandoff
+    let fromState: ConnectionState
+    let toState: ConnectionState
+    let timestamp: Date
+    let stabilizationTime: TimeInterval // Time to signal stability
+    let location: simd_float3
+}
+```
+
+### Workflow Integration
+
+#### User Movement Triggered Survey
+1. **Movement Detection** → Existing distance threshold (3 feet) triggers new location
+2. **Plume State Capture** → Query current connection (device, band, signal strength)
+3. **Baseline Measurement** → Record current state with app's signal measurement
+4. **Steering Sequence** → Cycle through bands: 2.4→5→6GHz at current location
+5. **Device Handoffs** → Switch router→extender→router with measurements at each
+6. **Data Correlation** → Match all measurements with Plume timestamps/locations
+7. **Optimal Return** → Steer back to best performing configuration
+
+#### Real-time Data Synchronization
+- **Sub-second Correlation**: Match measurements within ±2 second window
+- **Location Validation**: Cross-reference position data between app and inferred device proximity
+- **Signal Verification**: Compare app RSSI with Plume's signal strength readings
+- **Confidence Scoring**: Rate correlation accuracy based on timestamp precision and location consistency
+
+### Performance Considerations
+
+#### API Rate Limiting
+- **Steering Throttling**: 5-second minimum between band changes for signal stabilization
+- **Batch Operations**: Group multiple steering commands when possible
+- **Background Monitoring**: Continuous connection monitoring without blocking UI
+
+#### Memory Management
+- **Correlation History**: Limit to 1000 most recent correlation points
+- **Steering Events**: Maintain sliding window of last 500 steering operations
+- **Data Cleanup**: Automatic pruning of correlation data older than 24 hours
+
+### Error Handling and Fallbacks
+
+#### API Connectivity Issues
+- **Offline Mode**: Continue app-only measurements when Plume API unavailable
+- **Partial Data**: Proceed with available steering capabilities if some API features fail
+- **Retry Logic**: Exponential backoff for failed steering commands
+
+#### Steering Failures
+- **Timeout Handling**: 30-second timeout for steering operations
+- **State Recovery**: Return to previous configuration if steering fails
+- **User Notification**: Transparent feedback about steering status and any limitations
+
+### Future Enhancement Opportunities
+
+#### Machine Learning Integration
+- **Pattern Recognition**: Learn optimal steering sequences based on room types
+- **Predictive Steering**: Pre-steer based on user movement patterns
+- **Coverage Optimization**: ML-driven recommendations for device placement
+
+#### Advanced Analytics
+- **Heat Map Enhancement**: Overlay Plume-verified signal data on existing visualizations
+- **Device Performance**: Compare router vs. extender performance by location
+- **Band Utilization**: Track optimal band selection patterns throughout home
+
+This Plume integration transforms the app from passive WiFi analysis to active network optimization, providing unprecedented insight into WiFi performance across all available devices and frequency bands.
 
 ## 🆕 Recent Improvements (Latest Version)
 

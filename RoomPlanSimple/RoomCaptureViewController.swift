@@ -45,6 +45,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var routerPlacementButton: UIButton?
     private var modeLabel: UILabel?
     
+    // Plume integration and data export controls
+    private var plumeControlsContainer: UIView?
+    private var plumeToggleButton: UIButton?
+    private var exportDataButton: UIButton?
+    private var plumeStatusLabel: UILabel?
+    
     private var isARMode = false
     private var capturedRoomData: CapturedRoom?
     
@@ -91,6 +97,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         setupARView()
         setupWiFiSurvey()
         setupBottomNavigation()
+        setupPlumeControls()
         setupHapticFeedback()
         updateButtonStates()
     }
@@ -384,6 +391,134 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         ])
         
         updateBottomNavigation()
+    }
+    
+    private func setupPlumeControls() {
+        // Create container for Plume controls
+        plumeControlsContainer = UIView()
+        plumeControlsContainer?.backgroundColor = UIColor.black.withAlphaComponent(0.8)
+        plumeControlsContainer?.layer.cornerRadius = 12
+        plumeControlsContainer?.layer.masksToBounds = true
+        plumeControlsContainer?.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Create Plume toggle button
+        plumeToggleButton = UIButton(type: .system)
+        plumeToggleButton?.setTitle("🔌 Enable Plume", for: .normal)
+        plumeToggleButton?.setTitleColor(.white, for: .normal)
+        plumeToggleButton?.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14)
+        plumeToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+        plumeToggleButton?.addTarget(self, action: #selector(plumeToggleTapped), for: .touchUpInside)
+        plumeToggleButton?.translatesAutoresizingMaskIntoConstraints = false
+        plumeToggleButton?.layer.cornerRadius = 6
+        
+        // Create export data button
+        exportDataButton = UIButton(type: .system)
+        exportDataButton?.setTitle("📤 Export Data", for: .normal)
+        exportDataButton?.setTitleColor(.white, for: .normal)
+        exportDataButton?.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14)
+        exportDataButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+        exportDataButton?.addTarget(self, action: #selector(exportDataTapped), for: .touchUpInside)
+        exportDataButton?.translatesAutoresizingMaskIntoConstraints = false
+        exportDataButton?.layer.cornerRadius = 6
+        
+        // Create Plume status label
+        plumeStatusLabel = UILabel()
+        plumeStatusLabel?.text = "Plume: Initializing..."
+        plumeStatusLabel?.textColor = .white
+        plumeStatusLabel?.font = UIFont.systemFont(ofSize: 12)
+        plumeStatusLabel?.textAlignment = .center
+        plumeStatusLabel?.translatesAutoresizingMaskIntoConstraints = false
+        
+        guard let container = plumeControlsContainer,
+              let toggleButton = plumeToggleButton,
+              let exportButton = exportDataButton,
+              let statusLabel = plumeStatusLabel else { return }
+        
+        container.addSubview(toggleButton)
+        container.addSubview(exportButton)
+        container.addSubview(statusLabel)
+        view.addSubview(container)
+        
+        NSLayoutConstraint.activate([
+            // Container in top-right corner
+            container.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            container.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            container.widthAnchor.constraint(equalToConstant: 160),
+            container.heightAnchor.constraint(equalToConstant: 100),
+            
+            // Plume toggle button
+            toggleButton.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            toggleButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            toggleButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            toggleButton.heightAnchor.constraint(equalToConstant: 30),
+            
+            // Export button
+            exportButton.topAnchor.constraint(equalTo: toggleButton.bottomAnchor, constant: 4),
+            exportButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            exportButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            exportButton.heightAnchor.constraint(equalToConstant: 30),
+            
+            // Status label
+            statusLabel.topAnchor.constraint(equalTo: exportButton.bottomAnchor, constant: 4),
+            statusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            statusLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8)
+        ])
+        
+        // Update Plume status periodically
+        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.updatePlumeStatus()
+        }
+    }
+    
+    @objc private func plumeToggleTapped() {
+        let currentlyEnabled = wifiSurveyManager.isPlumeEnabled
+        wifiSurveyManager.enablePlumeIntegration(!currentlyEnabled)
+        
+        let newTitle = wifiSurveyManager.isPlumeEnabled ? "🔌 Disable Plume" : "🔌 Enable Plume"
+        plumeToggleButton?.setTitle(newTitle, for: .normal)
+        
+        updatePlumeStatus()
+        
+        print("🔌 Plume integration toggled: \(wifiSurveyManager.isPlumeEnabled)")
+    }
+    
+    @objc private func exportDataTapped() {
+        guard wifiSurveyManager.measurements.count > 0 else {
+            showAlert(title: "No Data", message: "No measurements available to export. Please complete a WiFi survey first.")
+            return
+        }
+        
+        // Export data with room information if available
+        let exportURL = wifiSurveyManager.exportMeasurementData(roomAnalyzer: roomAnalyzer)
+        
+        if let url = exportURL {
+            // Show share sheet
+            let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            activityVC.popoverPresentationController?.sourceView = exportDataButton
+            present(activityVC, animated: true)
+            
+            showAlert(title: "Export Complete", 
+                     message: "Survey data exported successfully!\n\nFile: \(url.lastPathComponent)\n\nMeasurements: \(wifiSurveyManager.measurements.count)\nPlume enabled: \(wifiSurveyManager.isPlumeEnabled)")
+        } else {
+            showAlert(title: "Export Failed", message: "Failed to export survey data. Please try again.")
+        }
+    }
+    
+    private func updatePlumeStatus() {
+        if wifiSurveyManager.isPlumeEnabled {
+            let correlationStatus = wifiSurveyManager.getPlumeCorrelationStatus()
+            let steeringStatus = wifiSurveyManager.plumeSteeringActive ? " 🎯" : ""
+            plumeStatusLabel?.text = "Plume: \(correlationStatus)\(steeringStatus)"
+        } else {
+            plumeStatusLabel?.text = "Plume: Disabled"
+        }
+    }
+    
+    private func showAlert(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
     
     @objc private func scanSurveyToggleTapped() {
