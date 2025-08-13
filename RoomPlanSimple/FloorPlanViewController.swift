@@ -362,6 +362,17 @@ class FloorPlanViewController: UIViewController {
         return coverageMap
     }
     
+    func updateWithPersistedSession(_ saved: SavedSession) {
+        self.wifiHeatmapData = WiFiHeatmapData(measurements: SessionManager.shared.runtimeMeasurements(from: saved.measurements), coverageMap: [:], optimalRouterPlacements: [])
+        DispatchQueue.main.async {
+            self.floorPlanRenderer.updatePersistedRooms(saved.rooms)
+            self.floorPlanRenderer.updateHeatmap(self.wifiHeatmapData)
+            self.floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
+            self.measurements = self.wifiHeatmapData?.measurements ?? []
+            self.measurementsList.reloadData()
+        }
+    }
+    
     @objc private func toggleHeatmap() {
         floorPlanRenderer.setShowHeatmap(heatmapToggle.isOn)
     }

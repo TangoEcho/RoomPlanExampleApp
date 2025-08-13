@@ -5,6 +5,7 @@ class FloorPlanRenderer: UIView {
     
     // MARK: - Properties
     private var rooms: [RoomAnalyzer.IdentifiedRoom] = []
+    private var persistedRooms: [PersistedRoom] = []
     private var heatmapData: WiFiHeatmapData?
     private var networkDevices: [NetworkDevice] = []
     private var showHeatmap = false
@@ -40,6 +41,15 @@ class FloorPlanRenderer: UIView {
             }
             return true
         }
+        // Clear any persisted set when we have runtime rooms
+        self.persistedRooms = []
+        setNeedsDisplay()
+    }
+    
+    func updatePersistedRooms(_ rooms: [PersistedRoom]) {
+        self.persistedRooms = rooms
+        // Also clear runtime rooms to avoid ambiguity
+        self.rooms = []
         setNeedsDisplay()
     }
     
@@ -79,42 +89,83 @@ class FloorPlanRenderer: UIView {
     }
     
     private func drawRooms(in context: CGContext, rect: CGRect) {
-        guard !rooms.isEmpty else {
+        // Prefer runtime rooms if available; else use persisted
+        if rooms.isEmpty && persistedRooms.isEmpty {
             drawPlaceholderRoom(in: context, rect: rect)
             return
         }
-        
-        let allPoints = rooms.flatMap { $0.wallPoints }
-        guard !allPoints.isEmpty else { return }
-        
+
+        if !rooms.isEmpty {
+            // Calculate bounds for all rooms to fit them in the view
+            let allPoints = rooms.flatMap { $0.wallPoints }
+            guard !allPoints.isEmpty else { return }
+
+            let minX = allPoints.map { $0.x }.min() ?? 0
+            let maxX = allPoints.map { $0.x }.max() ?? 0
+            let minY = allPoints.map { $0.y }.min() ?? 0
+            let maxY = allPoints.map { $0.y }.max() ?? 0
+
+            let roomWidth = maxX - minX
+            let roomHeight = maxY - minY
+
+            // Prevent division by zero
+            guard roomWidth > 0 && roomHeight > 0 else {
+                drawPlaceholderRoom(in: context, rect: rect)
+                return
+            }
+
+            // Calculate scale to fit room in view with padding
+            let padding: CGFloat = 20
+            let availableWidth = rect.width - (padding * 2)
+            let availableHeight = rect.height - (padding * 2)
+
+            let scaleX = availableWidth / CGFloat(roomWidth)
+            let scaleY = availableHeight / CGFloat(roomHeight)
+            let scale = min(scaleX, scaleY)
+
+            // Calculate offset to center the room
+            let scaledRoomWidth = CGFloat(roomWidth) * scale
+            let scaledRoomHeight = CGFloat(roomHeight) * scale
+            let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
+            let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
+
+            // Draw each room
+            for (index, room) in rooms.enumerated() {
+                drawRoom(room, in: context, scale: scale, offsetX: offsetX, offsetY: offsetY, roomIndex: index)
+            }
+            return
+        }
+
+        // Fallback: draw from persistedRooms
+        let allPoints = persistedRooms.flatMap { $0.wallPoints.map { $0.simd } }
+        guard !allPoints.isEmpty else {
+            drawPlaceholderRoom(in: context, rect: rect)
+            return
+        }
         let minX = allPoints.map { $0.x }.min() ?? 0
         let maxX = allPoints.map { $0.x }.max() ?? 0
         let minY = allPoints.map { $0.y }.min() ?? 0
         let maxY = allPoints.map { $0.y }.max() ?? 0
-        
         let roomWidth = maxX - minX
         let roomHeight = maxY - minY
-        
         guard roomWidth > 0 && roomHeight > 0 else {
             drawPlaceholderRoom(in: context, rect: rect)
             return
         }
-        
         let padding: CGFloat = 20
         let availableWidth = rect.width - (padding * 2)
         let availableHeight = rect.height - (padding * 2)
-        
         let scaleX = availableWidth / CGFloat(roomWidth)
         let scaleY = availableHeight / CGFloat(roomHeight)
         let scale = min(scaleX, scaleY)
-        
         let scaledRoomWidth = CGFloat(roomWidth) * scale
         let scaledRoomHeight = CGFloat(roomHeight) * scale
         let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
         let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
-        
-        for (index, room) in rooms.enumerated() {
-            drawRoom(room, in: context, scale: scale, offsetX: offsetX, offsetY: offsetY, roomIndex: index)
+
+        for (index, room) in persistedRooms.enumerated() {
+            let points = room.wallPoints.map { $0.simd }
+            drawRoom(points: points, label: room.type.rawValue, in: context, scale: scale, offsetX: offsetX, offsetY: offsetY, roomIndex: index)
         }
     }
     
@@ -146,6 +197,30 @@ class FloorPlanRenderer: UIView {
         
         if let centerPoint = calculateRoomCenter(viewPoints) {
             drawRoomLabel(room.type.rawValue, at: centerPoint, in: context)
+        }
+    }
+    
+    private func drawRoom(points: [simd_float2], label: String, in context: CGContext, scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat, roomIndex: Int) {
+        guard points.count >= 3 else { return }
+        let viewPoints = points.map { point in
+            CGPoint(x: CGFloat(point.x) * scale + offsetX,
+                    y: CGFloat(point.y) * scale + offsetY)
+        }
+        let path = CGMutablePath()
+        if let first = viewPoints.first {
+            path.move(to: first)
+            for i in 1..<viewPoints.count { path.addLine(to: viewPoints[i]) }
+            if viewPoints.count > 2 { path.closeSubpath() }
+        }
+        context.setFillColor(UIColor.systemGray5.withAlphaComponent(0.3).cgColor)
+        context.addPath(path)
+        context.fillPath()
+        context.setStrokeColor(UIColor.systemBlue.cgColor)
+        context.setLineWidth(roomStrokeWidth)
+        context.addPath(path)
+        context.strokePath()
+        if let center = calculateRoomCenter(viewPoints) {
+            drawRoomLabel(label, at: center, in: context)
         }
     }
     

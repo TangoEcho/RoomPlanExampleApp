@@ -43,33 +43,29 @@ class OnboardingViewController: UIViewController {
         let subtitleLabel = SpectrumBranding.createSpectrumLabel(text: "WiFi Analyzer", style: .headline)
         subtitleLabel.textAlignment = .center
         subtitleLabel.font = UIFont.systemFont(ofSize: 24, weight: .medium)
-        
-        let loadingLabel = SpectrumBranding.createSpectrumLabel(text: "Loading...", style: .body)
-        loadingLabel.textAlignment = .center
-        loadingLabel.alpha = 0.7
-        
-        // Create activity indicator
-        let activityIndicator = UIActivityIndicatorView(style: .large)
-        activityIndicator.color = SpectrumBranding.Colors.spectrumBlue
-        activityIndicator.translatesAutoresizingMaskIntoConstraints = false
-        activityIndicator.startAnimating()
-        
-        // Stack view for centered content
+
+        let newSessionButton = SpectrumBranding.createSpectrumButton(title: "Start New Session", style: .primary)
+        newSessionButton.addTarget(self, action: #selector(startNewSessionTapped), for: .touchUpInside)
+        newSessionButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+
+        let loadButton = SpectrumBranding.createSpectrumButton(title: "Load Previous Session", style: .secondary)
+        loadButton.addTarget(self, action: #selector(loadPreviousTapped), for: .touchUpInside)
+        loadButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+
         let stackView = UIStackView(arrangedSubviews: [
             logoView,
             subtitleLabel,
             createSpacer(height: 40),
-            activityIndicator,
-            createSpacer(height: 16),
-            loadingLabel
+            newSessionButton,
+            loadButton
         ])
         stackView.axis = .vertical
         stackView.spacing = 16
         stackView.alignment = .center
         stackView.translatesAutoresizingMaskIntoConstraints = false
-        
+
         logoContainer.addSubview(stackView)
-        
+
         NSLayoutConstraint.activate([
             // Logo container centered
             logoContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -82,10 +78,6 @@ class OnboardingViewController: UIViewController {
             stackView.leadingAnchor.constraint(equalTo: logoContainer.leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: logoContainer.trailingAnchor),
             stackView.bottomAnchor.constraint(equalTo: logoContainer.bottomAnchor),
-            
-            // Activity indicator size
-            activityIndicator.widthAnchor.constraint(equalToConstant: 40),
-            activityIndicator.heightAnchor.constraint(equalToConstant: 40),
             
             // Logo view size
             logoView.heightAnchor.constraint(equalToConstant: 80),
@@ -207,7 +199,6 @@ class OnboardingViewController: UIViewController {
         print("📱 Transitioning to RoomCaptureViewController")
         #endif
         
-        // Create RoomCaptureViewController directly without navigation controller
         if let roomCaptureVC = self.storyboard?.instantiateViewController(
             withIdentifier: "RoomCaptureViewController") as? RoomCaptureViewController {
             roomCaptureVC.modalPresentationStyle = .fullScreen
@@ -244,5 +235,27 @@ class OnboardingViewController: UIViewController {
             viewController.modalPresentationStyle = .fullScreen
             present(viewController, animated: true)
         }
+    }
+    
+    @objc private func startNewSessionTapped() {
+        transitionToRoomCapture()
+    }
+    
+    @objc private func loadPreviousTapped() {
+        let list = SessionListViewController()
+        let nav = UINavigationController(rootViewController: list)
+        list.onSelect = { [weak self] saved in
+            self?.presentSavedSession(saved)
+        }
+        nav.modalPresentationStyle = .formSheet
+        present(nav, animated: true)
+    }
+    
+    private func presentSavedSession(_ saved: SavedSession) {
+        guard let roomCaptureVC = self.storyboard?.instantiateViewController(
+            withIdentifier: "RoomCaptureViewController") as? RoomCaptureViewController else { return }
+        roomCaptureVC.modalPresentationStyle = .fullScreen
+        roomCaptureVC.applySavedSession(saved)
+        present(roomCaptureVC, animated: true)
     }
 }

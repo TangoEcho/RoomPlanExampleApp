@@ -2,54 +2,7 @@ import Foundation
 import RoomPlan
 import simd
 
-// Import WiFiMapFramework for advanced placement optimization
-// PlacementOptimizer and related classes
-
-// MARK: - WiFiMap Framework Stubs
-
-struct WiFiMapRoomModel {
-    let rooms: [simd_float3] // Simplified room positions
-    let walls: [simd_float3] // Wall positions
-    let furniture: [simd_float3] // Furniture positions
-    
-    var bounds: (min: simd_float3, max: simd_float3) {
-        // Calculate simple bounds from all positions
-        let allPositions = rooms + walls + furniture
-        guard !allPositions.isEmpty else {
-            return (simd_float3(-5, -5, -5), simd_float3(5, 5, 5))
-        }
-        
-        let minX = allPositions.map { $0.x }.min() ?? -5
-        let maxX = allPositions.map { $0.x }.max() ?? 5
-        let minY = allPositions.map { $0.y }.min() ?? -5
-        let maxY = allPositions.map { $0.y }.max() ?? 5
-        let minZ = allPositions.map { $0.z }.min() ?? -5
-        let maxZ = allPositions.map { $0.z }.max() ?? 5
-        
-        return (simd_float3(minX, minY, minZ), simd_float3(maxX, maxY, maxZ))
-    }
-}
-
-class PlacementOptimizer {
-    init() {}
-    
-    func optimizeExtenderPlacement(
-        baselineConfiguration: [simd_float3],
-        in roomModel: WiFiMapRoomModel,
-        targetCoverage: Float
-    ) throws -> [simd_float3] {
-        // Simplified placement optimization
-        return baselineConfiguration
-    }
-}
-
 class NetworkDeviceManager: ObservableObject {
-    
-    // MARK: - Advanced Placement Integration
-    
-    private var placementOptimizer: PlacementOptimizer?
-    private var currentRoomModel: WiFiMapRoomModel?
-    private var isAdvancedPlacementEnabled: Bool = true
     
     // MARK: - Data Models
     
@@ -109,32 +62,6 @@ class NetworkDeviceManager: ObservableObject {
     
     private let minExtenderHeight: Float = 0.5 // Minimum height for extender placement
     private let maxExtenderHeight: Float = 2.0 // Maximum height for extender placement
-    
-    // MARK: - Initialization
-    
-    init() {
-        // Initialize with advanced placement optimization enabled
-        initializePlacementOptimizer()
-    }
-    
-    private func initializePlacementOptimizer() {
-        do {
-            // Initialize the placement optimizer with default configuration
-            // Note: PlacementOptimizer requires SignalPredictor, CoverageEngine, etc.
-            // For now, we'll use advanced scoring logic without the full optimizer
-            isAdvancedPlacementEnabled = true
-            print("🎆 Advanced placement optimization initialized")
-        } catch {
-            print("⚠️ Failed to initialize placement optimizer: \(error)")
-            isAdvancedPlacementEnabled = false
-        }
-    }
-    
-    /// Update room model for advanced placement calculations
-    func updateRoomModel(_ roomModel: WiFiMapRoomModel) {
-        currentRoomModel = roomModel
-        print("🏠 Updated room model for advanced placement optimization")
-    }
     
     // MARK: - Router Management
     
@@ -210,89 +137,6 @@ class NetworkDeviceManager: ObservableObject {
     }
     
     private func calculateSuitabilityScore(for item: RoomAnalyzer.FurnitureItem) -> Float {
-        if isAdvancedPlacementEnabled {
-            return calculateAdvancedSuitabilityScore(for: item)
-        } else {
-            return calculateBasicSuitabilityScore(for: item)
-        }
-    }
-    
-    /// Advanced suitability scoring using WiFiMap algorithms
-    private func calculateAdvancedSuitabilityScore(for item: RoomAnalyzer.FurnitureItem) -> Float {
-        var score: Float = 0.0
-        
-        // Enhanced furniture type scoring
-        switch item.category {
-        case .table:
-            score += 0.9 // Tables are optimal
-        case .sofa:
-            score += 0.5 // Sofas are acceptable but not ideal
-        default:
-            score += 0.2 // Other furniture types have lower priority
-        }
-        
-        // Advanced height optimization
-        let idealHeight: Float = 1.2 // Slightly higher than eye level for better signal distribution
-        let heightDifference = abs(item.position.y - idealHeight)
-        let heightScore = max(0, 0.25 - heightDifference * 0.15)
-        score += heightScore
-        
-        // Enhanced surface area analysis
-        let surfaceArea = item.dimensions.x * item.dimensions.z
-        let minRequiredArea: Float = 0.1 // 10cm x 10cm minimum
-        let idealArea: Float = 0.3 // 30cm x 30cm ideal
-        
-        if surfaceArea >= minRequiredArea {
-            let areaScore = min(0.2, (surfaceArea - minRequiredArea) / (idealArea - minRequiredArea) * 0.2)
-            score += areaScore
-        }
-        
-        // Room position analysis (avoid corners and edges)
-        if let roomModel = currentRoomModel {
-            let bounds = roomModel.bounds
-            let roomCenter = (bounds.min + bounds.max) / 2
-            let distanceFromCenter = simd_distance(item.position, roomCenter)
-            let roomSize = simd_distance(bounds.min, bounds.max)
-            
-            // Prefer positions not too close to walls but not in dead center
-            let idealDistanceRatio: Float = 0.3 // 30% from center towards walls
-            let idealDistance = roomSize * idealDistanceRatio
-            let positionScore = max(0, 0.15 - abs(distanceFromCenter - idealDistance) * 0.1)
-            score += positionScore
-        }
-        
-        // Signal propagation potential (if router is placed)
-        if let routerPosition = router?.position {
-            let distanceToRouter = simd_distance(item.position, routerPosition)
-            
-            // Optimal distance for extender placement (not too close, not too far)
-            let optimalDistance: Float = 8.0 // 8 meters for good balance
-            let maxDistance: Float = 15.0
-            
-            if distanceToRouter <= maxDistance {
-                let distanceRatio = distanceToRouter / optimalDistance
-                // Peak score at optimal distance, decreasing as we move away
-                let propagationScore = max(0, 0.2 * (1.0 - abs(distanceRatio - 1.0)))
-                score += propagationScore
-            }
-        }
-        
-        // RoomPlan confidence integration
-        score += item.confidence * 0.15
-        
-        // Power outlet proximity (estimated based on wall distance)
-        if let roomModel = currentRoomModel {
-            let nearestWallDistance = findNearestWallDistance(to: item.position, in: roomModel)
-            if nearestWallDistance < 2.0 { // Within 2m of wall (likely power outlet access)
-                score += 0.1
-            }
-        }
-        
-        return min(1.0, score)
-    }
-    
-    /// Basic suitability scoring (fallback)
-    private func calculateBasicSuitabilityScore(for item: RoomAnalyzer.FurnitureItem) -> Float {
         var score: Float = 0.0
         
         // Base score by furniture type
@@ -320,20 +164,6 @@ class NetworkDeviceManager: ObservableObject {
         score += item.confidence * 0.1
         
         return min(1.0, score)
-    }
-    
-    /// Calculate distance to nearest wall for power outlet estimation
-    private func findNearestWallDistance(to position: simd_float3, in roomModel: WiFiMapRoomModel) -> Float {
-        var minDistance: Float = Float.infinity
-        
-        for wallPoint in roomModel.walls {
-            // Simplified: calculate distance from position to wall point
-            let distance = simd_distance(position, wallPoint)
-            
-            minDistance = min(minDistance, distance)
-        }
-        
-        return minDistance == Float.infinity ? 5.0 : minDistance // Default to 5m if no walls found
     }
     
     private func calculateOptimalPlacementPosition(for item: RoomAnalyzer.FurnitureItem) -> simd_float3 {

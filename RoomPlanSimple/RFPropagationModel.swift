@@ -10,8 +10,6 @@ final class RFPropagationModel {
         let doorAttenuationDb: Double
         let maxDistanceMeters: Double
         let gridResolutionMeters: Float
-        let floorAttenuationDbPerCrossing: Double
-        let assumedFloorHeightMeters: Double
         static let `default` = Parameters(
             frequencyGHz: 5.18,
             txPowerAt1mDbm: -30.0, // reference RSSI at 1m
@@ -19,9 +17,7 @@ final class RFPropagationModel {
             wallAttenuationDb: 5.0,
             doorAttenuationDb: 2.0,
             maxDistanceMeters: 30.0,
-            gridResolutionMeters: 0.5,
-            floorAttenuationDbPerCrossing: 12.0,
-            assumedFloorHeightMeters: 3.0
+            gridResolutionMeters: 0.5
         )
     }
 
@@ -45,11 +41,8 @@ final class RFPropagationModel {
         let widthCount = Int(ceil((maxX - minX) / gridResolution))
         let depthCount = Int(ceil((maxZ - minZ) / gridResolution))
 
-        // Precompute wall segments (2D plan view)
+        // Precompute wall segments
         let wallSegments = buildWallSegments(from: rooms)
-
-        // Precompute floor heights from rooms
-        let floorHeights = averageFloorHeights(from: rooms)
 
         var coverageMap: [simd_float3: Double] = [:]
         for ix in 0...widthCount {
@@ -58,28 +51,19 @@ final class RFPropagationModel {
                 let z = minZ + Float(iz) * gridResolution
                 let p2D = simd_float2(x, z)
 
-                // Determine which room (and thus floor) this point belongs to
-                guard let containingRoom = rooms.first(where: { isPointInPolygon(p2D, polygon: $0.wallPoints) }) else { continue }
-                let targetY = containingRoom.center.y
-                let targetFloorIndex = containingRoom.floorIndex
+                // Skip if point not inside any room polygon
+                guard rooms.contains(where: { isPointInPolygon(p2D, polygon: $0.wallPoints) }) else { continue }
 
                 // Evaluate RSSI from all routers; take max (best signal)
                 var bestRssi: Double = -150
                 for router in routers {
-                    let rssi = predictRSSI3D(
-                        at: simd_float3(x, targetY, z),
-                        from: router,
-                        wallSegments: wallSegments,
-                        parameters: parameters,
-                        floorHeights: floorHeights,
-                        targetFloorIndex: targetFloorIndex
-                    )
+                    let rssi = predictRSSI(at: simd_float3(x, 0, z), from: router, wallSegments: wallSegments, parameters: parameters)
                     if rssi > bestRssi { bestRssi = rssi }
                 }
 
                 // Normalize to 0..1 similar to existing convention: (RSSI + 100) / 100
                 let normalized = max(0.0, min(1.0, (bestRssi + 100.0) / 100.0))
-                coverageMap[simd_float3(x, targetY, z)] = normalized
+                coverageMap[simd_float3(x, 0, z)] = normalized
             }
         }
 
@@ -138,58 +122,26 @@ final class RFPropagationModel {
         return segments
     }
 
-    private static func averageFloorHeights(from rooms: [RoomAnalyzer.IdentifiedRoom]) -> [Int: Float] {
-        var sums: [Int: Float] = [:]
-        var counts: [Int: Int] = [:]
-        for r in rooms {
-            sums[r.floorIndex, default: 0] += r.center.y
-            counts[r.floorIndex, default: 0] += 1
-        }
-        var result: [Int: Float] = [:]
-        for (idx, sum) in sums { result[idx] = sum / Float(counts[idx] ?? 1) }
-        return result
-    }
-
-    private static func nearestFloorIndex(for y: Float, floorHeights: [Int: Float], assumedHeight: Double) -> Int {
-        if floorHeights.isEmpty {
-            return Int(round(Double(y) / assumedHeight))
-        }
-        var bestIdx = 0
-        var bestDelta = Float.greatestFiniteMagnitude
-        for (idx, fy) in floorHeights {
-            let d = abs(fy - y)
-            if d < bestDelta { bestDelta = d; bestIdx = idx }
-        }
-        return bestIdx
-    }
-
-    private static func predictRSSI3D(
+    private static func predictRSSI(
         at point: simd_float3,
         from router: simd_float3,
         wallSegments: [WallSegment],
-        parameters: Parameters,
-        floorHeights: [Int: Float],
-        targetFloorIndex: Int
+        parameters: Parameters
     ) -> Double {
         let dx = Double(point.x - router.x)
-        let dy = Double(point.y - router.y)
         let dz = Double(point.z - router.z)
-        let distance3D = max(0.1, sqrt(dx * dx + dy * dy + dz * dz))
-        if distance3D > parameters.maxDistanceMeters { return -120.0 }
+        let distance = max(0.1, sqrt(dx * dx + dz * dz))
+        if distance > parameters.maxDistanceMeters { return -120.0 }
 
         // Free-space/path-loss model
-        let fspl = 10.0 * parameters.pathLossExponent * log10(distance3D)
+        // FSPL(dB) ~= 20 log10(f) + 10 n log10(d) + C (we fold constants into txPowerAt1mDbm)
+        let fspl = 10.0 * parameters.pathLossExponent * log10(distance)
 
-        // Count wall crossings on the target floor (2D plan)
+        // Count wall crossings between router and point
         let crossings = countWallCrossings(from: simd_float2(router.x, router.z), to: simd_float2(point.x, point.z), segments: wallSegments)
         let wallLoss = Double(crossings.walls) * parameters.wallAttenuationDb + Double(crossings.doors) * parameters.doorAttenuationDb
 
-        // Floor slab attenuation between router floor and target floor
-        let routerFloorIndex = nearestFloorIndex(for: router.y, floorHeights: floorHeights, assumedHeight: parameters.assumedFloorHeightMeters)
-        let floorCrossings = abs(routerFloorIndex - targetFloorIndex)
-        let floorLoss = Double(floorCrossings) * parameters.floorAttenuationDbPerCrossing
-
-        let rssi = parameters.txPowerAt1mDbm - fspl - wallLoss - floorLoss
+        let rssi = parameters.txPowerAt1mDbm - fspl - wallLoss
         return max(-120.0, min(-20.0, rssi))
     }
 

@@ -26,14 +26,6 @@ struct SpectrumBranding {
         static let secondaryBackground = UIColor.secondarySystemBackground
         static let textPrimary = UIColor.label
         static let textSecondary = UIColor.secondaryLabel
-        
-        // Theme colors for UI components
-        static let primary = spectrumBlue
-        static let accent = spectrumRed
-        static let secondary = spectrumSilver
-        static let success = excellentSignal
-        static let warning = goodSignal
-        static let error = poorSignal
     }
     
     // MARK: - Typography

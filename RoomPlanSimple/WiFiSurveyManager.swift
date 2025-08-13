@@ -13,8 +13,6 @@ struct WiFiMeasurement {
     let speed: Double
     let frequency: String
     let roomType: RoomType?
-    let floorIndex: Int?
-    let roomId: UUID?
 }
 
 struct WiFiHeatmapData {
@@ -23,7 +21,7 @@ struct WiFiHeatmapData {
     let optimalRouterPlacements: [simd_float3]
 }
 
-enum RoomType: String, CaseIterable {
+enum RoomType: String, CaseIterable, Codable {
     case kitchen = "Kitchen"
     case livingRoom = "Living Room" 
     case bedroom = "Bedroom"
@@ -134,8 +132,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         speedTestTimer = nil
     }
     
-    // New floor/room-aware API
-    func recordMeasurement(at location: simd_float3, roomType: RoomType?, floorIndex: Int?, roomId: UUID?) {
+    func recordMeasurement(at location: simd_float3, roomType: RoomType?) {
         guard isRecording else { return }
         
         let currentTime = Date().timeIntervalSince1970
@@ -143,22 +140,24 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         // Update position history for movement detection
         updatePositionHistory(location: location, timestamp: currentTime)
         
-        // Check distance threshold
+        // Check if user has moved at least 1 foot from last measurement
         if let lastPosition = lastMeasurementPosition {
             let distance = simd_distance(location, lastPosition)
-            guard distance >= measurementDistanceThreshold else {
+            guard distance >= measurementDistanceThreshold else { 
+                // Still update movement tracking even if not measuring
                 updateMovementTracking(location: location, timestamp: currentTime)
-                return
+                return 
             }
         }
         
-        // Check stability
+        // Check if user has stopped moving (no significant movement in last 2 seconds)
         guard hasUserStoppedMoving(currentTime: currentTime) else {
             print("🏃‍♂️ User still moving, waiting for stop...")
             updateMovementTracking(location: location, timestamp: currentTime)
             return
         }
         
+        // User has moved >1 foot and stopped - take measurement
         lastMeasurementPosition = location
         lastMeasurementTime = currentTime
         
@@ -169,22 +168,18 @@ class WiFiSurveyManager: NSObject, ObservableObject {
             networkName: currentNetworkName,
             speed: performSpeedTest(),
             frequency: detectFrequency(),
-            roomType: roomType,
-            floorIndex: floorIndex,
-            roomId: roomId
+            roomType: roomType
         )
         
         measurements.append(measurement)
+        
+        // Prevent unlimited memory growth by limiting measurement count
         maintainMeasurementBounds()
         
-        print("📍 WiFi measurement #\(measurements.count) recorded at (\(String(format: "%.2f", location.x)), \(String(format: "%.2f", location.y)), \(String(format: "%.2f", location.z))) in \(roomType?.rawValue ?? "Unknown room") floor=\(floorIndex ?? -1)")
+        // Debug logging
+        print("📍 WiFi measurement #\(measurements.count) recorded at (\(String(format: "%.2f", location.x)), \(String(format: "%.2f", location.y)), \(String(format: "%.2f", location.z))) in \(roomType?.rawValue ?? "Unknown room")")
         print("   Signal: \(currentSignalStrength)dBm, Speed: \(Int(round(measurement.speed)))Mbps")
         print("   📊 User stopped moving - measurement taken automatically")
-    }
-    
-    // Backward-compatible wrapper used elsewhere
-    func recordMeasurement(at location: simd_float3, roomType: RoomType?) {
-        recordMeasurement(at: location, roomType: roomType, floorIndex: nil, roomId: nil)
     }
     
     private func performSpeedTest() -> Double {

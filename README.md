@@ -11,7 +11,6 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - **Professional Reports**: Generate detailed WiFi analysis reports with floor plans
 - **Architectural Floor Plans**: Professional-style floor plans with proper symbols
 - **🎭 iOS Simulator Support**: Complete UI testing with mock data (no hardware required)
-- **📱 Universal Device Support**: Graceful degradation on non-LiDAR devices with placeholder views
 
 ### Key Capabilities
 - **Smart Room Detection**: Automatically identifies room types (kitchen, bedroom, bathroom, etc.)
@@ -29,9 +28,6 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - **🎛️ User-Controlled Completion**: Only user can declare survey complete - no premature system completion
 - **🔧 Optimized UI Layout**: Buttons positioned to avoid obstructing RoomPlan 3D model
 - **📡 Router & Extender Placement**: Interactive AR system for optimal network device positioning
-- **🔬 Advanced RF Propagation**: ITU indoor path loss models for accurate signal prediction
-- **📊 Multi-band WiFi 7 Support**: 2.4GHz, 5GHz, and 6GHz frequency band analysis
-- **🎯 Coverage Confidence Scoring**: Weighted confidence calculations for prediction accuracy
 
 ## 🎯 User Experience
 
@@ -42,11 +38,6 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 4. **WiFi Survey** → AR-guided WiFi measurement collection with visual test point markers
 5. **Router & Extender Placement** → Interactive AR positioning for optimal network coverage
 6. **Professional Results** → Architectural-style floor plans and reports
-
-### Demo mode vs. real scan
-- Demo floor plan is now explicit only. Use the "📊 View Floor Plan Demo" button (unsupported devices) or call `RoomCaptureViewController.showFloorPlanDemo()`, which presents `FloorPlanViewController` with `isDemoMode = true` so it loads sample data.
-- Real scans navigate to `FloorPlanViewController` via `updateWithData(heatmapData:roomAnalyzer:...)`. In this path, demo mode is disabled and any sample arrays are cleared so only real RoomPlan-derived data renders.
-- On device, if RoomPlan returns no usable geometry (world tracking failure), the app creates a minimal fallback room labeled "Unknown" to allow WiFi visualization. This is not demo data.
 
 ### Visual Design
 - **Spectrum Branding**: Corporate colors, fonts, and styling throughout
@@ -81,20 +72,11 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 #### `WiFiSurveyManager`
 - Real-time WiFi speed testing with progress tracking
 - Distance-based measurement collection (every 1 foot)
-- WiFi performance analysis and signal modeling
+- Network monitoring and signal strength analysis
 - **Performance Features:**
   - Throttled measurements to prevent device overload
   - Real speed testing with downloadable content
   - Progress callbacks for user feedback
-  - **Network Data Integration**: Queries NetworkDataCollector for current network info
-
-#### `NetworkDataCollector` (Plugin)
-- **Single source of truth for all network information**
-- Cellular data collection (carrier, technology, signal strength)
-- WiFi network detection (SSID, BSSID, network path)
-- Location services integration for coverage analysis
-- **Lightweight Design**: Data collection only, no analysis
-- **Auto-Integration**: Provides network info to WiFiSurveyManager automatically
 
 #### `ARVisualizationManager`
 - AR overlay system with performance optimizations
@@ -108,49 +90,18 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
   - Separate test point markers (50 max) for survey guidance
 
 #### `FloorPlanViewController`
-- Professional architectural-style floor plan rendering with scrollable layout
-- Architectural doorway visualization with proper wall gaps and orientation
+- Professional architectural-style floor plan rendering
 - Realistic furniture and appliance symbols
-- Interactive heatmap visualization with toggle controls
+- Interactive heatmap visualization
 - **Visual Features:**
-  - Fixed scroll view layout for proper content display
-  - Professional doorway gaps integrated into wall structures
-  - Wall-aware doorway positioning with correct angles
-  - Clean architectural symbols matching industry standards
+  - Proper door symbols with swing arcs
   - Furniture symbols matching architectural standards
   - Room shape accuracy using wall detection
 
 ### Data Flow
 ```
 RoomPlan Capture → Room Analysis → WiFi Survey → AR Visualization → Report Generation
-                                       ↓
-NetworkDataCollector ← → WiFiSurveyManager (Network Info Query)
-      ↓
-Cellular + WiFi + Location Data → Export System
 ```
-
-### Plugin Architecture
-```
-Core App (Integrated)
-├── WiFiSurveyManager (WiFi Performance)
-├── NetworkDataCollector (Network Information) ← Single Source of Truth
-├── PlumePlugin (Band Steering)
-└── Export System (Unified Data Export)
-
-WiFiMapFramework (Integrated into app)
-├── Core, RFPropagation, PlacementOptimization, RoomPlan
-└── No external Swift Package dependency
-```
-
-### Plume integration boundary
-- `WiFiControlProvider` protocol abstracts WiFi control/steering. A NoOp provider is used by default; the Plume module can be owned by a separate team and wired as a provider implementation later without adding a hard compile-time dependency to the app target.
-
-### Real-device fallback behavior
-- When RoomPlan cannot establish robust tracking or yields zero floors/walls, the app creates a minimal square room labeled "Unknown" to continue WiFi survey visualization.
-- Tips to avoid fallback:
-  - Ensure good lighting and scan the floor and full wall perimeter slowly.
-  - Allow a few seconds for AR tracking to stabilize before switching modes.
-  - Avoid covering the LiDAR/camera.
 
 ## 🔧 Technical Implementation
 
@@ -160,22 +111,14 @@ WiFiMapFramework (Integrated into app)
 RoomPlanSimple/
 ├── RoomCaptureViewController.swift    # Main UI coordinator and state management
 ├── RoomAnalyzer.swift                 # Room type classification and furniture detection
-├── WiFiSurveyManager.swift           # WiFi performance testing and measurement collection
+├── WiFiSurveyManager.swift           # Network testing and measurement collection
 ├── ARVisualizationManager.swift      # 3D AR rendering and test point visualization
 ├── FloorPlanViewController.swift     # 2D architectural floor plan rendering
 ├── SpectrumBranding.swift           # Corporate design system and UI components
-├── WiFiReportGenerator.swift        # HTML report generation and export
-└── DataExportManager.swift          # Unified data export system
+└── WiFiReportGenerator.swift        # HTML report generation and export
 
-Plugin Architecture/
-├── NetworkDataPlugin/
-│   └── NetworkDataCollector.swift   # Single source for all network information
-├── PlumePlugin/
-│   ├── PlumePlugin.swift            # Main Plume API integration
-│   ├── PlumeAPIManager.swift        # API connection and steering commands
-│   ├── PlumeSteeringOrchestrator.swift # Comprehensive testing workflows
-│   ├── PlumeDataCorrelator.swift    # Timestamp/location correlation
-│   └── PlumeSimulationEngine.swift  # Testing without real hardware
+Documentation/
+├── TEST_POINT_VISUALIZATION.md      # Implementation plan for survey coverage indicators
 
 Network Device Management/
 ├── NetworkDeviceManager.swift       # Core device placement logic and surface analysis
@@ -470,21 +413,7 @@ struct IdentifiedRoom {
 ```
 
 #### WiFiSurveyManager
-**Primary Responsibility**: WiFi performance measurement and data coordination
-
-**Network Integration Architecture**:
-```swift
-class WiFiSurveyManager {
-    // Network data integration (single source of truth)
-    private var networkDataCollector: NetworkDataCollector?
-    
-    // Gets current network name from NetworkDataCollector
-    private func updateNetworkInfoFromCollector() {
-        currentNetworkName = networkDataCollector?.getCurrentNetworkName() ?? "Unknown"
-        currentSignalStrength = networkDataCollector?.getCurrentSignalStrength() ?? -70
-    }
-}
-```
+**Primary Responsibility**: Network performance measurement and data collection
 
 **Real Speed Testing Implementation**:
 ```swift
@@ -515,7 +444,7 @@ func performRealSpeedTest(completion: @escaping (Result<Double, SpeedTestError>)
 
 **Distance-Based Recording**:
 ```swift
-func recordMeasurement(at location: simd_float3, roomType: RoomType?, floorIndex: Int?, roomId: UUID?) {
+func recordMeasurement(at location: simd_float3, roomType: RoomType?) {
     guard isRecording else { return }
     
     // Only record if moved at least 1 foot
@@ -525,7 +454,7 @@ func recordMeasurement(at location: simd_float3, roomType: RoomType?, floorIndex
     }
     
     lastMeasurementPosition = location
-    // Create and store measurement including floorIndex and roomId...
+    // Create and store measurement...
 }
 ```
 
@@ -813,14 +742,6 @@ print("🎯 Room confidence breakdown - Surface: 0.92, Furniture: 0.80, Objects:
 
 ## 🚀 Future Enhancements
 
-### Planned: Plume API Integration
-- **Device Connection Monitoring**: Real-time tracking of device connectivity across routers/extenders
-- **Band Steering Control**: Automated steering between 2.4GHz, 5GHz, and 6GHz bands for comprehensive signal data
-- **Router/Extender Handoffs**: Systematic device switching to gather coverage data from all access points
-- **Data Correlation**: Sub-second timestamp matching between location measurements and Plume API connection data
-- **Steering Orchestration**: Intelligent workflow coordinating band/device changes with user movement patterns
-- **Signal Validation**: Cross-reference app measurements with Plume's network analytics for accuracy verification
-
 ### Potential Improvements
 - **Cloud Sync**: Store room layouts and measurements in Spectrum backend
 - **Historical Analysis**: Track WiFi performance over time
@@ -835,281 +756,15 @@ print("🎯 Room confidence breakdown - Surface: 0.92, Furniture: 0.80, Objects:
 - **Survey Completeness Scoring**: Percentage-based coverage assessment
 
 ### Integration Opportunities
-- **Plume API Integration**: Device steering and connection monitoring for comprehensive WiFi analysis
 - **Spectrum Systems**: Connect with customer service and technical support
 - **IoT Integration**: Monitor smart home device connectivity
 - **Network Optimization**: Automatic router configuration recommendations
-
-## 📡 Plume API Integration Design
-
-### Architecture Overview
-
-The Plume API integration extends the existing WiFi analysis capabilities with active network control and real-time device monitoring. This creates a comprehensive system that can gather signal data across all available bands and devices while tracking user movement through their home.
-
-### Core Components
-
-#### PlumeAPIManager
-Central coordinator for all Plume interactions:
-
-```swift
-class PlumeAPIManager: ObservableObject {
-    @Published var connectedDevices: [PlumeDevice] = []
-    @Published var availableBands: [WiFiFrequencyBand] = []
-    @Published var currentConnection: PlumeConnection?
-    
-    // Device connection monitoring
-    func monitorDeviceConnections() async
-    func getConnectionStatus(for deviceMAC: String) -> PlumeConnectionStatus
-    
-    // Band steering operations
-    func steerToBand(_ band: WiFiFrequencyBand) async throws
-    func steerToDevice(_ deviceID: String) async throws
-    
-    // Data correlation
-    func getConnectionHistory(from startTime: Date, to endTime: Date) -> [PlumeConnectionEvent]
-}
-```
-
-#### PlumeSurveyOrchestrator
-Coordinates steering operations with location-based measurements:
-
-```swift
-class PlumeSurveyOrchestrator {
-    private let plumeAPI: PlumeAPIManager
-    private let wifiSurveyManager: WiFiSurveyManager
-    
-    // Steering workflow management
-    func beginComprehensiveSurvey(at location: simd_float3) async
-    func performBandCycling() async -> [SteeringMeasurement]
-    func performDeviceHandoffs() async -> [DeviceConnectionData]
-    
-    // Movement-triggered analysis
-    func onUserMovement(to location: simd_float3) async
-}
-```
-
-#### DataCorrelationEngine
-Matches location measurements with Plume connection data:
-
-```swift
-struct DataCorrelationEngine {
-    // Timestamp correlation with ±2 second tolerance
-    func correlateLocationData(_ measurements: [WiFiMeasurement], 
-                             with plumeData: [PlumeConnectionEvent]) -> [CorrelatedDataPoint]
-    
-    // Location-based device mapping
-    func mapDeviceToLocation(_ device: PlumeDevice, 
-                           using measurements: [WiFiMeasurement]) -> LocationMapping
-    
-    // Signal validation between sources
-    func validateSignalStrength(_ appMeasurement: Float, 
-                              against plumeReading: Float) -> ValidationResult
-}
-```
-
-### Integration with Existing Architecture
-
-#### WiFiSurveyManager Extension
-Extends current measurement collection with Plume coordination:
-
-```swift
-extension WiFiSurveyManager {
-    // Enhanced measurement with Plume context
-    func recordMeasurementWithPlumeData(at location: simd_float3, 
-                                       roomType: RoomType?,
-                                       plumeContext: PlumeConnectionContext) {
-        // Existing measurement logic
-        // + Plume API state capture
-        // + Data correlation tagging
-    }
-    
-    // Movement-triggered steering workflow  
-    func onSignificantMovement(to location: simd_float3) {
-        // Existing distance checking
-        // + Trigger Plume steering orchestration
-        // + Coordinated multi-source data collection
-    }
-}
-```
-
-### Data Structures
-
-#### Plume-Enhanced Measurement
-```swift
-struct PlumeMeasurement {
-    let location: simd_float3
-    let timestamp: Date
-    let appSignalStrength: Int
-    let plumeSignalStrength: Int
-    let connectedDevice: PlumeDevice
-    let currentBand: WiFiFrequencyBand
-    let steeringHistory: [SteeringEvent]
-    let correlationConfidence: Float // 0-1 matching accuracy
-}
-```
-
-#### Steering Event Tracking
-```swift
-struct SteeringEvent {
-    let eventType: SteeringType // bandChange, deviceHandoff
-    let fromState: ConnectionState
-    let toState: ConnectionState
-    let timestamp: Date
-    let stabilizationTime: TimeInterval // Time to signal stability
-    let location: simd_float3
-}
-```
-
-### Workflow Integration
-
-#### User Movement Triggered Survey
-1. **Movement Detection** → Existing distance threshold (3 feet) triggers new location
-2. **Plume State Capture** → Query current connection (device, band, signal strength)
-3. **Baseline Measurement** → Record current state with app's signal measurement
-4. **Steering Sequence** → Cycle through bands: 2.4→5→6GHz at current location
-5. **Device Handoffs** → Switch router→extender→router with measurements at each
-6. **Data Correlation** → Match all measurements with Plume timestamps/locations
-7. **Optimal Return** → Steer back to best performing configuration
-
-#### Real-time Data Synchronization
-- **Sub-second Correlation**: Match measurements within ±2 second window
-- **Location Validation**: Cross-reference position data between app and inferred device proximity
-- **Signal Verification**: Compare app RSSI with Plume's signal strength readings
-- **Confidence Scoring**: Rate correlation accuracy based on timestamp precision and location consistency
-
-### Performance Considerations
-
-#### API Rate Limiting
-- **Steering Throttling**: 5-second minimum between band changes for signal stabilization
-- **Batch Operations**: Group multiple steering commands when possible
-- **Background Monitoring**: Continuous connection monitoring without blocking UI
-
-#### Memory Management
-- **Correlation History**: Limit to 1000 most recent correlation points
-- **Steering Events**: Maintain sliding window of last 500 steering operations
-- **Data Cleanup**: Automatic pruning of correlation data older than 24 hours
-
-### Error Handling and Fallbacks
-
-#### API Connectivity Issues
-- **Offline Mode**: Continue app-only measurements when Plume API unavailable
-- **Partial Data**: Proceed with available steering capabilities if some API features fail
-- **Retry Logic**: Exponential backoff for failed steering commands
-
-#### Steering Failures
-- **Timeout Handling**: 30-second timeout for steering operations
-- **State Recovery**: Return to previous configuration if steering fails
-- **User Notification**: Transparent feedback about steering status and any limitations
-
-### Future Enhancement Opportunities
-
-#### Machine Learning Integration
-- **Pattern Recognition**: Learn optimal steering sequences based on room types
-- **Predictive Steering**: Pre-steer based on user movement patterns
-- **Coverage Optimization**: ML-driven recommendations for device placement
-
-#### Advanced Analytics
-- **Heat Map Enhancement**: Overlay Plume-verified signal data on existing visualizations
-- **Device Performance**: Compare router vs. extender performance by location
-- **Band Utilization**: Track optimal band selection patterns throughout home
-
-This Plume integration transforms the app from passive WiFi analysis to active network optimization, providing unprecedented insight into WiFi performance across all available devices and frequency bands.
-
-## 📱 Network Data Collection Plugin
-
-### Architecture Overview
-
-The NetworkDataCollector serves as the **single source of truth** for all network information in the app, eliminating duplication and providing a clean separation of concerns.
-
-### Core Responsibilities
-
-**Cellular Data Collection:**
-- Carrier information (name, MCC, MNC, country codes)
-- Radio technology detection (5G, LTE, 3G, CDMA)
-- Signal strength estimation (converted to dBm)
-- Data connection state and roaming status
-- Dual SIM support for multiple carriers
-
-**WiFi Network Detection:**
-- Current connected network (SSID, BSSID)  
-- Network path monitoring (WiFi/Cellular/Ethernet)
-- Connection quality metrics (expensive/constrained status)
-
-**Location Services:**
-- Home location capture for coverage analysis
-- GPS coordinates with each measurement
-- Location-based network correlation
-
-### Integration with Core App
-
-**WiFiSurveyManager Integration:**
-```swift
-// WiFiSurveyManager queries NetworkDataCollector for network info
-private func updateNetworkInfoFromCollector() {
-    currentNetworkName = networkDataCollector?.getCurrentNetworkName() ?? "Unknown"
-    currentSignalStrength = networkDataCollector?.getCurrentSignalStrength() ?? -70
-}
-
-// Network data collected alongside WiFi measurements
-let networkData = collector.collectCurrentData(at: location)
-```
-
-**Key Benefits:**
-- **No Duplication**: Single NWPathMonitor, single network info source
-- **Lightweight Design**: Data collection only, no analysis
-- **Auto-Integration**: Seamlessly provides data to existing WiFi workflow
-- **Future-Ready**: Cellular data ready for router backup analysis
-
-### Data Export Integration
-
-Network data is included in the unified export system:
-```json
-{
-  "measurements": [...],  // WiFi performance data
-  "networkData": [        // Cellular + network information
-    {
-      "cellularData": {
-        "carriers": {"slot1": {"name": "Verizon", ...}},
-        "radioTechnologies": {"slot1": "5G"},
-        "signalBars": 4
-      },
-      "wifiData": {
-        "connectedSSID": "MyNetwork",
-        "connectedBSSID": "aa:bb:cc:dd:ee:ff"
-      },
-      "location": {"x": 1.2, "y": 0.0, "z": -2.1}
-    }
-  ]
-}
-```
-
-This architecture provides comprehensive network analysis while maintaining clean code organization and preventing duplication between components.
-
-## 🆕 Recent Improvements (Latest Version)
-
-### Universal Device Support
-- **Non-LiDAR Device Handling**: Graceful degradation with red placeholder view instead of blocking alerts
-- **Accessible Features**: WiFi analysis, floor plan view, and report generation work on all devices
-- **Clear User Messaging**: Informative placeholder explains available features when room capture unavailable
-
-### RF Propagation Models Integration  
-- **ITU Indoor Path Loss**: Industry-standard propagation models for accurate signal prediction
-- **Multi-band Support**: Comprehensive 2.4GHz, 5GHz, and 6GHz (WiFi 7) frequency analysis
-- **Environment Factors**: Accounts for residential, office, commercial, and industrial environments
-- **Floor Penetration**: Models signal loss through floors (15dB per floor)
-- **Coverage Confidence**: Weighted scoring based on signal strength, band diversity, and consistency
-
-### Enhanced WiFi Analysis
-- **Propagation Testing**: Built-in validation suite for RF calculations
-- **Distance-based Path Loss**: Accurate signal strength prediction at various distances
-- **Multi-band Measurements**: Simultaneous analysis across all WiFi frequency bands
-- **Professional Accuracy Metrics**: Confidence scoring and prediction accuracy in reports
 
 ## 📝 Development Notes
 
 ### iOS Version Requirements
 - **iOS 17.0+**: Required for full RoomPlan functionality
-- **ARKit Support**: iPhone/iPad with LiDAR sensor recommended (but not required)
+- **ARKit Support**: iPhone/iPad with LiDAR sensor recommended
 - **Network Access**: WiFi connection required for speed testing
 
 ### Performance Considerations
@@ -1123,24 +778,13 @@ This architecture provides comprehensive network analysis while maintaining clea
 
 ### Recent UI Improvements (Latest Version)
 
-#### Floor Plan Layout & Doorway Visualization
-- **Fixed Floor Plan Display**: Resolved missing floor plan renderer in scroll view layout
-- **Architectural Doorways**: Professional doorway gaps integrated into wall structures with proper orientation  
-- **Wall-Aware Positioning**: Doorways now calculate nearest wall angle for correct placement
-- **Scrollable Content**: Added proper scroll view container for better content organization
-- **Toggle Control Alignment**: Fixed constraint issues with WiFi heatmap, debug, and coverage confidence controls
-
-#### User Experience Enhancements  
+#### User Experience Enhancements
 - **Unobstructed 3D View**: Repositioned bottom navigation buttons 64 points higher to prevent obstruction of RoomPlan 3D model
 - **Button Text Visibility**: Fixed WiFi survey button text truncation with adaptive font sizing and increased width constraints
 - **User-Controlled Completion**: Removed premature "survey complete" messages - only user can declare completion via explicit "Results" button tap
 - **Clear Status Messages**: Status label now shows "📊 Data available - Use 'Results' button when you're ready to view analysis" instead of automatic completion
 
 #### Technical Implementation
-- **Scroll View Architecture**: Added `UIScrollView` with `contentView` for proper layout hierarchy
-- **Doorway Algorithm**: `findNearestWall()` calculates wall angles using `atan2()` for precise orientation
-- **Constraint Updates**: All controls now reference `contentView` instead of main `view` for proper positioning
-- **Sample Data Integration**: Added comprehensive demo data with 3 rooms, 4 furniture items, and 10 WiFi measurements
 - Button positioning: Moved from `bottomAnchor.constraint(constant: -16)` to `constant: -80`
 - Button width: Increased scan/survey toggle from 180pt to 200pt maximum width
 - Font adaptation: Added `adjustsFontSizeToFitWidth = true` with `minimumScaleFactor = 0.8`

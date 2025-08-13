@@ -24,6 +24,8 @@
 		NETWORK001100220033044 /* NetworkDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = NETWORK001100220033055 /* NetworkDeviceManager.swift */; };
 		NETWORK001100220033045 /* NetworkDevice3DModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = NETWORK001100220033056 /* NetworkDevice3DModels.swift */; };
 		FLOORPLAN12345678901 /* FloorPlanRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FLOORPLAN12345678900 /* FloorPlanRenderer.swift */; };
+		SESSIONSRC0001 /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = SESSIONREF0001 /* SessionManager.swift */; };
+		SESSIONLISTSRC0002 /* SessionListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = SESSIONREF0002 /* SessionListViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +51,8 @@
 		NETWORK001100220033055 /* NetworkDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDeviceManager.swift; sourceTree = "<group>"; };
 		NETWORK001100220033056 /* NetworkDevice3DModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDevice3DModels.swift; sourceTree = "<group>"; };
 		FLOORPLAN12345678900 /* FloorPlanRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloorPlanRenderer.swift; sourceTree = "<group>"; };
+		SESSIONREF0001 /* SessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionManager.swift; sourceTree = "<group>"; };
+		SESSIONREF0002 /* SessionListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -110,6 +114,8 @@
 				NETWORK001100220033055 /* NetworkDeviceManager.swift */,
 				NETWORK001100220033056 /* NetworkDevice3DModels.swift */,
 				FLOORPLAN12345678900 /* FloorPlanRenderer.swift */,
+				SESSIONREF0001 /* SessionManager.swift */,
+				SESSIONREF0002 /* SessionListViewController.swift */,
 			);
 			path = RoomPlanSimple;
 			sourceTree = "<group>";
@@ -208,6 +214,8 @@
 				NETWORK001100220033044 /* NetworkDeviceManager.swift in Sources */,
 				NETWORK001100220033045 /* NetworkDevice3DModels.swift in Sources */,
 				FLOORPLAN12345678901 /* FloorPlanRenderer.swift in Sources */,
+				SESSIONSRC0001 /* SessionManager.swift in Sources */,
+				SESSIONLISTSRC0002 /* SessionListViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
