@@ -1128,10 +1128,18 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 }
                 var mergedHeatmap = baseHeatmap
                 if !routers.isEmpty && !self.roomAnalyzer.identifiedRooms.isEmpty {
-                    let predicted = RFPropagationModel.generatePropagationMap(
-                        rooms: self.roomAnalyzer.identifiedRooms,
-                        routers: routers
-                    )
+                    var predicted: [simd_float3: Double] = [:]
+                    if let metal = MetalRFPropagation() {
+                        if let gpuResult = metal.generateCoverage(rooms: self.roomAnalyzer.identifiedRooms, routers: routers) {
+                            predicted = gpuResult
+                        }
+                    }
+                    if predicted.isEmpty {
+                        predicted = RFPropagationModel.generatePropagationMap(
+                            rooms: self.roomAnalyzer.identifiedRooms,
+                            routers: routers
+                        )
+                    }
                     let mergedCoverage = RFPropagationModel.mergePredictedWithMeasured(
                         predicted: predicted,
                         measured: self.wifiSurveyManager.measurements
@@ -1258,10 +1266,18 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             }
             var coverage = baseHeatmap.coverageMap
             if !routers.isEmpty && !roomAnalyzer.identifiedRooms.isEmpty {
-                let predicted = RFPropagationModel.generatePropagationMap(
-                    rooms: roomAnalyzer.identifiedRooms,
-                    routers: routers
-                )
+                var predicted: [simd_float3: Double] = [:]
+                if let metal = MetalRFPropagation() {
+                    if let gpuResult = metal.generateCoverage(rooms: roomAnalyzer.identifiedRooms, routers: routers) {
+                        predicted = gpuResult
+                    }
+                }
+                if predicted.isEmpty {
+                    predicted = RFPropagationModel.generatePropagationMap(
+                        rooms: roomAnalyzer.identifiedRooms,
+                        routers: routers
+                    )
+                }
                 coverage = RFPropagationModel.mergePredictedWithMeasured(
                     predicted: predicted,
                     measured: wifiSurveyManager.measurements
