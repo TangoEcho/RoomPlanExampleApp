@@ -1,5 +1,6 @@
 import Foundation
 import simd
+import CoreLocation
 
 // MARK: - Data Export Manager for Plume Integration Testing
 
@@ -13,6 +14,7 @@ class DataExportManager {
         let roomData: RoomDataExport
         let measurements: [WiFiMeasurementExport]
         let simulatedPlumeData: [PlumeConnectionEvent]
+        let networkData: [NetworkDataPointExport]
         let exportTimestamp: Date
         let appVersion: String
         
@@ -21,8 +23,9 @@ class DataExportManager {
             self.roomData = RoomDataExport(from: roomAnalyzer)
             self.measurements = wifiSurveyManager.measurements.map { WiFiMeasurementExport(from: $0) }
             self.simulatedPlumeData = Self.generateMockPlumeData(from: wifiSurveyManager.measurements)
+            self.networkData = wifiSurveyManager.networkDataCollector?.getCollectedData().map { NetworkDataPointExport(from: $0) } ?? []
             self.exportTimestamp = Date()
-            self.appVersion = "1.0.0-plume-integration"
+            self.appVersion = "1.0.0-network-data-integration"
         }
     }
     
@@ -173,6 +176,105 @@ class DataExportManager {
             self.x = x
             self.y = y
             self.z = z
+        }
+    }
+    
+    /// Network data export structure
+    struct NetworkDataPointExport: Codable {
+        let timestamp: Date
+        let location: LocationExport?
+        let cellularData: CellularDataExport
+        let wifiData: WiFiDataExport
+        let networkPath: NetworkPathExport
+        let homeLocation: HomeLocationExport?
+        
+        init(from networkData: NetworkDataPoint) {
+            self.timestamp = networkData.timestamp
+            self.location = networkData.location.map { LocationExport(from: $0) }
+            self.cellularData = CellularDataExport(from: networkData.cellularData)
+            self.wifiData = WiFiDataExport(from: networkData.wifiData)
+            self.networkPath = NetworkPathExport(from: networkData.networkPath)
+            self.homeLocation = networkData.homeLocation.map { HomeLocationExport(from: $0) }
+        }
+    }
+    
+    struct CellularDataExport: Codable {
+        let carriers: [String: CarrierInfoExport]
+        let radioTechnologies: [String: String]
+        let signalBars: Int
+        let dataConnectionState: String
+        let timestamp: Date
+        
+        init(from cellularData: CellularData) {
+            self.carriers = cellularData.carriers.mapValues { CarrierInfoExport(from: $0) }
+            self.radioTechnologies = cellularData.radioTechnologies
+            self.signalBars = cellularData.signalBars
+            self.dataConnectionState = cellularData.dataConnectionState
+            self.timestamp = cellularData.timestamp
+        }
+    }
+    
+    struct CarrierInfoExport: Codable {
+        let name: String
+        let mobileCountryCode: String
+        let mobileNetworkCode: String
+        let isoCountryCode: String
+        let allowsVOIP: Bool
+        
+        init(from carrierInfo: CarrierInfo) {
+            self.name = carrierInfo.name
+            self.mobileCountryCode = carrierInfo.mobileCountryCode
+            self.mobileNetworkCode = carrierInfo.mobileNetworkCode
+            self.isoCountryCode = carrierInfo.isoCountryCode
+            self.allowsVOIP = carrierInfo.allowsVOIP
+        }
+    }
+    
+    struct WiFiDataExport: Codable {
+        let connectedSSID: String?
+        let connectedBSSID: String?
+        let neighboringNetworkCount: Int
+        let timestamp: Date
+        
+        init(from wifiData: WiFiData) {
+            self.connectedSSID = wifiData.connectedSSID
+            self.connectedBSSID = wifiData.connectedBSSID
+            self.neighboringNetworkCount = wifiData.neighboringNetworkCount
+            self.timestamp = wifiData.timestamp
+        }
+    }
+    
+    struct NetworkPathExport: Codable {
+        let hasWiFi: Bool
+        let hasCellular: Bool
+        let hasEthernet: Bool
+        let isExpensive: Bool
+        let isConstrained: Bool
+        let status: String
+        
+        init(from networkPath: NetworkPathData) {
+            self.hasWiFi = networkPath.hasWiFi
+            self.hasCellular = networkPath.hasCellular
+            self.hasEthernet = networkPath.hasEthernet
+            self.isExpensive = networkPath.isExpensive
+            self.isConstrained = networkPath.isConstrained
+            self.status = "\(networkPath.status)"
+        }
+    }
+    
+    struct HomeLocationExport: Codable {
+        let latitude: Double
+        let longitude: Double
+        let altitude: Double
+        let horizontalAccuracy: Double
+        let verticalAccuracy: Double
+        
+        init(from location: CLLocation) {
+            self.latitude = location.coordinate.latitude
+            self.longitude = location.coordinate.longitude
+            self.altitude = location.altitude
+            self.horizontalAccuracy = location.horizontalAccuracy
+            self.verticalAccuracy = location.verticalAccuracy
         }
     }
     
@@ -338,6 +440,7 @@ class DataExportManager {
             print("   - Measurements: \(exportData.measurements.count)")
             print("   - Rooms: \(exportData.roomData.rooms.count)")
             print("   - Simulated Plume events: \(exportData.simulatedPlumeData.count)")
+            print("   - Network data points: \(exportData.networkData.count)")
             
             return fileURL
             

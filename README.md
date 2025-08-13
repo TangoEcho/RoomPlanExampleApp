@@ -76,11 +76,20 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 #### `WiFiSurveyManager`
 - Real-time WiFi speed testing with progress tracking
 - Distance-based measurement collection (every 1 foot)
-- Network monitoring and signal strength analysis
+- WiFi performance analysis and signal modeling
 - **Performance Features:**
   - Throttled measurements to prevent device overload
   - Real speed testing with downloadable content
   - Progress callbacks for user feedback
+  - **Network Data Integration**: Queries NetworkDataCollector for current network info
+
+#### `NetworkDataCollector` (Plugin)
+- **Single source of truth for all network information**
+- Cellular data collection (carrier, technology, signal strength)
+- WiFi network detection (SSID, BSSID, network path)
+- Location services integration for coverage analysis
+- **Lightweight Design**: Data collection only, no analysis
+- **Auto-Integration**: Provides network info to WiFiSurveyManager automatically
 
 #### `ARVisualizationManager`
 - AR overlay system with performance optimizations
@@ -109,6 +118,19 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 ### Data Flow
 ```
 RoomPlan Capture → Room Analysis → WiFi Survey → AR Visualization → Report Generation
+                                       ↓
+NetworkDataCollector ← → WiFiSurveyManager (Network Info Query)
+      ↓
+Cellular + WiFi + Location Data → Export System
+```
+
+### Plugin Architecture
+```
+Core App
+├── WiFiSurveyManager (WiFi Performance)
+├── NetworkDataCollector (Network Information) ← Single Source of Truth
+├── PlumePlugin (Band Steering)
+└── Export System (Unified Data Export)
 ```
 
 ## 🔧 Technical Implementation
@@ -119,14 +141,22 @@ RoomPlan Capture → Room Analysis → WiFi Survey → AR Visualization → Repo
 RoomPlanSimple/
 ├── RoomCaptureViewController.swift    # Main UI coordinator and state management
 ├── RoomAnalyzer.swift                 # Room type classification and furniture detection
-├── WiFiSurveyManager.swift           # Network testing and measurement collection
+├── WiFiSurveyManager.swift           # WiFi performance testing and measurement collection
 ├── ARVisualizationManager.swift      # 3D AR rendering and test point visualization
 ├── FloorPlanViewController.swift     # 2D architectural floor plan rendering
 ├── SpectrumBranding.swift           # Corporate design system and UI components
-└── WiFiReportGenerator.swift        # HTML report generation and export
+├── WiFiReportGenerator.swift        # HTML report generation and export
+└── DataExportManager.swift          # Unified data export system
 
-Documentation/
-├── TEST_POINT_VISUALIZATION.md      # Implementation plan for survey coverage indicators
+Plugin Architecture/
+├── NetworkDataPlugin/
+│   └── NetworkDataCollector.swift   # Single source for all network information
+├── PlumePlugin/
+│   ├── PlumePlugin.swift            # Main Plume API integration
+│   ├── PlumeAPIManager.swift        # API connection and steering commands
+│   ├── PlumeSteeringOrchestrator.swift # Comprehensive testing workflows
+│   ├── PlumeDataCorrelator.swift    # Timestamp/location correlation
+│   └── PlumeSimulationEngine.swift  # Testing without real hardware
 
 Network Device Management/
 ├── NetworkDeviceManager.swift       # Core device placement logic and surface analysis
@@ -421,7 +451,21 @@ struct IdentifiedRoom {
 ```
 
 #### WiFiSurveyManager
-**Primary Responsibility**: Network performance measurement and data collection
+**Primary Responsibility**: WiFi performance measurement and data coordination
+
+**Network Integration Architecture**:
+```swift
+class WiFiSurveyManager {
+    // Network data integration (single source of truth)
+    private var networkDataCollector: NetworkDataCollector?
+    
+    // Gets current network name from NetworkDataCollector
+    private func updateNetworkInfoFromCollector() {
+        currentNetworkName = networkDataCollector?.getCurrentNetworkName() ?? "Unknown"
+        currentSignalStrength = networkDataCollector?.getCurrentSignalStrength() ?? -70
+    }
+}
+```
 
 **Real Speed Testing Implementation**:
 ```swift
@@ -951,6 +995,76 @@ struct SteeringEvent {
 - **Band Utilization**: Track optimal band selection patterns throughout home
 
 This Plume integration transforms the app from passive WiFi analysis to active network optimization, providing unprecedented insight into WiFi performance across all available devices and frequency bands.
+
+## 📱 Network Data Collection Plugin
+
+### Architecture Overview
+
+The NetworkDataCollector serves as the **single source of truth** for all network information in the app, eliminating duplication and providing a clean separation of concerns.
+
+### Core Responsibilities
+
+**Cellular Data Collection:**
+- Carrier information (name, MCC, MNC, country codes)
+- Radio technology detection (5G, LTE, 3G, CDMA)
+- Signal strength estimation (converted to dBm)
+- Data connection state and roaming status
+- Dual SIM support for multiple carriers
+
+**WiFi Network Detection:**
+- Current connected network (SSID, BSSID)  
+- Network path monitoring (WiFi/Cellular/Ethernet)
+- Connection quality metrics (expensive/constrained status)
+
+**Location Services:**
+- Home location capture for coverage analysis
+- GPS coordinates with each measurement
+- Location-based network correlation
+
+### Integration with Core App
+
+**WiFiSurveyManager Integration:**
+```swift
+// WiFiSurveyManager queries NetworkDataCollector for network info
+private func updateNetworkInfoFromCollector() {
+    currentNetworkName = networkDataCollector?.getCurrentNetworkName() ?? "Unknown"
+    currentSignalStrength = networkDataCollector?.getCurrentSignalStrength() ?? -70
+}
+
+// Network data collected alongside WiFi measurements
+let networkData = collector.collectCurrentData(at: location)
+```
+
+**Key Benefits:**
+- **No Duplication**: Single NWPathMonitor, single network info source
+- **Lightweight Design**: Data collection only, no analysis
+- **Auto-Integration**: Seamlessly provides data to existing WiFi workflow
+- **Future-Ready**: Cellular data ready for router backup analysis
+
+### Data Export Integration
+
+Network data is included in the unified export system:
+```json
+{
+  "measurements": [...],  // WiFi performance data
+  "networkData": [        // Cellular + network information
+    {
+      "cellularData": {
+        "carriers": {"slot1": {"name": "Verizon", ...}},
+        "radioTechnologies": {"slot1": "5G"},
+        "signalBars": 4
+      },
+      "wifiData": {
+        "connectedSSID": "MyNetwork",
+        "connectedBSSID": "aa:bb:cc:dd:ee:ff"
+      },
+      "location": {"x": 1.2, "y": 0.0, "z": -2.1}
+    }
+  ]
+}
+```
+
+This architecture provides comprehensive network analysis while maintaining clean code organization and preventing duplication between components.
 
 ## 🆕 Recent Improvements (Latest Version)
 

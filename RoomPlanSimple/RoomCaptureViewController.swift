@@ -10,6 +10,7 @@ import RoomPlan
 import ARKit
 import SceneKit
 import Combine
+import CoreLocation
 
 class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, RoomCaptureSessionDelegate {
     
@@ -425,9 +426,17 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         plumeStatusLabel = UILabel()
         plumeStatusLabel?.text = "Plume: Initializing..."
         plumeStatusLabel?.textColor = .white
-        plumeStatusLabel?.font = UIFont.systemFont(ofSize: 12)
+        plumeStatusLabel?.font = UIFont.systemFont(ofSize: 11)
         plumeStatusLabel?.textAlignment = .center
         plumeStatusLabel?.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Add network data status (no toggle needed - auto-enabled)
+        let networkStatusLabel = UILabel()
+        networkStatusLabel.text = "📱 Network Data: Active"
+        networkStatusLabel.textColor = .white
+        networkStatusLabel.font = UIFont.systemFont(ofSize: 11)
+        networkStatusLabel.textAlignment = .center
+        networkStatusLabel.translatesAutoresizingMaskIntoConstraints = false
         
         guard let container = plumeControlsContainer,
               let toggleButton = plumeToggleButton,
@@ -437,6 +446,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         container.addSubview(toggleButton)
         container.addSubview(exportButton)
         container.addSubview(statusLabel)
+        container.addSubview(networkStatusLabel)
         view.addSubview(container)
         
         NSLayoutConstraint.activate([
@@ -444,7 +454,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             container.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
             container.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
             container.widthAnchor.constraint(equalToConstant: 160),
-            container.heightAnchor.constraint(equalToConstant: 100),
+            container.heightAnchor.constraint(equalToConstant: 120),
             
             // Plume toggle button
             toggleButton.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
@@ -458,11 +468,17 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             exportButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
             exportButton.heightAnchor.constraint(equalToConstant: 30),
             
-            // Status label
+            // Plume status label
             statusLabel.topAnchor.constraint(equalTo: exportButton.bottomAnchor, constant: 4),
             statusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
             statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            statusLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8)
+            statusLabel.heightAnchor.constraint(equalToConstant: 16),
+            
+            // Network status label
+            networkStatusLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 2),
+            networkStatusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            networkStatusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            networkStatusLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8)
         ])
         
         // Update Plume status periodically
@@ -498,8 +514,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             activityVC.popoverPresentationController?.sourceView = exportDataButton
             present(activityVC, animated: true)
             
+            let networkDataCount = wifiSurveyManager.networkDataCollector?.getCollectedData().count ?? 0
             showAlert(title: "Export Complete", 
-                     message: "Survey data exported successfully!\n\nFile: \(url.lastPathComponent)\n\nMeasurements: \(wifiSurveyManager.measurements.count)\nPlume enabled: \(wifiSurveyManager.isPlumeEnabled)")
+                     message: "Survey data exported successfully!\n\nFile: \(url.lastPathComponent)\n\nMeasurements: \(wifiSurveyManager.measurements.count)\nNetwork data points: \(networkDataCount)\nPlume enabled: \(wifiSurveyManager.isPlumeEnabled)")
         } else {
             showAlert(title: "Export Failed", message: "Failed to export survey data. Please try again.")
         }

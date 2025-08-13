@@ -5,6 +5,7 @@ import simd
 import SystemConfiguration.CaptiveNetwork
 import NetworkExtension
 import Darwin
+import CoreTelephony
 
 // Import WiFiMapFramework for advanced RF modeling
 import UIKit // For accessing the bundle
@@ -411,7 +412,10 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     @Published var isPlumeEnabled: Bool = false
     @Published var plumeSteeringActive: Bool = false
     
-    private let networkMonitor = NWPathMonitor()
+    // Network Data Collection Plugin
+    @Published var networkDataCollector: NetworkDataCollector?
+    @Published var isNetworkDataEnabled: Bool = false
+    
     private let queue = DispatchQueue(label: "WiFiMonitor")
     private var speedTestTimer: Timer?
     private var lastMeasurementTime: TimeInterval = 0
@@ -448,8 +452,8 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         self.propagationModel = PropagationModels.ITUIndoorModel(environment: .residential)
         
         super.init()
-        setupNetworkMonitoring()
         initializePlumePlugin()
+        initializeNetworkDataCollector()
     }
     
     // MARK: - Plume Plugin Integration
@@ -482,37 +486,63 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         print("🔌 Plume integration: \(enabled ? "enabled" : "disabled")")
     }
     
-    private func setupNetworkMonitoring() {
-        networkMonitor.pathUpdateHandler = { [weak self] (path: Network.NWPath) in
-            DispatchQueue.main.async {
-                self?.updateNetworkInfo(path: path)
-            }
-        }
-        networkMonitor.start(queue: queue)
+    // MARK: - Network Data Collection Integration
+    
+    private func initializeNetworkDataCollector() {
+        networkDataCollector = NetworkDataCollector()
+        
+        // Auto-enable network data collection
+        isNetworkDataEnabled = true
+        
+        // Set up network info updates
+        updateNetworkInfoFromCollector()
+        
+        print("📱 Network data collector initialized")
     }
     
-    private func updateNetworkInfo(path: Network.NWPath) {
-        if path.status == .satisfied {
-            if let interface = path.availableInterfaces.first(where: { $0.type == .wifi }) {
-                currentNetworkName = interface.name
-                
-                // Update with real network info if available
-                let networkInfo = getCurrentNetworkInfo()
-                if let ssid = networkInfo.ssid, !ssid.isEmpty {
-                    currentNetworkName = ssid
-                }
-                if let rssi = networkInfo.rssi {
-                    currentSignalStrength = rssi
-                }
-            }
-        }
+    private func updateNetworkInfoFromCollector() {
+        guard let collector = networkDataCollector else { return }
+        
+        // Update current network info from NetworkDataCollector
+        currentNetworkName = collector.getCurrentNetworkName()
+        currentSignalStrength = collector.getCurrentSignalStrength()
+        
+        print("📱 Updated network info: \(currentNetworkName) (\(currentSignalStrength)dBm)")
     }
+    
+    func enableNetworkDataCollection(_ enabled: Bool) {
+        isNetworkDataEnabled = enabled
+        
+        if enabled {
+            networkDataCollector?.startCollection()
+        } else {
+            networkDataCollector?.stopCollection()
+        }
+        
+        print("📱 Network data collection: \(enabled ? "enabled" : "disabled")")
+    }
+    
+    /// Get dynamic measurement interval from current settings
+    private func getCurrentMeasurementInterval() -> TimeInterval {
+        return TimeInterval(measurementDistanceThreshold) // Convert distance to time approximation
+    }
+    
+    // Network monitoring now handled by NetworkDataCollector
     
     func startSurvey() {
         isRecording = true
         isFirstMeasurement = true
         positionHistory.removeAll()
         lastMovementTime = Date().timeIntervalSince1970
+        
+        // Start network data collection
+        if isNetworkDataEnabled {
+            networkDataCollector?.measurementInterval = getCurrentMeasurementInterval()
+            networkDataCollector?.startCollection()
+            
+            // Update network info from collector
+            updateNetworkInfoFromCollector()
+        }
         
         print("📡 Starting WiFi survey with simplified movement detection")
         
@@ -548,6 +578,11 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         isRecording = false
         speedTestTimer?.invalidate()
         speedTestTimer = nil
+        
+        // Stop network data collection
+        if isNetworkDataEnabled {
+            networkDataCollector?.stopCollection()
+        }
     }
     
     func recordMeasurement(at location: simd_float3, roomType: RoomType?) {
@@ -605,7 +640,17 @@ class WiFiSurveyManager: NSObject, ObservableObject {
             bandMeasurements: bandMeasurements
         )
         
-        measurements.append(measurement)
+        // Collect network data if enabled
+        var enhancedMeasurement = measurement
+        if isNetworkDataEnabled, let collector = networkDataCollector {
+            let networkData = collector.collectCurrentData(at: location)
+            
+            // Store network data in measurement (we'll extend WiFiMeasurement later if needed)
+            // For now, log the network data
+            logNetworkData(networkData, for: measurement)
+        }
+        
+        measurements.append(enhancedMeasurement)
         
         // Prevent unlimited memory growth by limiting measurement count
         maintainMeasurementBounds()
@@ -614,6 +659,16 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         print("📍 WiFi measurement #\(measurements.count) recorded at (\(String(format: "%.2f", location.x)), \(String(format: "%.2f", location.y)), \(String(format: "%.2f", location.z))) in \(roomType?.rawValue ?? "Unknown room")")
         print("   Signal: \(currentSignalStrength)dBm, Speed: \(Int(round(measurement.speed)))Mbps")
         print("   📊 User stopped moving - measurement taken automatically")
+    }
+    
+    private func logNetworkData(_ networkData: NetworkDataPoint, for measurement: WiFiMeasurement) {
+        print("📱 Network data collected:")
+        print("   Cellular: \(networkData.cellularData.radioTechnologies.values.joined(separator: ", ")) (\(networkData.cellularData.signalBars) bars)")
+        print("   Carriers: \(networkData.cellularData.carriers.values.map { $0.name }.joined(separator: ", "))")
+        if let ssid = networkData.wifiData.connectedSSID {
+            print("   WiFi SSID: \(ssid)")
+        }
+        print("   Path: WiFi=\(networkData.networkPath.hasWiFi), Cellular=\(networkData.networkPath.hasCellular)")
     }
     
     private func performPlumeSteeringSurvey(at location: simd_float3, roomType: RoomType?) async {
@@ -884,22 +939,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         }
     }
     
-    func getCurrentNetworkInfo() -> (ssid: String?, rssi: Int?) {
-        // Attempt to get current WiFi network info
-        // Note: This requires location permissions and may not work in all scenarios
-        
-        if let interfaces = CNCopySupportedInterfaces() as? [CFString] {
-            for interface in interfaces {
-                if let info = CNCopyCurrentNetworkInfo(interface) as? [CFString: Any] {
-                    let ssid = info[kCNNetworkInfoKeySSID] as? String
-                    // RSSI is not available through public APIs on iOS
-                    return (ssid: ssid, rssi: getCurrentSignalStrength())
-                }
-            }
-        }
-        
-        return (ssid: currentNetworkName.isEmpty ? "Unknown Network" : currentNetworkName, rssi: getCurrentSignalStrength())
-    }
+    // Network info now provided by NetworkDataCollector
     
     func generateHeatmapData() -> WiFiHeatmapData {
         print("📊 Generating heatmap data from \(measurements.count) measurements")
