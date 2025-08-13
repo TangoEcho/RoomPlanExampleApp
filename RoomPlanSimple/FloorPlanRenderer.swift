@@ -532,9 +532,7 @@ class FloorPlanRenderer: UIView {
         context.setLineWidth(2.0)
         context.stroke(furnitureRect)
         
-        // Label
-        let center = CGPoint(x: roomRect.midX, y: roomRect.midY + 50)
-        drawRoomLabel("Sample Room Layout", at: center, in: context)
+        // Label disabled unless explicitly set by the controller's demo mode
         
         // Add WiFi points placeholder
         let wifiPoint1 = CGPoint(x: roomRect.minX + 60, y: roomRect.minY + 60)

@@ -6,6 +6,9 @@ class FloorPlanViewController: UIViewController {
     
     // MARK: - Properties
     
+    // Explicit demo mode to allow sample visualization only when requested
+    var isDemoMode: Bool = false
+    
     private var floorPlanRenderer: FloorPlanRenderer!
     // Accuracy debug renderer disabled for build compatibility
     private var legendView: UIView!
@@ -39,12 +42,15 @@ class FloorPlanViewController: UIViewController {
         super.viewDidLoad()
         setupUI()
         
-        // Test RF propagation models integration
-        let wifiSurveyManager = WiFiSurveyManager()
-        wifiSurveyManager.testRFPropagationModels()
-        
-        // Load sample data for demonstration
-        loadSampleData()
+        // Only run demo/sample logic when explicitly enabled
+        if isDemoMode {
+            // Optional: RF model demo output
+            let wifiSurveyManager = WiFiSurveyManager()
+            wifiSurveyManager.testRFPropagationModels()
+            
+            // Load sample data for demonstration
+            loadSampleData()
+        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -69,12 +75,14 @@ class FloorPlanViewController: UIViewController {
             renderer.setNeedsDisplay()
         }
         
-        // Show sample data if available
-        if !rooms.isEmpty {
-            updateVisualization()
-        } else {
-            print("📊 No rooms available, forcing renderer to draw placeholder")
-            floorPlanRenderer.setNeedsDisplay()
+        // Only auto-visualize demo data if in demo mode
+        if isDemoMode {
+            if !rooms.isEmpty {
+                updateVisualization()
+            } else {
+                print("📊 No rooms available, forcing renderer to draw placeholder (demo mode)")
+                floorPlanRenderer.setNeedsDisplay()
+            }
         }
     }
     
@@ -607,6 +615,10 @@ class FloorPlanViewController: UIViewController {
     // MARK: - Public Methods
     
     func updateWithData(heatmapData: WiFiHeatmapData, roomAnalyzer: RoomAnalyzer, networkDeviceManager: NetworkDeviceManager? = nil, validationResults: Any? = nil) {
+        // Ensure real data takes precedence over any demo/sample content
+        isDemoMode = false
+        rooms = []
+        furniture = []
         self.wifiHeatmapData = heatmapData
         self.roomAnalyzer = roomAnalyzer
         self.networkDeviceManager = networkDeviceManager

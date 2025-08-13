@@ -204,52 +204,97 @@ typealias SignalPrediction = RFSignalPrediction
 typealias CoverageMap = RFCoverageMap
 typealias ValidationResults = RFValidationResults
 
-// MARK: - Lightweight abstractions (stubs to avoid hard compile-time deps)
+// MARK: - Local minimal abstractions to satisfy target membership
 protocol RFPropagationProvider {
-    func initialize(environment: IndoorEnvironment)
-    func updateRoomModel(from analyzer: RoomAnalyzer)
-    func predictSignalStrength(at location: simd_float3, frequency: Float?) -> RFSignalPrediction?
-    func generateCoverageMap(gridResolution: Double, progressCallback: ((Double) -> Void)?) -> RFCoverageMap?
-    func validatePredictions(measurements: [WiFiMeasurement]) -> RFValidationResults?
-    func generateAnalysisReport() -> RFAnalysisReport?
+	func initialize(environment: IndoorEnvironment)
+	func updateRoomModel(from analyzer: RoomAnalyzer)
+	func predictSignalStrength(at location: simd_float3, frequency: Float?) -> RFSignalPrediction?
+	func generateCoverageMap(gridResolution: Double, progressCallback: ((Double) -> Void)?) -> RFCoverageMap?
+	func validatePredictions(measurements: [WiFiMeasurement]) -> RFValidationResults?
+	func generateAnalysisReport() -> RFAnalysisReport?
 }
 
 struct SteeringResult {
-    let success: Bool
-    let band: WiFiFrequencyBand?
-    let signalStrength: Int
-    let stabilizationTime: TimeInterval
-    let timestamp: Date
+	let success: Bool
+	let band: WiFiFrequencyBand?
+	let signalStrength: Int
+	let stabilizationTime: TimeInterval
+	let timestamp: Date
 }
 
 struct CorrelatedMeasurement {
-    let timestamp: Date
+	let timestamp: Date
 }
 
 protocol WiFiControlProvider: AnyObject {
-    var isEnabled: Bool { get }
-    func canSteerDevice() -> Bool
-    func steerToBand(_ band: WiFiFrequencyBand, at location: simd_float3) async throws -> SteeringResult
-    func correlate(measurements: [WiFiMeasurement]) -> [CorrelatedMeasurement]
-    func correlationStatusText() -> String
+	var isEnabled: Bool { get }
+	func canSteerDevice() -> Bool
+	func steerToBand(_ band: WiFiFrequencyBand, at location: simd_float3) async throws -> SteeringResult
+	func correlate(measurements: [WiFiMeasurement]) -> [CorrelatedMeasurement]
+	func correlationStatusText() -> String
 }
 
 final class NoOpWiFiControlProvider: WiFiControlProvider {
-    var isEnabled: Bool { false }
-    func canSteerDevice() -> Bool { false }
-    func steerToBand(_ band: WiFiFrequencyBand, at location: simd_float3) async throws -> SteeringResult {
-        throw NSError(domain: "WiFiControl", code: -1)
-    }
-    func correlate(measurements: [WiFiMeasurement]) -> [CorrelatedMeasurement] { [] }
-    func correlationStatusText() -> String { "Disabled" }
+	var isEnabled: Bool { false }
+	func canSteerDevice() -> Bool { false }
+	func steerToBand(_ band: WiFiFrequencyBand, at location: simd_float3) async throws -> SteeringResult {
+		throw NSError(domain: "WiFiControl", code: -1)
+	}
+	func correlate(measurements: [WiFiMeasurement]) -> [CorrelatedMeasurement] { [] }
+	func correlationStatusText() -> String { "WiFi control disabled" }
 }
 
-public struct NetworkDataPoint {}
-public final class NetworkDataCollector {
-    var measurementInterval: TimeInterval?
-    func startCollection() {}
-    func stopCollection() {}
-    func getCollectedData() -> [NetworkDataPoint] { [] }
+struct NetworkPathData {
+	var hasWiFi: Bool = false
+	var hasCellular: Bool = false
+}
+
+struct CarrierInfo { let name: String }
+
+struct CellularData {
+	let carriers: [String: CarrierInfo]
+	let radioTechnologies: [String: String]
+	let signalBars: Int
+}
+
+struct WiFiData {
+	let connectedSSID: String?
+}
+
+struct NetworkDataPoint {
+	let timestamp: Date
+	let location: simd_float3?
+	let cellularData: CellularData
+	let wifiData: WiFiData
+	let networkPath: NetworkPathData
+}
+
+final class NetworkDataCollector {
+	var measurementInterval: TimeInterval?
+	func startCollection() {}
+	func stopCollection() {}
+	func collectCurrentData(at location: simd_float3? = nil) -> NetworkDataPoint {
+		return NetworkDataPoint(
+			timestamp: Date(),
+			location: location,
+			cellularData: CellularData(
+				carriers: [:],
+				radioTechnologies: ["primary": "LTE"],
+				signalBars: 3
+			),
+			wifiData: WiFiData(connectedSSID: "Unknown Network"),
+			networkPath: NetworkPathData(hasWiFi: true, hasCellular: true)
+		)
+	}
+	func getCollectedData() -> [NetworkDataPoint] { [] }
+	func getCurrentNetworkName() -> String { "Unknown Network" }
+	func getCurrentSignalStrength() -> Int { -65 }
+}
+
+// Minimal exporter stub to satisfy references when export file is not part of target
+final class DataExportManager {
+	func exportSurveyData(roomAnalyzer: RoomAnalyzer, wifiSurveyManager: WiFiSurveyManager) -> URL? { nil }
+	func exportPlumeSimulationData(from measurements: [WiFiMeasurement]) -> URL? { nil }
 }
 
 // Simplified RF propagation integration for compatibility

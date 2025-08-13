@@ -199,6 +199,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     @objc private func showFloorPlanDemo() {
         print("📊 Showing Floor Plan Demo")
         let floorPlanVC = FloorPlanViewController()
+        floorPlanVC.isDemoMode = true
         floorPlanVC.modalPresentationStyle = .fullScreen
         present(floorPlanVC, animated: true)
     }
