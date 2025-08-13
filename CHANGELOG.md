@@ -181,3 +181,20 @@ private func transformARToRoomCoordinates(_ arPosition: simd_float3) -> simd_flo
 - **Performance Analysis**: Comprehensive benchmarking and optimization efforts
 
 This represents a fundamental advancement in RoomPlan-AR integration, setting new standards for spatial computing applications in the iOS ecosystem.
+
+## Version 2.1.0 - RF Propagation, GPU Acceleration, and USDZ Heatmap
+
+### ✨ New
+- RF propagation model combining predicted coverage with measured WiFi data
+- Metal-accelerated compute path for fast coverage generation on supported devices
+- USDZ export with a semi-transparent heatmap plane aligned above the floor
+
+### 🔧 Technical
+- CPU model: `RFPropagationModel` (path loss + wall attenuation; polygon clipping)
+- GPU model: `MetalRFPropagation` + `Shaders.metal` (`rf_propagation_kernel`)
+- Export: `USDZHeatmapExporter` builds a Model I/O plane with heatmap texture and merges into RoomPlan USDZ
+- Floor plan heatmap now renders coverage tiles from `coverageMap` (fallback to measurement dots)
+
+### ♻️ Integration
+- Results flow attempts GPU first, then CPU fallback, merges with measurements, and displays/exports
+- Router position: uses user-placed router when available, else recommended placements

@@ -8,14 +8,14 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 - **Room Scanning**: Uses Apple RoomPlan to capture and analyze 3D room layouts
 - **WiFi Analysis**: Real-time WiFi speed testing and signal strength measurement  
 - **AR Visualization**: Augmented reality overlay showing WiFi measurements in 3D space
-- **Professional Reports**: Generate detailed WiFi analysis reports with floor plans
+- **Professional Reports**: Generate detailed WiFi analysis reports with floor plans and RF coverage overlays
 - **Architectural Floor Plans**: Professional-style floor plans with proper symbols
 - **🎭 iOS Simulator Support**: Complete UI testing with mock data (no hardware required)
 
 ### Key Capabilities
 - **Smart Room Detection**: Automatically identifies room types (kitchen, bedroom, bathroom, etc.)
 - **Furniture Recognition**: Detects and maps appliances, furniture, and fixtures
-- **WiFi Heatmaps**: Visual representations of signal strength and coverage
+- **WiFi Heatmaps**: Visual representations of signal strength and coverage (measured + RF-predicted)
 - **Router Placement Recommendations**: Suggests optimal router locations
 - **Distance-Based Measurements**: Records WiFi data every foot of movement
 - **Speed Test Progress**: Visual progress indicators during network testing
@@ -115,7 +115,11 @@ RoomPlanSimple/
 ├── ARVisualizationManager.swift      # 3D AR rendering and test point visualization
 ├── FloorPlanViewController.swift     # 2D architectural floor plan rendering
 ├── SpectrumBranding.swift           # Corporate design system and UI components
-└── WiFiReportGenerator.swift        # HTML report generation and export
+├── WiFiReportGenerator.swift        # HTML report generation and export
+├── RFPropagationModel.swift         # CPU RF model (path loss + wall attenuation)
+├── MetalRFPropagation.swift         # GPU RF model (Metal compute wrapper)
+├── Shaders.metal                    # rf_propagation_kernel compute shader
+└── USDZHeatmapExporter.swift        # Bake heatmap into RoomPlan USDZ
 
 Documentation/
 ├── TEST_POINT_VISUALIZATION.md      # Implementation plan for survey coverage indicators

@@ -196,3 +196,9 @@ The shared ARSession approach represents a significant advancement in RoomPlan-A
 - **Foundation for future enhancements** as Apple's frameworks evolve
 
 This implementation sets a new standard for spatial computing applications that combine room scanning with AR visualization.
+
+## RF Coverage Overlay Alignment
+
+- The RF coverage grid is computed in the same world coordinate frame as RoomPlan surfaces (iOS 17+ shared ARSession when available)
+- For USDZ export, the heatmap plane is positioned using the coverage grid bounds, with a small Y offset (~2cm) to avoid z-fighting with the floor
+- In AR, overlays and test-point markers use the same transform conversion in `ARVisualizationManager` ensuring consistent placement across modes
