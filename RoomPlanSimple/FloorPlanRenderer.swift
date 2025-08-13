@@ -34,7 +34,6 @@ class FloorPlanRenderer: UIView {
     // MARK: - Public Methods
     
     func updateRooms(_ rooms: [RoomAnalyzer.IdentifiedRoom]) {
-        // Validate room boundaries before storing
         self.rooms = rooms.filter { room in
             guard room.wallPoints.count >= 3 else {
                 print("⚠️ FloorPlanRenderer: Skipping room with insufficient boundary points (\(room.wallPoints.count))")
@@ -78,18 +77,14 @@ class FloorPlanRenderer: UIView {
         
         guard let context = UIGraphicsGetCurrentContext() else { return }
         
-        // Clear the context
         context.clear(rect)
         
-        // Draw rooms
         drawRooms(in: context, rect: rect)
         
-        // Draw heatmap if enabled
         if showHeatmap, let heatmapData = heatmapData {
             drawHeatmap(heatmapData, in: context, rect: rect)
         }
         
-        // Draw network devices
         drawNetworkDevices(in: context, rect: rect)
     }
     
@@ -99,48 +94,48 @@ class FloorPlanRenderer: UIView {
             drawPlaceholderRoom(in: context, rect: rect)
             return
         }
-        
+
         if !rooms.isEmpty {
             // Calculate bounds for all rooms to fit them in the view
             let allPoints = rooms.flatMap { $0.wallPoints }
             guard !allPoints.isEmpty else { return }
-            
+
             let minX = allPoints.map { $0.x }.min() ?? 0
             let maxX = allPoints.map { $0.x }.max() ?? 0
             let minY = allPoints.map { $0.y }.min() ?? 0
             let maxY = allPoints.map { $0.y }.max() ?? 0
-            
+
             let roomWidth = maxX - minX
             let roomHeight = maxY - minY
-            
+
             // Prevent division by zero
             guard roomWidth > 0 && roomHeight > 0 else {
                 drawPlaceholderRoom(in: context, rect: rect)
                 return
             }
-            
+
             // Calculate scale to fit room in view with padding
             let padding: CGFloat = 20
             let availableWidth = rect.width - (padding * 2)
             let availableHeight = rect.height - (padding * 2)
-            
+
             let scaleX = availableWidth / CGFloat(roomWidth)
             let scaleY = availableHeight / CGFloat(roomHeight)
             let scale = min(scaleX, scaleY)
-            
+
             // Calculate offset to center the room
             let scaledRoomWidth = CGFloat(roomWidth) * scale
             let scaledRoomHeight = CGFloat(roomHeight) * scale
             let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
             let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
-            
+
             // Draw each room
             for (index, room) in rooms.enumerated() {
                 drawRoom(room, in: context, scale: scale, offsetX: offsetX, offsetY: offsetY, roomIndex: index)
             }
             return
         }
-        
+
         // Fallback: draw from persistedRooms
         let allPoints = persistedRooms.flatMap { $0.wallPoints.map { $0.simd } }
         guard !allPoints.isEmpty else {
@@ -167,7 +162,7 @@ class FloorPlanRenderer: UIView {
         let scaledRoomHeight = CGFloat(roomHeight) * scale
         let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
         let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
-        
+
         for (index, room) in persistedRooms.enumerated() {
             let points = room.wallPoints.map { $0.simd }
             drawRoom(points: points, label: room.type.rawValue, in: context, scale: scale, offsetX: offsetX, offsetY: offsetY, roomIndex: index)
@@ -175,46 +170,31 @@ class FloorPlanRenderer: UIView {
     }
     
     private func drawRoom(_ room: RoomAnalyzer.IdentifiedRoom, in context: CGContext, scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat, roomIndex: Int) {
-        // Ensure we have enough points to draw a room
-        guard room.wallPoints.count >= 3 else {
-            print("⚠️ FloorPlanRenderer: Cannot draw room with \(room.wallPoints.count) points")
-            return
-        }
+        guard room.wallPoints.count >= 3 else { return }
         
-        // Convert room points to view coordinates
         let viewPoints = room.wallPoints.map { point in
             CGPoint(x: CGFloat(point.x) * scale + offsetX,
                    y: CGFloat(point.y) * scale + offsetY)
         }
         
-        // Create path for room boundary - using safe path creation
         let path = CGMutablePath()
         if let firstPoint = viewPoints.first {
             path.move(to: firstPoint)
-            
-            // Add lines to subsequent points
             for i in 1..<viewPoints.count {
                 path.addLine(to: viewPoints[i])
             }
-            
-            // Close the path only if we have more than 2 points
-            if viewPoints.count > 2 {
-                path.closeSubpath()
-            }
+            if viewPoints.count > 2 { path.closeSubpath() }
         }
         
-        // Set room fill color (light gray with transparency)
         context.setFillColor(UIColor.systemGray5.withAlphaComponent(0.3).cgColor)
         context.addPath(path)
         context.fillPath()
         
-        // Draw room boundary
         context.setStrokeColor(UIColor.systemBlue.cgColor)
         context.setLineWidth(roomStrokeWidth)
         context.addPath(path)
         context.strokePath()
         
-        // Draw room label if there's space
         if let centerPoint = calculateRoomCenter(viewPoints) {
             drawRoomLabel(room.type.rawValue, at: centerPoint, in: context)
         }
@@ -245,25 +225,21 @@ class FloorPlanRenderer: UIView {
     }
     
     private func drawPlaceholderRoom(in context: CGContext, rect: CGRect) {
-        // Draw a simple placeholder room
         let padding: CGFloat = 40
         let roomRect = rect.insetBy(dx: padding, dy: padding)
         
         let path = CGMutablePath()
         path.addRect(roomRect)
         
-        // Fill
         context.setFillColor(UIColor.systemGray5.withAlphaComponent(0.3).cgColor)
         context.addPath(path)
         context.fillPath()
         
-        // Border
         context.setStrokeColor(UIColor.systemBlue.cgColor)
         context.setLineWidth(roomStrokeWidth)
         context.addPath(path)
         context.strokePath()
         
-        // Label
         let center = CGPoint(x: roomRect.midX, y: roomRect.midY)
         drawRoomLabel("Room", at: center, in: context)
     }
@@ -296,7 +272,6 @@ class FloorPlanRenderer: UIView {
     }
     
     private func drawHeatmap(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
-        // Prefer rendering the coverageMap as tiles; fallback to measurement points
         let hasCoverageTiles = !data.coverageMap.isEmpty
         let minX: Float
         let maxX: Float
@@ -331,13 +306,11 @@ class FloorPlanRenderer: UIView {
         let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
 
         if hasCoverageTiles {
-            // Draw coverage tiles
             for (position, normalized) in data.coverageMap {
                 let viewPoint = CGPoint(
                     x: CGFloat(position.x) * scale + offsetX,
                     y: CGFloat(position.z) * scale + offsetY
                 )
-                // Approximate tile size to half a meter in view space
                 let tileSizeMeters: CGFloat = 0.5
                 let tileSize = tileSizeMeters * scale
                 let rectTile = CGRect(x: viewPoint.x - tileSize/2, y: viewPoint.y - tileSize/2, width: tileSize, height: tileSize)
@@ -347,7 +320,6 @@ class FloorPlanRenderer: UIView {
                 context.fill(rectTile)
             }
         } else {
-            // Fallback: draw measurement points
             for measurement in data.measurements {
                 let viewPoint = CGPoint(
                     x: CGFloat(measurement.location.x) * scale + offsetX,
@@ -362,8 +334,7 @@ class FloorPlanRenderer: UIView {
     private func drawNetworkDevices(in context: CGContext, rect: CGRect) {
         // Draw router and extender positions if available
         for device in networkDevices {
-            // Similar coordinate transformation as heatmap
-            let viewPoint = CGPoint(x: rect.midX, y: rect.midY) // Simplified for now
+            let viewPoint = CGPoint(x: rect.midX, y: rect.midY)
             
             let color = device.type == .router ? UIColor.systemRed : UIColor.systemOrange
             drawDeviceIcon(device.type, at: viewPoint, color: color, in: context)
@@ -403,7 +374,6 @@ class FloorPlanRenderer: UIView {
         context.setFillColor(color.cgColor)
         context.fill(rect)
         
-        // Draw device label
         let text = type == .router ? "R" : "E"
         let attributes: [NSAttributedString.Key: Any] = [
             .font: UIFont.boldSystemFont(ofSize: 10),
