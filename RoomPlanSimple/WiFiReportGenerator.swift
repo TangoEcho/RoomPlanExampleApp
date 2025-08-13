@@ -97,7 +97,7 @@ class WiFiReportGenerator {
         let totalMeasurements = report.heatmapData.measurements.count
         let excellentSignals = report.heatmapData.measurements.filter { $0.signalStrength >= -50 }.count
         let averageSpeed = report.heatmapData.measurements.map { $0.speed }.reduce(0, +) / Double(totalMeasurements)
-        let coveragePercentage = Double(excellentSignals) / Double(totalMeasurements) * 100
+        let coveragePercentage = totalMeasurements == 0 ? 0.0 : Double(excellentSignals) / Double(totalMeasurements) * 100
         
         // Calculate confidence metrics
         let confidenceScores = report.heatmapData.measurements.map { calculateConfidenceScore(for: $0) }
@@ -265,7 +265,7 @@ class WiFiReportGenerator {
         for room in report.rooms {
             let roomMeasurements = report.heatmapData.measurements.filter { measurement in
                 guard let roomType = measurement.roomType else { return false }
-                return roomType == room.type
+                return roomType == room.type && (measurement.floorIndex ?? room.floorIndex) == room.floorIndex
             }
             
             if !roomMeasurements.isEmpty {
@@ -275,7 +275,7 @@ class WiFiReportGenerator {
                 
                 html += """
                 <div class="room-analysis">
-                    <h3>\(room.type.rawValue)</h3>
+                    <h3>\(room.type.rawValue) (Floor \(room.floorIndex + 1))</h3>
                     <p><strong>Coverage Quality:</strong> \(coverage.quality)</p>
                     <p><strong>Average Signal:</strong> \(avgSignal) dBm</p>
                     <p><strong>Average Speed:</strong> \(String(format: "%.1f", avgSpeed)) Mbps</p>
@@ -301,10 +301,11 @@ class WiFiReportGenerator {
         for measurement in report.heatmapData.measurements {
             let coverage = analyzeCoverage(measurement.signalStrength)
             let roomName = measurement.roomType?.rawValue ?? "Unknown"
+            let floorSuffix = measurement.floorIndex != nil ? " (Floor \((measurement.floorIndex ?? 0) + 1))" : ""
             
             html += """
             <div class="measurement-card \(coverage.cssClass)">
-                <h4>\(roomName)</h4>
+                <h4>\(roomName)\(floorSuffix)</h4>
                 <p><strong>Signal:</strong> \(measurement.signalStrength) dBm</p>
                 <p><strong>Speed:</strong> \(String(format: "%.1f", measurement.speed)) Mbps</p>
                 <p><strong>Frequency:</strong> \(measurement.frequency)</p>
@@ -407,13 +408,13 @@ class WiFiReportGenerator {
         for room in report.rooms {
             let roomMeasurements = report.heatmapData.measurements.filter { measurement in
                 guard let roomType = measurement.roomType else { return false }
-                return roomType == room.type
+                return roomType == room.type && (measurement.floorIndex ?? room.floorIndex) == room.floorIndex
             }
             
             if !roomMeasurements.isEmpty {
                 let avgSignal = roomMeasurements.map { $0.signalStrength }.reduce(0, +) / roomMeasurements.count
                 if avgSignal < -80 {
-                    poorRooms.append(room.type.rawValue)
+                    poorRooms.append("\(room.type.rawValue) (Floor \(room.floorIndex + 1))")
                 }
             }
         }

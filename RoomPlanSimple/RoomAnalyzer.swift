@@ -7,16 +7,18 @@ class RoomAnalyzer: ObservableObject {
     @Published var identifiedRooms: [IdentifiedRoom] = []
     @Published var furnitureItems: [FurnitureItem] = []
     @Published var roomConnections: [RoomConnection] = []
+    @Published var floorHeights: [Float] = []
     
     struct IdentifiedRoom {
         let id = UUID()
         let type: RoomType
-        let bounds: CapturedRoom.Surface? // Optional to handle fallback cases when no RoomPlan data exists
+        let bounds: CapturedRoom.Surface
         let center: simd_float3
         let area: Float
         let confidence: Float
         let wallPoints: [simd_float2] // Actual room boundary points from RoomPlan
         let doorways: [simd_float2] // Door/opening positions from RoomPlan
+        let floorIndex: Int
     }
     
     struct FurnitureItem {
@@ -42,6 +44,8 @@ class RoomAnalyzer: ObservableObject {
     }
     
     func analyzeCapturedRoom(_ capturedRoom: CapturedRoom) {
+        // Compute floor clusters first
+        computeFloors(from: capturedRoom)
         identifyRoomTypes(from: capturedRoom)
         catalogFurniture(from: capturedRoom)
         mapRoomConnections(from: capturedRoom)
@@ -52,52 +56,35 @@ class RoomAnalyzer: ObservableObject {
     private func identifyRoomTypes(from capturedRoom: CapturedRoom) {
         var rooms: [IdentifiedRoom] = []
         
-        print("🏠 Analyzing RoomPlan data:")
-        print("   Floors: \(capturedRoom.floors.count)")
-        print("   Walls: \(capturedRoom.walls.count)") 
-        print("   Openings: \(capturedRoom.openings.count)")
-        print("   Windows: \(capturedRoom.windows.count)")
-        print("   Doors: \(capturedRoom.doors.count)")
-        print("   Objects: \(capturedRoom.objects.count)")
+        print("🏠 Analyzing \(capturedRoom.floors.count) floor surfaces and \(capturedRoom.objects.count) objects")
         
-        // CORRECT APPROACH: Only use floor surfaces as room boundaries
-        // Walls/doors/windows are used for openings and connections, NOT separate rooms
-        
-        // Enhanced floor validation with detailed debugging
-        print("🔍 Analyzing floor surfaces in detail:")
-        for (i, floor) in capturedRoom.floors.enumerated() {
-            print("   Floor \(i + 1): dimensions (\(String(format: "%.3f", floor.dimensions.x)), \(String(format: "%.3f", floor.dimensions.y)), \(String(format: "%.3f", floor.dimensions.z)))")
-            print("     isFinite: x=\(floor.dimensions.x.isFinite), y=\(floor.dimensions.y.isFinite), z=\(floor.dimensions.z.isFinite)")
-            print("     > 0: x=\(floor.dimensions.x > 0), z=\(floor.dimensions.z > 0)")
+        // Check for invalid surface dimensions that indicate segmentation needed
+        let hasInvalidDimensions = capturedRoom.floors.contains { surface in
+            surface.dimensions.x <= 0 || surface.dimensions.z <= 0 ||
+            !surface.dimensions.x.isFinite || !surface.dimensions.z.isFinite
         }
         
-        let validFloors = capturedRoom.floors.filter { surface in
-            let xValid = surface.dimensions.x > 0 && surface.dimensions.x.isFinite
-            let zValid = surface.dimensions.z > 0 && surface.dimensions.z.isFinite
-            let yValid = surface.dimensions.y.isFinite  // Y can be 0 for floor height
-            
-            let isValid = xValid && zValid && yValid
-            print("   Floor validation: x=\(xValid), z=\(zValid), y=\(yValid) -> valid=\(isValid)")
-            return isValid
-        }
-        
-        print("🔍 Found \(validFloors.count) valid floor surfaces (out of \(capturedRoom.floors.count) total)")
-        
-        if validFloors.count == 1 {
-            // Single floor area - segment into logical rooms based on furniture
-            print("🔍 Single floor detected - segmenting into logical rooms based on furniture clustering")
-            rooms = segmentSingleFloorIntoRooms(capturedRoom: capturedRoom, mainFloor: validFloors[0])
-        } else if validFloors.count > 1 {
-            // Multiple distinct floor areas - each represents a separate room
-            print("🔍 Multiple floor areas detected - treating each as separate room")
-            for floor in validFloors {
-                let room = createRoomFromFloorSurface(floor: floor, capturedRoom: capturedRoom)
+        // Use Apple's intended approach: process each floor surface directly
+        if capturedRoom.floors.count == 1 && (capturedRoom.objects.count > 5 || hasInvalidDimensions) {
+            print("🔍 Single floor with furniture or invalid dimensions - segmenting into logical rooms")
+            rooms = segmentSingleFloorIntoRooms(capturedRoom: capturedRoom)
+        } else {
+            // Multiple floors detected - process each separately
+            for surface in capturedRoom.floors {
+                // Skip surfaces with invalid dimensions
+                if surface.dimensions.x <= 0 || surface.dimensions.z <= 0 {
+                    print("⚠️ Skipping surface with invalid dimensions: \(surface.dimensions.x) x \(surface.dimensions.z)")
+                    continue
+                }
+                let room = createRoomFromRoomPlanSurface(surface: surface, capturedRoom: capturedRoom)
                 rooms.append(room)
             }
-        } else {
-            // No valid floors - create fallback room
-            print("⚠️ No valid floor surfaces found - creating fallback room")
-            rooms = createFallbackRoom(capturedRoom: capturedRoom)
+        }
+        
+        // If no valid rooms were created, force segmentation
+        if rooms.isEmpty && !capturedRoom.floors.isEmpty {
+            print("🔧 No valid rooms found, forcing furniture-based segmentation")
+            rooms = segmentSingleFloorIntoRooms(capturedRoom: capturedRoom)
         }
         
         print("✅ Identified \(rooms.count) rooms: \(rooms.map { $0.type.rawValue }.joined(separator: ", "))")
@@ -107,107 +94,43 @@ class RoomAnalyzer: ObservableObject {
         }
     }
     
-    private func createRoomFromFloorSurface(floor: CapturedRoom.Surface, capturedRoom: CapturedRoom) -> IdentifiedRoom {
-        let roomType = classifyRoomByFurniture(surface: floor, objects: capturedRoom.objects)
-        let center = extractSurfaceCenter(floor)
-        let area = calculateSurfaceArea(floor)
-        
-        // Create room boundary from floor surface (not walls/doors/windows)
-        let wallPoints = createRoomBoundaryFromWalls(capturedRoom, centerPoint: center)
-        let doorways = extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: center)
+    private func createRoomFromRoomPlanSurface(surface: CapturedRoom.Surface, capturedRoom: CapturedRoom) -> IdentifiedRoom {
+        let roomType = classifyRoomByFurniture(surface: surface, objects: capturedRoom.objects)
+        let center = extractSurfaceCenter(surface)
+        let area = calculateSurfaceArea(surface)
+        let wallPoints = createRoomBoundaryFromSurface(surface)
+        let doorways = extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+        let fIndex = determineFloorIndex(forY: center.y)
         
         return IdentifiedRoom(
             type: roomType,
-            bounds: floor,
+            bounds: surface,
             center: center,
             area: area,
-            confidence: calculateRoomTypeConfidence(roomType: roomType, objects: capturedRoom.objects, surface: floor),
+            confidence: calculateRoomTypeConfidence(roomType: roomType, objects: capturedRoom.objects, surface: surface),
             wallPoints: wallPoints,
-            doorways: doorways
+            doorways: doorways,
+            floorIndex: fIndex
         )
     }
     
-    private func createFallbackRoom(capturedRoom: CapturedRoom) -> [IdentifiedRoom] {
-        // Create a basic room based on object positions when no valid floors exist
-        guard !capturedRoom.objects.isEmpty else {
-            print("⚠️ No objects found - creating minimal fallback room")
-            return createMinimalRoom()
-        }
-        
-        let center = calculateCenterFromFurniture(capturedRoom.objects)
-        let bounds = calculateBoundsFromFurniture(capturedRoom.objects)
-        let roomType = classifyRoomFromFurnitureGroup(capturedRoom.objects)
-        
-        // Create boundary from object bounds with padding
-        let padding: Float = 2.0
-        let wallPoints = [
-            simd_float2(bounds.min.x - padding, bounds.min.z - padding),
-            simd_float2(bounds.max.x + padding, bounds.min.z - padding),
-            simd_float2(bounds.max.x + padding, bounds.max.z + padding),
-            simd_float2(bounds.min.x - padding, bounds.max.z + padding)
-        ]
-        
-        // Create a mock floor surface for the fallback room
-        guard let mockFloor = capturedRoom.walls.first ?? capturedRoom.openings.first ?? capturedRoom.doors.first else {
-            print("⚠️ No surfaces found - creating minimal fallback room")
-            return createMinimalRoom()
-        }
-        let area = (bounds.max.x - bounds.min.x + padding * 2) * (bounds.max.z - bounds.min.z + padding * 2)
-        
-        let fallbackRoom = IdentifiedRoom(
-            type: roomType,
-            bounds: mockFloor,
-            center: center,
-            area: area,
-            confidence: 0.3, // Low confidence for fallback room
-            wallPoints: wallPoints,
-            doorways: []
-        )
-        
-        return [fallbackRoom]
-    }
-    
-    private func createMinimalRoom() -> [IdentifiedRoom] {
-        // Last resort - create a basic room when no RoomPlan data is available  
-        let defaultWallPoints = [
-            simd_float2(-2.0, -2.0),
-            simd_float2(2.0, -2.0),
-            simd_float2(2.0, 2.0),
-            simd_float2(-2.0, 2.0)
-        ]
-        
-        print("⚠️ Creating minimal fallback room - no RoomPlan data available")
-        
-        // Create a minimal IdentifiedRoom that works with the renderer's placeholder logic
-        // The renderer will detect empty rooms and show placeholder content
-        let minimalRoom = IdentifiedRoom(
-            type: .unknown,
-            bounds: nil as CapturedRoom.Surface?, // This will be handled by the renderer
-            center: simd_float3(0, 0, 0),
-            area: 16.0, // 4x4 meter room
-            confidence: 0.1, // Very low confidence
-            wallPoints: defaultWallPoints,
-            doorways: []
-        )
-        
-        return [minimalRoom]
-    }
-    
-    private func segmentSingleFloorIntoRooms(capturedRoom: CapturedRoom, mainFloor: CapturedRoom.Surface) -> [IdentifiedRoom] {
+    private func segmentSingleFloorIntoRooms(capturedRoom: CapturedRoom) -> [IdentifiedRoom] {
+        let mainFloor = capturedRoom.floors.first!
         let furnitureGroups = clusterFurnitureByProximity(capturedRoom.objects)
         
-        print("   Found \(furnitureGroups.count) furniture clusters for single floor segmentation")
+        print("   Found \(furnitureGroups.count) furniture clusters")
         
         var rooms: [IdentifiedRoom] = []
+        let fIndex = determineFloorIndex(forY: extractSurfaceCenter(mainFloor).y)
         
         for (index, group) in furnitureGroups.enumerated() {
             let roomType = classifyRoomFromFurnitureGroup(group)
             let roomCenter = calculateCenterFromFurniture(group)
             
-            // Create room boundary based on furniture cluster area within the floor boundary
+            // Create room boundary based on furniture cluster area
             let roomBoundary = createRoomBoundaryFromFurnitureCluster(group, floor: mainFloor)
             let roomArea = calculateAreaFromWallPoints(roomBoundary)
-            let doorways = extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: roomCenter)
+            let doorways = extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
             
             let room = IdentifiedRoom(
                 type: roomType,
@@ -215,17 +138,18 @@ class RoomAnalyzer: ObservableObject {
                 center: roomCenter,
                 area: roomArea,
                 confidence: calculateConfidenceFromFurniture(group, roomType: roomType),
-                wallPoints: createRoomBoundaryFromWalls(capturedRoom, centerPoint: simd_float3(roomCenter.x, 0, roomCenter.z)),
-                doorways: doorways
+                wallPoints: roomBoundary,
+                doorways: doorways,
+                floorIndex: fIndex
             )
             
             rooms.append(room)
             print("   Room \(index + 1): \(roomType.rawValue) with \(group.count) furniture items")
         }
         
-        // Ensure at least one room exists - create logical room divisions if needed
+        // Ensure at least one room exists - create multiple logical rooms if needed
         if rooms.isEmpty {
-            print("   No furniture clusters found, creating logical room divisions based on floor space")
+            print("   No furniture clusters found, creating logical room divisions based on space analysis")
             rooms = createLogicalRoomDivisions(capturedRoom: capturedRoom, mainFloor: mainFloor)
         }
         
@@ -233,40 +157,6 @@ class RoomAnalyzer: ObservableObject {
     }
     
     // MARK: - RoomPlan Geometry Extraction
-    
-    private func createRoomBoundaryFromFloorSurface(_ surface: CapturedRoom.Surface) -> [simd_float2] {
-        // Extract boundary from floor surface ONLY - this represents the actual room boundary
-        print("🏗️ Creating room boundary from floor surface (not wall surfaces)")
-        return createRoomBoundaryFromSurface(surface)
-    }
-    
-    private func extractDoorwaysFromWallSurfaces(capturedRoom: CapturedRoom, floorCenter: simd_float3) -> [simd_float2] {
-        var doorways: [simd_float2] = []
-        
-        // Extract doorways from door and opening surfaces within reasonable distance of room
-        let maxDistance: Float = 5.0
-        
-        for door in capturedRoom.doors {
-            let doorCenter = extractSurfaceCenter(door)
-            let distance = simd_distance(doorCenter, floorCenter)
-            
-            if distance <= maxDistance {
-                doorways.append(simd_float2(doorCenter.x, doorCenter.z))
-            }
-        }
-        
-        for opening in capturedRoom.openings {
-            let openingCenter = extractSurfaceCenter(opening)
-            let distance = simd_distance(openingCenter, floorCenter)
-            
-            if distance <= maxDistance {
-                doorways.append(simd_float2(openingCenter.x, openingCenter.z))
-            }
-        }
-        
-        print("🚪 Found \(doorways.count) doorways/openings for room at (\(floorCenter.x), \(floorCenter.z))")
-        return doorways
-    }
     
     private func createRoomBoundaryFromSurface(_ surface: CapturedRoom.Surface) -> [simd_float2] {
         let center = extractSurfaceCenter(surface)
@@ -276,31 +166,16 @@ class RoomAnalyzer: ObservableObject {
         print("🏗️ Creating room boundary from RoomPlan surface")
         print("   Center: (\(String(format: "%.2f", center.x)), \(String(format: "%.2f", center.z)))")
         print("   Dimensions: \(String(format: "%.2f", dimensions.x)) x \(String(format: "%.2f", dimensions.z))")
-        print("   Transform matrix columns: [\(transform.columns.0), \(transform.columns.1), \(transform.columns.2), \(transform.columns.3)]")
         
-        // IMPROVED: Use RoomPlan's actual surface geometry instead of assuming rectangles
-        // RoomPlan provides detailed mesh data through the surface geometry
-        
-        // Try to extract actual geometry from the surface if available
-        if let actualBoundary = extractActualSurfaceBoundary(surface) {
-            print("   ✅ Using actual RoomPlan surface boundary with \(actualBoundary.count) points")
-            return actualBoundary
-        }
-        
-        // Fallback to improved rectangular approximation with better transform handling
+        // Ensure minimum room size for visibility
         let roomWidth = max(dimensions.x, 1.0)
         let roomDepth = max(dimensions.z, 1.0)
         
         let halfWidth = roomWidth / 2
         let halfDepth = roomDepth / 2
         
-        // IMPROVED: Better rotation extraction from 4x4 transform matrix
-        // Extract the forward vector (Z-axis) from the transform matrix
-        let forwardX = transform.columns.2.x
-        let forwardZ = transform.columns.2.z
-        let rotation = atan2(forwardZ, forwardX)
-        
-        print("   Extracted rotation: \(String(format: "%.2f", rotation * 180 / .pi))° from forward vector (\(forwardX), \(forwardZ))")
+        // Extract rotation from transform matrix
+        let rotation = atan2(transform.columns.0.z, transform.columns.0.x)
         
         // Create corners in local space
         let corners = [
@@ -310,207 +185,18 @@ class RoomAnalyzer: ObservableObject {
             simd_float2(-halfWidth, halfDepth)   // top-left
         ]
         
-        // Transform to world coordinates with improved rotation
+        // Transform to world coordinates
         let center2D = simd_float2(center.x, center.z)
-        let transformedCorners = corners.map { corner in
+        return corners.map { corner in
             let rotatedX = corner.x * cos(rotation) - corner.y * sin(rotation)
             let rotatedZ = corner.x * sin(rotation) + corner.y * cos(rotation)
             return center2D + simd_float2(rotatedX, rotatedZ)
         }
-        
-        print("   Generated \(transformedCorners.count) boundary points:")
-        for (i, point) in transformedCorners.enumerated() {
-            print("     Point \(i): (\(String(format: "%.2f", point.x)), \(String(format: "%.2f", point.y)))")
-        }
-        
-        return transformedCorners
-    }
-    
-    private func extractActualSurfaceBoundary(_ surface: CapturedRoom.Surface) -> [simd_float2]? {
-        // Try to create boundaries from wall surfaces instead of floor approximations
-        // This is a placeholder that could be enhanced to use the actual wall positions
-        return nil
-    }
-    
-    private func createRoomBoundaryFromWalls(_ capturedRoom: CapturedRoom, centerPoint: simd_float3) -> [simd_float2] {
-        // Create proper room boundaries using wall surface positions
-        print("🧱 Creating room boundary from \(capturedRoom.walls.count) wall surfaces")
-        
-        // ENHANCED: Always try to use actual wall data first, even with lenient criteria
-        var wallSegments: [(start: simd_float2, end: simd_float2)] = []
-        let maxDistance: Float = 15.0 // Increased range to catch more walls
-        
-        // Extract wall segments instead of just corner points
-        for (wallIndex, wall) in capturedRoom.walls.enumerated() {
-            let wallCenter = extractSurfaceCenter(wall)
-            let distance = simd_distance(wallCenter, centerPoint)
-            
-            print("   Wall \(wallIndex + 1): center (\(String(format: "%.2f", wallCenter.x)), \(String(format: "%.2f", wallCenter.z))), distance \(String(format: "%.2f", distance))m")
-            
-            if distance <= maxDistance {
-                // Extract wall as line segment
-                let wallSegment = extractWallLineSegment(wall)
-                wallSegments.append(wallSegment)
-                print("     ✅ Wall \(wallIndex + 1) included: (\(String(format: "%.2f", wallSegment.start.x)), \(String(format: "%.2f", wallSegment.start.y))) to (\(String(format: "%.2f", wallSegment.end.x)), \(String(format: "%.2f", wallSegment.end.y)))")
-            } else {
-                print("     ❌ Wall \(wallIndex + 1) too far (\(String(format: "%.2f", distance))m)")
-            }
-        }
-        
-        if !wallSegments.isEmpty {
-            // Create room boundary from wall segments
-            let wallBoundary = createBoundaryFromWallSegments(wallSegments)
-            if wallBoundary.count >= 3 {
-                print("   ✅ Created room boundary with \(wallBoundary.count) wall-based points")
-                return wallBoundary
-            }
-        }
-        
-        print("   ⚠️ Could not create wall-based boundary, falling back to furniture boundary")
-        // Fallback to furniture-based boundary
-        if let firstFloor = capturedRoom.floors.first {
-            return createRoomBoundaryFromFurnitureCluster(capturedRoom.objects, floor: firstFloor)
-        } else {
-            // Last resort - create rectangular boundary
-            let padding: Float = 2.0
-            return [
-                simd_float2(centerPoint.x - padding, centerPoint.z - padding),
-                simd_float2(centerPoint.x + padding, centerPoint.z - padding),
-                simd_float2(centerPoint.x + padding, centerPoint.z + padding),
-                simd_float2(centerPoint.x - padding, centerPoint.z + padding)
-            ]
-        }
-    }
-    
-    private func extractWallLineSegment(_ wall: CapturedRoom.Surface) -> (start: simd_float2, end: simd_float2) {
-        let center = extractSurfaceCenter(wall)
-        let dimensions = wall.dimensions
-        let transform = wall.transform
-        
-        // Extract wall orientation from transform matrix
-        let rightVector = simd_float3(transform.columns.0.x, 0, transform.columns.0.z)
-        let normalizedRight = simd_normalize(rightVector)
-        
-        // Calculate wall endpoints along its length
-        let halfLength = dimensions.x / 2  // Wall length
-        let center2D = simd_float2(center.x, center.z)
-        let rightVector2D = simd_float2(normalizedRight.x, normalizedRight.z)
-        
-        let start = center2D - rightVector2D * halfLength
-        let end = center2D + rightVector2D * halfLength
-        
-        return (start: start, end: end)
-    }
-    
-    private func createBoundaryFromWallSegments(_ wallSegments: [(start: simd_float2, end: simd_float2)]) -> [simd_float2] {
-        // Collect all wall endpoints
-        var allPoints: [simd_float2] = []
-        for segment in wallSegments {
-            allPoints.append(segment.start)
-            allPoints.append(segment.end)
-        }
-        
-        // Remove duplicates (endpoints that are very close together)
-        let uniquePoints = allPoints.reduce(into: [simd_float2]()) { result, point in
-            if !result.contains(where: { simd_distance($0, point) < 0.2 }) {
-                result.append(point)
-            }
-        }
-        
-        guard uniquePoints.count >= 3 else { 
-            print("   ❌ Insufficient unique wall points (\(uniquePoints.count))")
-            return []
-        }
-        
-        // Calculate centroid for ordering
-        let centroid = uniquePoints.reduce(simd_float2(0, 0), +) / Float(uniquePoints.count)
-        
-        // Sort points by angle to create a proper room boundary
-        let sortedPoints = uniquePoints.sorted { point1, point2 in
-            let angle1 = atan2(point1.y - centroid.y, point1.x - centroid.x)
-            let angle2 = atan2(point2.y - centroid.y, point2.x - centroid.x)
-            return angle1 < angle2
-        }
-        
-        print("   📐 Wall boundary: \(sortedPoints.count) points around centroid (\(String(format: "%.2f", centroid.x)), \(String(format: "%.2f", centroid.y)))")
-        return sortedPoints
-    }
-    
-    private func extractWallCornerPoints(_ wall: CapturedRoom.Surface) -> [simd_float2] {
-        let center = extractSurfaceCenter(wall)
-        let dimensions = wall.dimensions
-        let transform = wall.transform
-        
-        // Extract wall orientation from transform matrix
-        let rightX = transform.columns.0.x
-        let rightZ = transform.columns.0.z
-        let forwardX = transform.columns.2.x
-        let forwardZ = transform.columns.2.z
-        
-        let rightVector = simd_normalize(simd_float2(rightX, rightZ))
-        let forwardVector = simd_normalize(simd_float2(forwardX, forwardZ))
-        
-        let halfWidth = dimensions.x / 2
-        let halfDepth = dimensions.z / 2
-        
-        let center2D = simd_float2(center.x, center.z)
-        
-        // Generate wall corner points (broken up to avoid type-checking timeout)
-        let corner1 = center2D - rightVector * halfWidth - forwardVector * halfDepth
-        let corner2 = center2D + rightVector * halfWidth - forwardVector * halfDepth  
-        let corner3 = center2D + rightVector * halfWidth + forwardVector * halfDepth
-        let corner4 = center2D - rightVector * halfWidth + forwardVector * halfDepth
-        let corners = [corner1, corner2, corner3, corner4]
-        
-        return corners
-    }
-    
-    private func createOrderedBoundaryFromPoints(_ points: [simd_float2], center: simd_float2) -> [simd_float2] {
-        guard !points.isEmpty else { return [] }
-        
-        // Remove duplicate points
-        let uniquePoints = points.reduce(into: [simd_float2]()) { result, point in
-            if !result.contains(where: { simd_distance($0, point) < 0.1 }) {
-                result.append(point)
-            }
-        }
-        
-        guard uniquePoints.count >= 3 else { 
-            // Fallback to simple rectangular boundary
-            let padding: Float = 2.0
-            return [
-                center + simd_float2(-padding, -padding),
-                center + simd_float2(padding, -padding),
-                center + simd_float2(padding, padding),
-                center + simd_float2(-padding, padding)
-            ]
-        }
-        
-        // Sort points by angle relative to center to create proper polygon
-        let sortedPoints = uniquePoints.sorted { point1, point2 in
-            let angle1 = atan2(point1.y - center.y, point1.x - center.x)
-            let angle2 = atan2(point2.y - center.y, point2.x - center.x)
-            return angle1 < angle2
-        }
-        
-        return sortedPoints
     }
     
     private func createRoomBoundaryFromFurnitureCluster(_ furniture: [CapturedRoom.Object], floor: CapturedRoom.Surface) -> [simd_float2] {
         let furnitureCenter = calculateCenterFromFurniture(furniture)
         let furnitureBounds = calculateBoundsFromFurniture(furniture)
-        
-        print("🧱 Creating room boundary from furniture cluster:")
-        print("   Furniture center: (\(String(format: "%.3f", furnitureCenter.x)), \(String(format: "%.3f", furnitureCenter.z)))")
-        print("   Furniture bounds: (\(String(format: "%.3f", furnitureBounds.min.x)), \(String(format: "%.3f", furnitureBounds.min.z))) to (\(String(format: "%.3f", furnitureBounds.max.x)), \(String(format: "%.3f", furnitureBounds.max.z)))")
-        
-        // Analyze furniture layout to infer room orientation and potential rotation
-        let roomOrientation = inferRoomOrientation(from: furniture)
-        print("   Inferred room orientation: \(roomOrientation)")
-        
-        // Determine if coordinate system rotation is needed based on furniture analysis
-        let coordinateRotation = determineCoordinateRotation(from: furniture)
-        print("   Coordinate rotation needed: \(coordinateRotation)°")
         
         // Create room boundary with padding around furniture
         let padding: Float = 1.5
@@ -521,163 +207,41 @@ class RoomAnalyzer: ObservableObject {
         let halfDepth = roomDepth / 2
         let center2D = simd_float2(furnitureCenter.x, furnitureCenter.z)
         
-        // Apply coordinate rotation if needed
-        var boundary = [
+        return [
             center2D + simd_float2(-halfWidth, -halfDepth), // bottom-left
             center2D + simd_float2(halfWidth, -halfDepth),  // bottom-right
             center2D + simd_float2(halfWidth, halfDepth),   // top-right
             center2D + simd_float2(-halfWidth, halfDepth)   // top-left
         ]
-        
-        // Apply rotation transformation if needed
-        if coordinateRotation != 0 {
-            let rotationRadians = coordinateRotation * Float.pi / 180
-            boundary = boundary.map { point in
-                let relativePoint = point - center2D
-                let rotatedX = relativePoint.x * cos(rotationRadians) - relativePoint.y * sin(rotationRadians)
-                let rotatedY = relativePoint.x * sin(rotationRadians) + relativePoint.y * cos(rotationRadians)
-                return center2D + simd_float2(rotatedX, rotatedY)
-            }
-            print("   Applied \(coordinateRotation)° rotation to room boundary")
-        }
-        
-        print("   Generated room boundary:")
-        for (i, point) in boundary.enumerated() {
-            print("     Corner \(i): (\(String(format: "%.3f", point.x)), \(String(format: "%.3f", point.y)))")
-        }
-        
-        return boundary
     }
     
-    private func inferRoomOrientation(from furniture: [CapturedRoom.Object]) -> String {
-        // Analyze furniture positioning to understand room layout
-        let beds = furniture.filter { $0.category == .bed }
-        let storage = furniture.filter { $0.category == .storage }
+    private func extractDoorwaysFromRoomPlan(capturedRoom: CapturedRoom) -> [simd_float2] {
+        var doorways: [simd_float2] = []
         
-        // If we have bed + storage, analyze their relative positions
-        if let bed = beds.first, !storage.isEmpty {
-            let bedPos = simd_float2(bed.transform.columns.3.x, bed.transform.columns.3.z)
-            
-            // Find storage items near the bed (potential nightstands)
-            let nearbyStorage = storage.filter { storageItem in
-                let storagePos = simd_float2(storageItem.transform.columns.3.x, storageItem.transform.columns.3.z)
-                let distance = simd_distance(bedPos, storagePos)
-                return distance < 2.0 // Within 2 meters of bed
-            }
-            
-            if nearbyStorage.count >= 2 {
-                let storagePositions = nearbyStorage.map { simd_float2($0.transform.columns.3.x, $0.transform.columns.3.z) }
-                
-                // Check if storage items are on opposite sides of the bed
-                let bedToCentroid = storagePositions.reduce(simd_float2(0, 0), +) / Float(storagePositions.count) - bedPos
-                let arrangement = abs(bedToCentroid.x) > abs(bedToCentroid.y) ? "horizontal" : "vertical"
-                
-                return "bedroom_\(arrangement)_with_nightstands"
-            }
+        // Use RoomPlan's built-in door/window/opening detection
+        for door in capturedRoom.doors {
+            let pos = simd_float3(door.transform.columns.3.x, door.transform.columns.3.y, door.transform.columns.3.z)
+            doorways.append(simd_float2(pos.x, pos.z))
         }
         
-        return "standard_rectangular"
+        for window in capturedRoom.windows {
+            let pos = simd_float3(window.transform.columns.3.x, window.transform.columns.3.y, window.transform.columns.3.z)
+            doorways.append(simd_float2(pos.x, pos.z))
+        }
+        
+        for opening in capturedRoom.openings {
+            let pos = simd_float3(opening.transform.columns.3.x, opening.transform.columns.3.y, opening.transform.columns.3.z)
+            doorways.append(simd_float2(pos.x, pos.z))
+        }
+        
+        return doorways
     }
-    
-    private func determineCoordinateRotation(from furniture: [CapturedRoom.Object]) -> Float {
-        // Analyze furniture arrangement to determine if coordinate system rotation is needed
-        let beds = furniture.filter { $0.category == .bed }
-        let storage = furniture.filter { $0.category == .storage }
-        
-        guard let bed = beds.first else { return 0 }
-        
-        let bedPos = simd_float2(bed.transform.columns.3.x, bed.transform.columns.3.z)
-        print("🔄 Analyzing coordinate system for bed at (\(String(format: "%.3f", bedPos.x)), \(String(format: "%.3f", bedPos.y)))")
-        
-        // Find nearby storage items (potential nightstands)
-        let nearbyStorage = storage.filter { storageItem in
-            let storagePos = simd_float2(storageItem.transform.columns.3.x, storageItem.transform.columns.3.z)
-            let distance = simd_distance(bedPos, storagePos)
-            return distance < 2.0
-        }
-        
-        print("   Found \(nearbyStorage.count) nearby storage items:")
-        for (i, storageItem) in nearbyStorage.enumerated() {
-            let storagePos = simd_float2(storageItem.transform.columns.3.x, storageItem.transform.columns.3.z)
-            let direction = storagePos - bedPos
-            let angle = atan2(direction.y, direction.x) * 180 / Float.pi
-            let distance = simd_distance(bedPos, storagePos)
-            
-            print("     Storage \(i+1): (\(String(format: "%.3f", storagePos.x)), \(String(format: "%.3f", storagePos.y))) - \(String(format: "%.1f", angle))° at \(String(format: "%.2f", distance))m")
-        }
-        
-        // If we have exactly 2 nearby storage items, analyze their arrangement
-        if nearbyStorage.count >= 2 {
-            let storagePositions = nearbyStorage.prefix(2).map { 
-                simd_float2($0.transform.columns.3.x, $0.transform.columns.3.z) 
-            }
-            
-            let pos1 = storagePositions[0]
-            let pos2 = storagePositions[1]
-            
-            // Calculate angles of both storage items relative to bed
-            let dir1 = pos1 - bedPos
-            let dir2 = pos2 - bedPos
-            let angle1 = atan2(dir1.y, dir1.x) * 180 / Float.pi
-            let angle2 = atan2(dir2.y, dir2.x) * 180 / Float.pi
-            
-            print("   Storage arrangement analysis:")
-            print("     Storage 1 angle: \(String(format: "%.1f", angle1))°")
-            print("     Storage 2 angle: \(String(format: "%.1f", angle2))°")
-            
-            // Check if they form an east-west pattern (should be around ±90° apart)
-            let angleDiff = abs(angle1 - angle2)
-            let normalizedDiff = min(angleDiff, 360 - angleDiff)
-            
-            print("     Angle difference: \(String(format: "%.1f", normalizedDiff))°")
-            
-            // If storage items are roughly opposite (150-210° apart), they might be nightstands
-            if normalizedDiff > 120 && normalizedDiff < 240 {
-                // Check current orientation - are they more north-south or east-west?
-                let avgAngle = (angle1 + angle2) / 2
-                
-                // Normalize to find the perpendicular axis
-                let perpAngle = avgAngle + 90
-                let normalizedPerpAngle = fmod(perpAngle + 360, 360)
-                
-                print("     Average angle: \(String(format: "%.1f", avgAngle))°")
-                print("     Perpendicular axis: \(String(format: "%.1f", normalizedPerpAngle))°")
-                
-                // If the perpendicular axis is closer to north-south (0°, 180°), 
-                // nightstands are currently east-west aligned
-                // If closer to east-west (90°, 270°), nightstands are north-south aligned
-                
-                let distFromNorthSouth = min(abs(normalizedPerpAngle), abs(normalizedPerpAngle - 180), abs(normalizedPerpAngle - 360))
-                let distFromEastWest = min(abs(normalizedPerpAngle - 90), abs(normalizedPerpAngle - 270))
-                
-                if distFromEastWest < distFromNorthSouth {
-                    // Nightstands are currently north-south, but user expects east-west
-                    print("     🔄 Nightstands are north-south aligned, suggesting 90° rotation needed")
-                    return 90
-                } else {
-                    print("     ✅ Nightstands are already east-west aligned")
-                    return 0
-                }
-            }
-        }
-        
-        // No clear nightstand pattern found - use default orientation
-        print("   No clear nightstand pattern found - using default orientation")
-        return 0
-    }
-    
     
     // MARK: - Helper Methods
     
     private func extractSurfaceCenter(_ surface: CapturedRoom.Surface) -> simd_float3 {
         let transform = surface.transform
-        let position = simd_float3(transform.columns.3.x, transform.columns.3.y, transform.columns.3.z)
-        
-        // IMPROVED: Add validation and debugging for transform extraction
-        print("   🎯 Surface center extracted: (\(String(format: "%.3f", position.x)), \(String(format: "%.3f", position.y)), \(String(format: "%.3f", position.z)))")
-        print("   📐 Surface dimensions: \(String(format: "%.2f", surface.dimensions.x))×\(String(format: "%.2f", surface.dimensions.y))×\(String(format: "%.2f", surface.dimensions.z))")
-        
-        return position
+        return simd_float3(transform.columns.3.x, transform.columns.3.y, transform.columns.3.z)
     }
     
     private func calculateSurfaceArea(_ surface: CapturedRoom.Surface) -> Float {
@@ -784,6 +348,8 @@ class RoomAnalyzer: ObservableObject {
         
         // Analyze the space and furniture to create logical room divisions
         let allObjects = capturedRoom.objects
+        let spaceCenter = extractSurfaceCenter(mainFloor)
+        let fIndex = determineFloorIndex(forY: spaceCenter.y)
         
         // Create rooms based on furniture distribution and typical home layout
         if allObjects.count >= 3 {
@@ -861,22 +427,25 @@ class RoomAnalyzer: ObservableObject {
         let roomCenter = calculateCenterFromFurniture(roomObjects)
         let roomBoundary = createRoomBoundaryFromFurnitureCluster(roomObjects, floor: baseFloor)
         let roomArea = calculateAreaFromWallPoints(roomBoundary)
-        let doorways = extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: roomCenter)
+        let doorways = extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+        let fIndex = determineFloorIndex(forY: extractSurfaceCenter(baseFloor).y)
         
         return IdentifiedRoom(
             type: roomType,
             bounds: baseFloor,
             center: roomCenter,
             area: roomArea,
-            confidence: objects.isEmpty ? 0.3 : 0.7,
+            confidence: calculateConfidenceFromFurniture(roomObjects, roomType: roomType),
             wallPoints: roomBoundary,
-            doorways: doorways
+            doorways: doorways,
+            floorIndex: fIndex
         )
     }
     
     private func createDefaultRoomLayout(capturedRoom: CapturedRoom, mainFloor: CapturedRoom.Surface) -> [IdentifiedRoom] {
-        let allObjects = capturedRoom.objects
         let spaceCenter = extractSurfaceCenter(mainFloor)
+        let allObjects = capturedRoom.objects
+        let fIndex = determineFloorIndex(forY: spaceCenter.y)
         
         // Create a reasonable default layout with multiple rooms
         var rooms: [IdentifiedRoom] = []
@@ -895,7 +464,8 @@ class RoomAnalyzer: ObservableObject {
             area: 16.0,
             confidence: 0.4,
             wallPoints: livingBoundary,
-            doorways: extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: simd_float3(0, 0, 0))
+            doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom),
+            floorIndex: fIndex
         )
         rooms.append(livingRoom)
         
@@ -910,7 +480,8 @@ class RoomAnalyzer: ObservableObject {
             area: 9.0,
             confidence: 0.4,
             wallPoints: kitchenBoundary,
-            doorways: extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: simd_float3(0, 0, 0))
+            doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom),
+            floorIndex: fIndex
         )
         rooms.append(kitchen)
         
@@ -926,7 +497,8 @@ class RoomAnalyzer: ObservableObject {
                 area: 9.0,
                 confidence: 0.4,
                 wallPoints: diningBoundary,
-                doorways: extractDoorwaysFromWallSurfaces(capturedRoom: capturedRoom, floorCenter: simd_float3(0, 0, 0))
+                doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom),
+                floorIndex: fIndex
             )
             rooms.append(diningRoom)
         }
@@ -1043,7 +615,6 @@ class RoomAnalyzer: ObservableObject {
         let combinedConfidence = (surfaceConfidence * 0.4) + (furnitureConfidence * 0.4) + (objectConfidence * 0.2)
         
         print("🎯 Room confidence breakdown - Surface: \(String(format: "%.2f", surfaceConfidence)), Furniture: \(String(format: "%.2f", furnitureConfidence)), Objects: \(String(format: "%.2f", objectConfidence)), Combined: \(String(format: "%.2f", combinedConfidence))")
-        print("   Room type: \(roomType.rawValue) with \(objects.count) nearby objects")
         
         return combinedConfidence
     }
@@ -1065,8 +636,6 @@ class RoomAnalyzer: ObservableObject {
             return 0.6
         case .low:
             return 0.3
-        @unknown default:
-            return 0.3
         }
     }
     
@@ -1075,28 +644,25 @@ class RoomAnalyzer: ObservableObject {
     func findRoomContaining(position: simd_float3) -> IdentifiedRoom? {
         print("🔍 Checking room containment for position (\(String(format: "%.2f", position.x)), \(String(format: "%.2f", position.z)))")
         
-        for (roomIndex, room) in identifiedRooms.enumerated() {
-            print("   Testing room \(roomIndex + 1): \(room.type.rawValue) at (\(String(format: "%.2f", room.center.x)), \(String(format: "%.2f", room.center.z)))")
-            print("     Room boundary points: \(room.wallPoints.count)")
-            
-            // Debug room boundary
-            for (pointIndex, point) in room.wallPoints.enumerated() {
-                print("       Point \(pointIndex): (\(String(format: "%.2f", point.x)), \(String(format: "%.2f", point.y)))")
+        for room in identifiedRooms {
+            // Floor-aware filter: ensure Y is within reasonable range of this room's floor
+            let yDelta = abs(position.y - room.center.y)
+            if yDelta > 3.0 { // more than ~3m above/below the floor center => different floor
+                continue
             }
+            
+            print("   Testing room \(room.type.rawValue) at (\(String(format: "%.2f", room.center.x)), \(String(format: "%.2f", room.center.z))) on floor \(room.floorIndex)")
             
             if room.wallPoints.count >= 3 {
                 let isInside = isPointInPolygon(simd_float2(position.x, position.z), polygon: room.wallPoints)
-                print("     Polygon containment test: \(isInside)")
+                print("     Polygon test: \(isInside)")
                 if isInside {
-                    print("     ✅ Position found in \(room.type.rawValue)!")
                     return room
                 }
-            } else {
-                print("     ⚠️ Insufficient boundary points for containment test")
             }
         }
         
-        print("   ❌ Position not found in any room - may be outside all boundaries or in gaps between rooms")
+        print("   ❌ Position not found in any room")
         return nil
     }
     
@@ -1126,90 +692,24 @@ class RoomAnalyzer: ObservableObject {
     private func catalogFurniture(from capturedRoom: CapturedRoom) {
         var furniture: [FurnitureItem] = []
         
-        print("🏠 Cataloging \(capturedRoom.objects.count) furniture items:")
-        
-        for (index, object) in capturedRoom.objects.enumerated() {
+        for object in capturedRoom.objects {
             // Extract RoomPlan's confidence score for this object
             let roomPlanConfidence = object.confidence
-            let position = simd_float3(object.transform.columns.3.x, object.transform.columns.3.y, object.transform.columns.3.z)
             
             let item = FurnitureItem(
                 category: object.category,
-                position: position,
+                position: simd_float3(object.transform.columns.3.x, object.transform.columns.3.y, object.transform.columns.3.z),
                 dimensions: object.dimensions,
                 roomId: nil, // Could be assigned based on containment
                 confidence: confidenceToFloat(roomPlanConfidence) // Use RoomPlan's actual confidence converted to Float
             )
             furniture.append(item)
             
-            // Enhanced debugging for spatial relationships
-            print("📦 Item \(index + 1): \(object.category)")
-            print("   Position: (\(String(format: "%.3f", position.x)), \(String(format: "%.3f", position.y)), \(String(format: "%.3f", position.z)))")
-            print("   Dimensions: \(String(format: "%.2f", object.dimensions.x)) × \(String(format: "%.2f", object.dimensions.y)) × \(String(format: "%.2f", object.dimensions.z))")
-            print("   Confidence: \(String(format: "%.2f", confidenceToFloat(roomPlanConfidence)))")
-            
-            // Extract rotation info from transform matrix
-            let transform = object.transform
-            let rightVector = simd_float3(transform.columns.0.x, transform.columns.0.y, transform.columns.0.z)
-            let upVector = simd_float3(transform.columns.1.x, transform.columns.1.y, transform.columns.1.z)
-            let forwardVector = simd_float3(transform.columns.2.x, transform.columns.2.y, transform.columns.2.z)
-            
-            let yRotation = atan2(forwardVector.x, forwardVector.z) * 180 / Float.pi
-            print("   Y-rotation: \(String(format: "%.1f", yRotation))°")
+            print("📦 Object \(object.category) detected with confidence: \(String(format: "%.2f", confidenceToFloat(roomPlanConfidence)))")
         }
-        
-        // Analyze spatial relationships between furniture items
-        analyzeFurnitureSpatialRelationships(furniture)
         
         DispatchQueue.main.async {
             self.furnitureItems = furniture
-        }
-    }
-    
-    private func analyzeFurnitureSpatialRelationships(_ furniture: [FurnitureItem]) {
-        guard furniture.count > 1 else { return }
-        
-        print("🔍 Analyzing spatial relationships between furniture:")
-        
-        let beds = furniture.filter { $0.category == .bed }
-        let storage = furniture.filter { $0.category == .storage }
-        let tables = furniture.filter { $0.category == .table }
-        
-        if let bed = beds.first {
-            print("   Bed at: (\(String(format: "%.3f", bed.position.x)), \(String(format: "%.3f", bed.position.z)))")
-            
-            // Find nearby storage (potential nightstands)
-            for storageItem in storage {
-                let distance = simd_distance(simd_float2(bed.position.x, bed.position.z), 
-                                           simd_float2(storageItem.position.x, storageItem.position.z))
-                let direction = simd_float2(storageItem.position.x - bed.position.x, 
-                                          storageItem.position.z - bed.position.z)
-                let angle = atan2(direction.y, direction.x) * 180 / Float.pi
-                
-                print("   Storage \(distance < 2.0 ? "NEAR" : "FAR") bed: distance \(String(format: "%.2f", distance))m, angle \(String(format: "%.1f", angle))°")
-                
-                if distance < 2.0 {
-                    let relativePosition = distance < 1.0 ? "very close" : "close"
-                    let cardinalDirection = getCardinalDirection(from: angle)
-                    print("     -> \(relativePosition) \(cardinalDirection) of bed")
-                }
-            }
-        }
-    }
-    
-    private func getCardinalDirection(from angle: Float) -> String {
-        let normalizedAngle = angle < 0 ? angle + 360 : angle
-        switch normalizedAngle {
-        case 315...360, 0..<45:
-            return "east"
-        case 45..<135:
-            return "south"
-        case 135..<225:
-            return "west"
-        case 225..<315:
-            return "north"
-        default:
-            return "unknown"
         }
     }
     
@@ -1220,4 +720,57 @@ class RoomAnalyzer: ObservableObject {
         }
     }
     
+    // MARK: - Floor detection & helpers
+    
+    private func computeFloors(from capturedRoom: CapturedRoom) {
+        let heights = capturedRoom.floors.map { extractSurfaceCenter($0).y }
+        let clustered = clusterHeights(heights)
+        let sorted = clustered.sorted()
+        DispatchQueue.main.async {
+            self.floorHeights = sorted
+        }
+        print("🏢 Detected floors at heights: \(sorted.map { String(format: "%.2f", $0) }.joined(separator: ", "))")
+    }
+    
+    private func clusterHeights(_ heights: [Float], tolerance: Float = 0.5) -> [Float] {
+        guard !heights.isEmpty else { return [] }
+        let sorted = heights.sorted()
+        var clusters: [[Float]] = []
+        for h in sorted {
+            if var last = clusters.last, let representative = last.last, abs(h - representative) <= tolerance {
+                last.append(h)
+                clusters[clusters.count - 1] = last
+            } else {
+                clusters.append([h])
+            }
+        }
+        // Use average of each cluster as the floor height
+        return clusters.map { cluster in
+            cluster.reduce(0, +) / Float(cluster.count)
+        }
+    }
+    
+    private func determineFloorIndex(forY y: Float) -> Int {
+        // If we have no floors, treat as ground
+        guard !floorHeights.isEmpty else { return 0 }
+        var bestIndex = 0
+        var bestDelta = Float.greatestFiniteMagnitude
+        for (idx, fh) in floorHeights.enumerated() {
+            let delta = abs(fh - y)
+            if delta < bestDelta {
+                bestDelta = delta
+                bestIndex = idx
+            }
+        }
+        return bestIndex
+    }
+    
+    func floorIndexForPosition(_ position: simd_float3) -> Int? {
+        guard !floorHeights.isEmpty else { return 0 }
+        let deltas = floorHeights.map { abs($0 - position.y) }
+        if let (idx, minDelta) = deltas.enumerated().min(by: { $0.element < $1.element }) {
+            return minDelta <= 1.5 ? idx : idx // Allow generous tolerance for handheld device height
+        }
+        return nil
+    }
 }

@@ -9,8 +9,6 @@ import UIKit
 import RoomPlan
 import ARKit
 import SceneKit
-import Combine
-import CoreLocation
 
 class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, RoomCaptureSessionDelegate {
     
@@ -18,7 +16,6 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var wifiSurveyManager = WiFiSurveyManager()
     private var arVisualizationManager = ARVisualizationManager()
     private var networkDeviceManager = NetworkDeviceManager()
-    // Room accuracy validation disabled for build compatibility
     private var arSceneView: ARSCNView!
     
     // iOS 17+ Custom ARSession for perfect coordinate alignment
@@ -29,8 +26,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     // Helper to check if iOS 17+ features are available
     private var isIOS17Available: Bool {
-        if #available(iOS 17.0, *) { return true }
-        return false
+        return true
     }
     
     private var primaryActionButton: UIButton?
@@ -39,7 +35,6 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var progressIndicator: UIProgressView?
     private var speedTestProgressView: UIProgressView?
     private var speedTestLabel: UILabel?
-    private var speedTestSpinner: UIActivityIndicatorView?
     
     // Bottom navigation
     private var bottomNavBar: UIView?
@@ -47,12 +42,6 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var floorPlanNavButton: UIButton?
     private var routerPlacementButton: UIButton?
     private var modeLabel: UILabel?
-    
-    // Plume integration and data export controls
-    private var plumeControlsContainer: UIView?
-    private var plumeToggleButton: UIButton?
-    private var exportDataButton: UIButton?
-    private var plumeStatusLabel: UILabel?
     
     private var isARMode = false
     private var capturedRoomData: CapturedRoom?
@@ -72,6 +61,13 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     // Removed unused Done/Cancel buttons - using corner controls instead
     
     private var isScanning: Bool = false
+    private var isSimulatorMode: Bool {
+        #if targetEnvironment(simulator)
+        return true
+        #else
+        return false
+        #endif
+    }
     
     private var roomCaptureView: RoomCaptureView!
     private var roomCaptureSessionConfig: RoomCaptureSession.Configuration = RoomCaptureSession.Configuration()
@@ -92,6 +88,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var scanningProgressTimer: Timer?
     private let progressHapticInterval: TimeInterval = 1.5 // Every 1.5 seconds while scanning
     
+    // Simulator mode properties
+    private var simulatorTimer: Timer?
+    private var simulatorProgress: Float = 0.0
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -100,21 +99,18 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         setupARView()
         setupWiFiSurvey()
         setupBottomNavigation()
-        setupPlumeControls()
         setupHapticFeedback()
         updateButtonStates()
     }
     
     private func setupRoomCaptureView() {
-        
-        print("🔧 Setting up RoomCaptureView with shared ARSession for optimal coordinate alignment...")
-        
-        // Check if RoomCapture is supported
-        guard RoomCaptureSession.isSupported else {
-            print("⚠️ RoomCapture not supported on this device - showing placeholder")
-            setupPlaceholderView()
+        if isSimulatorMode {
+            print("🎭 Simulator: Setting up mock camera view")
+            setupMockCameraView()
             return
         }
+        
+        print("🔧 Setting up RoomCaptureView with shared ARSession for optimal coordinate alignment...")
         
         // Remove existing room capture view if any
         roomCaptureView?.removeFromSuperview()
@@ -141,69 +137,42 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         print("✅ RoomCaptureView setup complete")
     }
     
-    private func setupPlaceholderView() {
-        // Create a red placeholder view for unsupported devices
-        let placeholderView = UIView(frame: view.bounds)
-        placeholderView.backgroundColor = UIColor.systemRed.withAlphaComponent(0.3)
-        placeholderView.translatesAutoresizingMaskIntoConstraints = false
+    private func setupMockCameraView() {
+        // Create a mock camera background for simulator
+        let mockCameraView = UIView(frame: view.bounds)
+        mockCameraView.backgroundColor = UIColor.systemGray
+        mockCameraView.translatesAutoresizingMaskIntoConstraints = false
         
-        // Add a label explaining the limitation
-        let messageLabel = UILabel()
-        messageLabel.text = "Room Capture not supported\n\nOther features are still available:\n• WiFi Analysis\n• Floor Plan View\n• Report Generation"
-        messageLabel.textColor = .white
-        messageLabel.font = .systemFont(ofSize: 18, weight: .medium)
-        messageLabel.textAlignment = .center
-        messageLabel.numberOfLines = 0
-        messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        // Add a label to indicate simulator mode
+        let simulatorLabel = UILabel()
+        simulatorLabel.text = "📱 SIMULATOR MODE\nMock Camera Feed\n\nUI Testing Environment"
+        simulatorLabel.textAlignment = .center
+        simulatorLabel.numberOfLines = 0
+        simulatorLabel.font = UIFont.systemFont(ofSize: 18, weight: .medium)
+        simulatorLabel.textColor = .white
+        simulatorLabel.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        simulatorLabel.layer.cornerRadius = 12
+        simulatorLabel.layer.masksToBounds = true
+        simulatorLabel.translatesAutoresizingMaskIntoConstraints = false
         
-        // Add demo button
-        let demoButton = UIButton(type: .system)
-        demoButton.setTitle("📊 View Floor Plan Demo", for: .normal)
-        demoButton.backgroundColor = SpectrumBranding.Colors.spectrumBlue
-        demoButton.setTitleColor(.white, for: .normal)
-        demoButton.layer.cornerRadius = 12
-        demoButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
-        demoButton.translatesAutoresizingMaskIntoConstraints = false
-        demoButton.addTarget(self, action: #selector(showFloorPlanDemo), for: .touchUpInside)
-        
-        placeholderView.addSubview(messageLabel)
-        placeholderView.addSubview(demoButton)
-        view.insertSubview(placeholderView, at: 0)
-        
-        // Auto-launch demo disabled by default; enable via feature flag if needed
-        if false {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                print("🎯 Auto-launching Floor Plan Demo")
-                self.showFloorPlanDemo()
-            }
-        }
+        // Insert mock view at index 0 to be behind all UI elements
+        view.insertSubview(mockCameraView, at: 0)
+        view.addSubview(simulatorLabel)
         
         NSLayoutConstraint.activate([
-            placeholderView.topAnchor.constraint(equalTo: view.topAnchor),
-            placeholderView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            placeholderView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            placeholderView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            mockCameraView.topAnchor.constraint(equalTo: view.topAnchor),
+            mockCameraView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            mockCameraView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            mockCameraView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             
-            messageLabel.centerXAnchor.constraint(equalTo: placeholderView.centerXAnchor),
-            messageLabel.centerYAnchor.constraint(equalTo: placeholderView.centerYAnchor, constant: -60),
-            messageLabel.leadingAnchor.constraint(equalTo: placeholderView.leadingAnchor, constant: 40),
-            messageLabel.trailingAnchor.constraint(equalTo: placeholderView.trailingAnchor, constant: -40),
-            
-            demoButton.centerXAnchor.constraint(equalTo: placeholderView.centerXAnchor),
-            demoButton.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 40),
-            demoButton.widthAnchor.constraint(equalToConstant: 220),
-            demoButton.heightAnchor.constraint(equalToConstant: 50)
+            simulatorLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            simulatorLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            simulatorLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 40),
+            simulatorLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -40)
         ])
+        
+        print("✅ Mock camera view setup complete")
     }
-    
-    @objc private func showFloorPlanDemo() {
-        print("📊 Showing Floor Plan Demo")
-        let floorPlanVC = FloorPlanViewController()
-        floorPlanVC.isDemoMode = true
-        floorPlanVC.modalPresentationStyle = .fullScreen
-        present(floorPlanVC, animated: true)
-    }
-    
     
     private func setupARView() {
         // iOS 17+: Use shared ARSession for perfect coordinate alignment
@@ -270,11 +239,6 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         
         // Create speed test label
         speedTestLabel = SpectrumBranding.createSpectrumLabel(text: "Running speed test...", style: .caption)
-        // Create speed test spinner
-        speedTestSpinner = UIActivityIndicatorView(style: .medium)
-        speedTestSpinner?.translatesAutoresizingMaskIntoConstraints = false
-        speedTestSpinner?.hidesWhenStopped = true
-
         speedTestLabel?.textAlignment = .center
         speedTestLabel?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
         speedTestLabel?.textColor = .white
@@ -293,7 +257,6 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         view.addSubview(progressIndicator)
         view.addSubview(speedTestProgressView)
         view.addSubview(speedTestLabel)
-        if let speedTestSpinner = speedTestSpinner { view.addSubview(speedTestSpinner) }
         
         // Setup constraints
         NSLayoutConstraint.activate([
@@ -321,13 +284,6 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             speedTestProgressView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -40),
             speedTestProgressView.heightAnchor.constraint(equalToConstant: 6)
         ])
-
-        if let spinner = speedTestSpinner {
-            NSLayoutConstraint.activate([
-                spinner.trailingAnchor.constraint(equalTo: speedTestLabel.leadingAnchor, constant: -8),
-                spinner.centerYAnchor.constraint(equalTo: speedTestLabel.centerYAnchor)
-            ])
-        }
     }
     
     private func setupBottomNavigation() {
@@ -340,42 +296,22 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         modeLabel?.layer.masksToBounds = true
         modeLabel?.translatesAutoresizingMaskIntoConstraints = false
         
-        // Bottom toolbar layout
-        let toolbar = UIStackView()
-        toolbar.axis = .horizontal
-        toolbar.alignment = .fill
-        toolbar.distribution = .fillEqually
-        toolbar.spacing = 12
-        toolbar.translatesAutoresizingMaskIntoConstraints = false
-
-        // Create scan/survey toggle button
-        scanSurveyToggleButton = UIButton(type: .system)
-        scanSurveyToggleButton?.setTitle("📡 Switch to WiFi Survey", for: .normal)
-        scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
-        scanSurveyToggleButton?.titleLabel?.font = UIFont.boldSystemFont(ofSize: 15)
-        scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
+        // Create scan/survey toggle button in bottom-left corner
+        scanSurveyToggleButton = SpectrumBranding.createSpectrumButton(title: "📡 Switch to WiFi Survey", style: .secondary)
         scanSurveyToggleButton?.addTarget(self, action: #selector(scanSurveyToggleTapped), for: .touchUpInside)
         scanSurveyToggleButton?.translatesAutoresizingMaskIntoConstraints = false
         scanSurveyToggleButton?.layer.cornerRadius = 8
         scanSurveyToggleButton?.titleLabel?.adjustsFontSizeToFitWidth = true
         scanSurveyToggleButton?.titleLabel?.minimumScaleFactor = 0.8
         
-        // Create floor plan button
-        floorPlanNavButton = UIButton(type: .system)
-        floorPlanNavButton?.setTitle("📊 View Plan", for: .normal)
-        floorPlanNavButton?.setTitleColor(.white, for: .normal)
-        floorPlanNavButton?.titleLabel?.font = UIFont.boldSystemFont(ofSize: 15)
-        floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
+        // Create floor plan button in bottom-right corner
+        floorPlanNavButton = SpectrumBranding.createSpectrumButton(title: "📊 View Plan", style: .secondary)
         floorPlanNavButton?.addTarget(self, action: #selector(floorPlanNavTapped), for: .touchUpInside)
         floorPlanNavButton?.translatesAutoresizingMaskIntoConstraints = false
         floorPlanNavButton?.layer.cornerRadius = 8
         
-        // Create router placement button
-        routerPlacementButton = UIButton(type: .system)
-        routerPlacementButton?.setTitle("📡 Place Router", for: .normal)
-        routerPlacementButton?.setTitleColor(.white, for: .normal)
-        routerPlacementButton?.titleLabel?.font = UIFont.boldSystemFont(ofSize: 15)
-        routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
+        // Create router placement button in bottom-center
+        routerPlacementButton = SpectrumBranding.createSpectrumButton(title: "📡 Place Router", style: .accent)
         routerPlacementButton?.addTarget(self, action: #selector(routerPlacementTapped), for: .touchUpInside)
         routerPlacementButton?.translatesAutoresizingMaskIntoConstraints = false
         routerPlacementButton?.layer.cornerRadius = 8
@@ -385,12 +321,11 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
               let scanSurveyToggleButton = scanSurveyToggleButton,
               let floorPlanNavButton = floorPlanNavButton,
               let routerPlacementButton = routerPlacementButton else { return }
-
+        
         view.addSubview(modeLabel)
-        view.addSubview(toolbar)
-        toolbar.addArrangedSubview(scanSurveyToggleButton)
-        toolbar.addArrangedSubview(routerPlacementButton)
-        toolbar.addArrangedSubview(floorPlanNavButton)
+        view.addSubview(scanSurveyToggleButton)
+        view.addSubview(floorPlanNavButton)
+        view.addSubview(routerPlacementButton)
         
         NSLayoutConstraint.activate([
             // Mode label in top-left corner
@@ -399,158 +334,26 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             modeLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
             modeLabel.heightAnchor.constraint(equalToConstant: 32),
             
-            // Bottom toolbar
-            toolbar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            toolbar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            toolbar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
-            toolbar.heightAnchor.constraint(equalToConstant: 48)
+            // Scan/survey toggle in bottom-left corner (moved further up to avoid RoomPlan model)
+            scanSurveyToggleButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -120),
+            scanSurveyToggleButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            scanSurveyToggleButton.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
+            scanSurveyToggleButton.heightAnchor.constraint(equalToConstant: 44),
+            
+            // Floor plan button in bottom-right corner (moved further up to avoid RoomPlan model)
+            floorPlanNavButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -120),
+            floorPlanNavButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            floorPlanNavButton.widthAnchor.constraint(equalToConstant: 120),
+            floorPlanNavButton.heightAnchor.constraint(equalToConstant: 44),
+            
+            // Router placement button in bottom-center
+            routerPlacementButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -120),
+            routerPlacementButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            routerPlacementButton.widthAnchor.constraint(equalToConstant: 140),
+            routerPlacementButton.heightAnchor.constraint(equalToConstant: 44)
         ])
         
         updateBottomNavigation()
-    }
-    
-    private func setupPlumeControls() {
-        // Create container for Plume controls
-        plumeControlsContainer = UIView()
-        plumeControlsContainer?.backgroundColor = UIColor.black.withAlphaComponent(0.8)
-        plumeControlsContainer?.layer.cornerRadius = 12
-        plumeControlsContainer?.layer.masksToBounds = true
-        plumeControlsContainer?.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Create Plume toggle button
-        plumeToggleButton = UIButton(type: .system)
-        plumeToggleButton?.setTitle("🔌 Enable Plume", for: .normal)
-        plumeToggleButton?.setTitleColor(.white, for: .normal)
-        plumeToggleButton?.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14)
-        plumeToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
-        plumeToggleButton?.addTarget(self, action: #selector(plumeToggleTapped), for: .touchUpInside)
-        plumeToggleButton?.translatesAutoresizingMaskIntoConstraints = false
-        plumeToggleButton?.layer.cornerRadius = 6
-        
-        // Create export data button
-        exportDataButton = UIButton(type: .system)
-        exportDataButton?.setTitle("📤 Export Data", for: .normal)
-        exportDataButton?.setTitleColor(.white, for: .normal)
-        exportDataButton?.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14)
-        exportDataButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
-        exportDataButton?.addTarget(self, action: #selector(exportDataTapped), for: .touchUpInside)
-        exportDataButton?.translatesAutoresizingMaskIntoConstraints = false
-        exportDataButton?.layer.cornerRadius = 6
-        
-        // Create Plume status label
-        plumeStatusLabel = UILabel()
-        plumeStatusLabel?.text = "Plume: Initializing..."
-        plumeStatusLabel?.textColor = .white
-        plumeStatusLabel?.font = UIFont.systemFont(ofSize: 11)
-        plumeStatusLabel?.textAlignment = .center
-        plumeStatusLabel?.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Add network data status (no toggle needed - auto-enabled)
-        let networkStatusLabel = UILabel()
-        networkStatusLabel.text = "📱 Network Data: Active"
-        networkStatusLabel.textColor = .white
-        networkStatusLabel.font = UIFont.systemFont(ofSize: 11)
-        networkStatusLabel.textAlignment = .center
-        networkStatusLabel.translatesAutoresizingMaskIntoConstraints = false
-        
-        guard let container = plumeControlsContainer,
-              let toggleButton = plumeToggleButton,
-              let exportButton = exportDataButton,
-              let statusLabel = plumeStatusLabel else { return }
-        
-        container.addSubview(toggleButton)
-        container.addSubview(exportButton)
-        container.addSubview(statusLabel)
-        container.addSubview(networkStatusLabel)
-        view.addSubview(container)
-        
-        NSLayoutConstraint.activate([
-            // Container in top-right corner
-            container.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            container.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            container.widthAnchor.constraint(equalToConstant: 160),
-            container.heightAnchor.constraint(equalToConstant: 120),
-            
-            // Plume toggle button
-            toggleButton.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
-            toggleButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            toggleButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            toggleButton.heightAnchor.constraint(equalToConstant: 30),
-            
-            // Export button
-            exportButton.topAnchor.constraint(equalTo: toggleButton.bottomAnchor, constant: 4),
-            exportButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            exportButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            exportButton.heightAnchor.constraint(equalToConstant: 30),
-            
-            // Plume status label
-            statusLabel.topAnchor.constraint(equalTo: exportButton.bottomAnchor, constant: 4),
-            statusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            statusLabel.heightAnchor.constraint(equalToConstant: 16),
-            
-            // Network status label
-            networkStatusLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 2),
-            networkStatusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            networkStatusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            networkStatusLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8)
-        ])
-        
-        // Update Plume status periodically
-        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            self?.updatePlumeStatus()
-        }
-    }
-    
-    @objc private func plumeToggleTapped() {
-        let currentlyEnabled = wifiSurveyManager.isPlumeEnabled
-        wifiSurveyManager.enablePlumeIntegration(!currentlyEnabled)
-        
-        let newTitle = wifiSurveyManager.isPlumeEnabled ? "🔌 Disable Plume" : "🔌 Enable Plume"
-        plumeToggleButton?.setTitle(newTitle, for: .normal)
-        
-        updatePlumeStatus()
-        
-        print("🔌 Plume integration toggled: \(wifiSurveyManager.isPlumeEnabled)")
-    }
-    
-    @objc private func exportDataTapped() {
-        guard wifiSurveyManager.measurements.count > 0 else {
-            showAlert(title: "No Data", message: "No measurements available to export. Please complete a WiFi survey first.")
-            return
-        }
-        
-        // Export data with room information if available
-        let exportURL = wifiSurveyManager.exportMeasurementData(roomAnalyzer: roomAnalyzer)
-        
-        if let url = exportURL {
-            // Show share sheet
-            let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-            activityVC.popoverPresentationController?.sourceView = exportDataButton
-            present(activityVC, animated: true)
-            
-            let networkDataCount = wifiSurveyManager.networkDataCollector?.getCollectedData().count ?? 0
-            showAlert(title: "Export Complete", 
-                     message: "Survey data exported successfully!\n\nFile: \(url.lastPathComponent)\n\nMeasurements: \(wifiSurveyManager.measurements.count)\nNetwork data points: \(networkDataCount)\nPlume enabled: \(wifiSurveyManager.isPlumeEnabled)")
-        } else {
-            showAlert(title: "Export Failed", message: "Failed to export survey data. Please try again.")
-        }
-    }
-    
-    private func updatePlumeStatus() {
-        if wifiSurveyManager.isPlumeEnabled {
-            let correlationStatus = wifiSurveyManager.getPlumeCorrelationStatus()
-            let steeringStatus = wifiSurveyManager.plumeSteeringActive ? " 🎯" : ""
-            plumeStatusLabel?.text = "Plume: \(correlationStatus)\(steeringStatus)"
-        } else {
-            plumeStatusLabel?.text = "Plume: Disabled"
-        }
-    }
-    
-    private func showAlert(title: String, message: String) {
-        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
     }
     
     @objc private func scanSurveyToggleTapped() {
@@ -582,16 +385,11 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     }
     
     @objc private func floorPlanNavTapped() {
-        // Only allow floor plan access after both room scan and WiFi survey are completed
-        let hasRoomData = capturedRoomData != nil || roomPlanPaused
-        let hasWifiData = !wifiSurveyManager.measurements.isEmpty
-        
-        if hasRoomData && hasWifiData {
+        // Allow floor plan access if room data exists, even without WiFi measurements
+        if capturedRoomData != nil {
             viewResults()
-        } else if !hasRoomData {
-            showAlert(title: "Room Scan Required", message: "Please complete room scanning first, then WiFi survey to view results.")
-        } else if !hasWifiData {
-            showAlert(title: "WiFi Survey Required", message: "Please complete WiFi survey after room scanning to view results.")
+        } else {
+            showAlert(title: "Room Scan Required", message: "Please complete room scanning first to view the floor plan.")
         }
     }
     
@@ -601,7 +399,6 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             networkDeviceManager.disableRouterPlacementMode()
             routerPlacementButton?.setTitle("📡 Place Router", for: .normal)
             routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
-            routerPlacementButton?.setTitleColor(.white, for: .normal)
         } else {
             // Enter placement mode
             guard isARMode else {
@@ -611,8 +408,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             
             networkDeviceManager.enableRouterPlacementMode()
             routerPlacementButton?.setTitle("❌ Cancel", for: .normal)
-            routerPlacementButton?.backgroundColor = UIColor.systemGray
-            routerPlacementButton?.setTitleColor(.white, for: .normal)
+            routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
             
             // Show instruction message
             statusLabel?.text = "📡 Tap anywhere in AR to place router"
@@ -625,12 +421,11 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         
         let location = gesture.location(in: arSceneView)
         
-        // Perform raycast to find a surface
-        guard let query = arSceneView.raycastQuery(from: location, allowing: .existingPlaneGeometry, alignment: .horizontal) else { return }
-        let raycastResults = arSceneView.session.raycast(query)
+        // Perform hit test to find a surface
+        let hitTestResults = arSceneView.hitTest(location, types: [.existingPlaneUsingExtent, .estimatedHorizontalPlane])
         
-        if let raycastResult = raycastResults.first {
-            let position = raycastResult.worldTransform.columns.3
+        if let hitResult = hitTestResults.first {
+            let position = hitResult.worldTransform.columns.3
             let routerPosition = simd_float3(position.x, position.y, position.z)
             
             // Handle router placement through AR visualization manager
@@ -677,15 +472,23 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         
         print("🔄 Switching from room scanning to WiFi survey...")
         
-        // iOS 17+: Use advanced coordinate alignment with shared ARSession
-        // Stop RoomPlan but keep ARSession running for perfect coordinate alignment
-        roomCaptureView?.captureSession.stop(pauseARSession: false)
-        print("🎯 RoomPlan stopped with ARSession maintained for coordinate continuity")
-        
-        // Store the current room data as additional coordinate reference
-        if let capturedRoom = capturedRoomData {
-            print("📍 Using captured room data as coordinate reference")
-            arVisualizationManager.setCapturedRoomData(capturedRoom)
+        if isSimulatorMode {
+            // Simulator mode - load mock WiFi data
+            print("🎭 Loading mock WiFi survey data")
+            let mockMeasurements = createMockWiFiMeasurements()
+            wifiSurveyManager.measurements = mockMeasurements
+            print("🎭 Loaded \(mockMeasurements.count) mock WiFi measurements")
+        } else {
+            // iOS 17+: Use advanced coordinate alignment with shared ARSession
+            // Stop RoomPlan but keep ARSession running for perfect coordinate alignment
+            roomCaptureView?.captureSession.stop(pauseARSession: false)
+            print("🎯 RoomPlan stopped with ARSession maintained for coordinate continuity")
+            
+            // Store the current room data as additional coordinate reference
+            if let capturedRoom = capturedRoomData {
+                print("📍 Using captured room data as coordinate reference")
+                arVisualizationManager.setCapturedRoomData(capturedRoom)
+            }
         }
         
         roomPlanPaused = true
@@ -697,7 +500,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         // Start WiFi survey
         startWiFiSurveyWithinRoomPlan()
         
-        statusLabel?.text = "📡 WiFi survey mode - Perfect coordinate alignment active"
+        statusLabel?.text = isSimulatorMode ? 
+            "📡 Mock WiFi survey mode - UI testing" : 
+            "📡 WiFi survey mode - Perfect coordinate alignment active"
         print("✅ Successfully switched to WiFi survey mode")
     }
     
@@ -812,19 +617,16 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             print("⚠️ Using separate ARSession (iOS 16)")
         }
         
-        // Add async dispatch to prevent UI freezing during AR mode switch
-        DispatchQueue.main.async {
-            // Switch to AR mode for WiFi visualization (this will respect shared session mode)
-            self.switchToARMode()
-            
-            // If we have room data, use it for additional reference
-            if let capturedRoom = self.capturedRoomData {
-                print("📍 Using captured room data as additional coordinate reference")
-                self.arVisualizationManager.setCapturedRoomData(capturedRoom)
-            }
-            
-            self.statusLabel?.text = "📡 WiFi survey active - Perfect coordinate alignment"
+        // Switch to AR mode for WiFi visualization (this will respect shared session mode)
+        switchToARMode()
+        
+        // If we have room data, use it for additional reference
+        if let capturedRoom = capturedRoomData {
+            print("📍 Using captured room data as additional coordinate reference")
+            arVisualizationManager.setCapturedRoomData(capturedRoom)
         }
+        
+        statusLabel?.text = "📡 WiFi survey active - Perfect coordinate alignment"
     }
     
     private func updateBottomNavigation() {
@@ -836,14 +638,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 modeLabel?.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
                 scanSurveyToggleButton?.setTitle("📡 Switch to WiFi Survey", for: .normal)
                 scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
-                scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
                 scanSurveyToggleButton?.isEnabled = true
             } else {
                 modeLabel?.text = "📱 Ready to Scan Room"
                 modeLabel?.backgroundColor = UIColor.systemGray.withAlphaComponent(0.9)
                 scanSurveyToggleButton?.setTitle("📱 Start Room Scan", for: .normal)
                 scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
-                scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
                 scanSurveyToggleButton?.isEnabled = true
             }
             
@@ -853,14 +653,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 modeLabel?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
                 scanSurveyToggleButton?.setTitle("📱 Back to Room Scan", for: .normal)
                 scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
-                scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
                 scanSurveyToggleButton?.isEnabled = true
             } else {
                 modeLabel?.text = "📡 WiFi Survey Ready"
                 modeLabel?.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
                 scanSurveyToggleButton?.setTitle("📡 Resume WiFi Survey", for: .normal)
                 scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
-                scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
                 scanSurveyToggleButton?.isEnabled = true
             }
             
@@ -868,30 +666,27 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             modeLabel?.text = "📊 Ready for Results"
             modeLabel?.backgroundColor = UIColor.systemPurple.withAlphaComponent(0.9)
             scanSurveyToggleButton?.setTitle("🔄 Restart", for: .normal)
-            scanSurveyToggleButton?.backgroundColor = UIColor.systemGray
-            scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
+            scanSurveyToggleButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
             scanSurveyToggleButton?.isEnabled = true
         }
         
-        // Floor Plan button - only show after survey mode has been opened at least once
+        // Floor Plan button
         let hasRoomData = capturedRoomData != nil || roomPlanPaused
         let hasWifiData = !wifiSurveyManager.measurements.isEmpty
-        let hasSurveyBeenOpened = currentMode == .surveying || currentMode == .completed || hasWifiData
         
-        if hasRoomData && hasSurveyBeenOpened {
-            // Room scan completed and survey opened - show Results button
+        if hasRoomData {
             if hasWifiData {
                 floorPlanNavButton?.setTitle("📊 Results", for: .normal)
+                floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
             } else {
-                floorPlanNavButton?.setTitle("📊 Floor Plan", for: .normal)
+                floorPlanNavButton?.setTitle("📊 Plan", for: .normal)
+                floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
             }
-            floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumBlue
-            floorPlanNavButton?.setTitleColor(.white, for: .normal)
             floorPlanNavButton?.isEnabled = true
-            floorPlanNavButton?.isHidden = false
         } else {
-            // Hide button until survey mode is opened
-            floorPlanNavButton?.isHidden = true
+            floorPlanNavButton?.setTitle("📊 Plan", for: .normal)
+            floorPlanNavButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
+            floorPlanNavButton?.isEnabled = false
         }
         
         // Router placement button - show in AR/surveying mode when room data exists
@@ -899,20 +694,17 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         routerPlacementButton?.isHidden = !showRouterButton
         
         // Update button text based on placement status
-        if networkDeviceManager.router != nil {
+        if let router = networkDeviceManager.router {
             routerPlacementButton?.setTitle("📡 Router Placed", for: .normal)
             routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumGreen
-            routerPlacementButton?.setTitleColor(.white, for: .normal)
             routerPlacementButton?.isEnabled = false
         } else if networkDeviceManager.isRouterPlacementMode {
             routerPlacementButton?.setTitle("❌ Cancel", for: .normal)
-            routerPlacementButton?.backgroundColor = UIColor.systemGray
-            routerPlacementButton?.setTitleColor(.white, for: .normal)
+            routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumSilver
             routerPlacementButton?.isEnabled = true
         } else {
             routerPlacementButton?.setTitle("📡 Place Router", for: .normal)
             routerPlacementButton?.backgroundColor = SpectrumBranding.Colors.spectrumRed
-            routerPlacementButton?.setTitleColor(.white, for: .normal)
             routerPlacementButton?.isEnabled = true
         }
     }
@@ -1047,21 +839,27 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         stopTrackingStateMonitoring()
         stopStatusUpdateTimer()
         stopScanningProgressHaptics()
+        simulatorTimer?.invalidate()
+        simulatorTimer = nil
         
         // Clean up measurement data to prevent memory leaks
         wifiSurveyManager.clearMeasurementData()
     }
     
     private func startSession() {
-        
-        guard RoomCaptureSession.isSupported else {
-            print("❌ Cannot start session: RoomCaptureSession not supported")
-            // Don't show alert - just log and return
+        if isSimulatorMode {
+            startSimulatorSession()
             return
         }
         
         guard let roomCaptureView = roomCaptureView else {
             print("❌ Cannot start session: roomCaptureView is nil")
+            return
+        }
+        
+        guard RoomCaptureSession.isSupported else {
+            print("❌ Cannot start session: RoomCaptureSession not supported")
+            showAlert(title: "Device Not Supported", message: "This device does not support room capture.")
             return
         }
         
@@ -1086,16 +884,81 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         updateButtonStates()
     }
     
+    private func startSimulatorSession() {
+        print("🎭 Starting simulator mock session...")
+        
+        isScanning = true
+        simulatorProgress = 0.0
+        
+        // Start mock room scanning progress
+        simulatorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
+            self?.updateSimulatorProgress()
+        }
+        
+        // Load mock room data
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            self.loadMockRoomData()
+        }
+        
+        setActiveNavBar()
+        updateButtonStates()
+        
+        print("✅ Simulator session started")
+    }
     
+    private func updateSimulatorProgress() {
+        simulatorProgress += 0.05
+        
+        // Update status with mock scanning progress
+        statusLabel?.text = "📱 Mock Room Scanning... \(Int(simulatorProgress * 100))%"
+        statusLabel?.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
+        
+        // Simulate completion after reaching 100%
+        if simulatorProgress >= 1.0 {
+            simulatorTimer?.invalidate()
+            simulatorTimer = nil
+            completeSimulatorScanning()
+        }
+    }
     
+    private func loadMockRoomData() {
+        // Simulate room analysis with mock data
+        let mockRooms = createMockRoomAnalysis()
+        roomAnalyzer.identifiedRooms = mockRooms
+        
+        print("🎭 Loaded \(mockRooms.count) mock rooms for testing")
+        
+        // Update UI to reflect mock room data
+        updateButtonStates()
+    }
     
+    private func completeSimulatorScanning() {
+        print("🎭 Simulator room scanning completed")
+        
+        // Simulate a successful room capture
+        isScanning = false
+        
+        // Mock captured room data (set a flag to indicate mock data exists)
+        capturedRoomData = nil // We'll use the room analyzer data instead
+        
+        statusLabel?.text = "📱 Room scan data generated - \(roomAnalyzer.identifiedRooms.count) rooms detected"
+        statusLabel?.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
+        
+        updateButtonStates()
+    }
     
     private func stopSession() {
         print("🛑 Stopping room capture session...")
         isScanning = false
         
-        roomCaptureView?.captureSession.stop()
-        stopTrackingStateMonitoring()
+        if isSimulatorMode {
+            // Stop simulator timers
+            simulatorTimer?.invalidate()
+            simulatorTimer = nil
+        } else {
+            roomCaptureView?.captureSession.stop()
+            stopTrackingStateMonitoring()
+        }
         
         stopWiFiMonitoring()
         
@@ -1110,9 +973,10 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     private func startWiFiMonitoring() {
         // Start basic WiFi network monitoring during room scan
-        // Minimal logging using collector (if available)
-        let name = wifiSurveyManager.currentNetworkName
-        if !name.isEmpty { print("📶 Connected to WiFi: \(name)") }
+        let networkInfo = wifiSurveyManager.getCurrentNetworkInfo()
+        if let ssid = networkInfo.ssid, !ssid.isEmpty {
+            print("📶 Connected to WiFi: \(ssid)")
+        }
     }
     
     private func stopWiFiMonitoring() {
@@ -1154,9 +1018,6 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         
         // Pass room data to AR visualization manager
         arVisualizationManager.setCapturedRoomData(processedResult)
-        
-        // Perform accuracy validation after room analysis
-        // performAccuracyValidation(capturedRoom: processedResult) // Disabled for build compatibility
         
         // Check if both room and WiFi data exist (but don't auto-complete)
         if !wifiSurveyManager.measurements.isEmpty {
@@ -1234,6 +1095,10 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         print("📊 User requested results view - setting completed mode")
         
         // In simulator mode, allow viewing results with mock data even without captured room data
+        if isSimulatorMode {
+            viewSimulatorResults()
+            return
+        }
         
         guard capturedRoomData != nil else {
             currentMode = .scanning // Reset if no data
@@ -1251,13 +1116,49 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             
             // Generate heatmap data in background to prevent UI freezing
             DispatchQueue.global(qos: .userInitiated).async {
-                let heatmapData = self.wifiSurveyManager.generateHeatmapData()
+                // Base heatmap from measurements
+                let baseHeatmap = self.wifiSurveyManager.generateHeatmapData()
+                
+                // Predict propagation and merge with measured data
+                let routers: [simd_float3]
+                if let placedRouter = self.networkDeviceManager.router?.position {
+                    routers = [placedRouter]
+                } else {
+                    routers = baseHeatmap.optimalRouterPlacements
+                }
+                var mergedHeatmap = baseHeatmap
+                if !routers.isEmpty && !self.roomAnalyzer.identifiedRooms.isEmpty {
+                    var predicted: [simd_float3: Double] = [:]
+                    let hasMultipleFloors = Set(self.roomAnalyzer.identifiedRooms.map { $0.floorIndex }).count > 1
+                    if !hasMultipleFloors {
+                        if let metal = MetalRFPropagation() {
+                            if let gpuResult = metal.generateCoverage(rooms: self.roomAnalyzer.identifiedRooms, routers: routers) {
+                                predicted = gpuResult
+                            }
+                        }
+                    }
+                    if predicted.isEmpty {
+                        predicted = RFPropagationModel.generatePropagationMap(
+                            rooms: self.roomAnalyzer.identifiedRooms,
+                            routers: routers
+                        )
+                    }
+                    let mergedCoverage = RFPropagationModel.mergePredictedWithMeasured(
+                        predicted: predicted,
+                        measured: self.wifiSurveyManager.measurements
+                    )
+                    mergedHeatmap = WiFiHeatmapData(
+                        measurements: baseHeatmap.measurements,
+                        coverageMap: mergedCoverage,
+                        optimalRouterPlacements: baseHeatmap.optimalRouterPlacements
+                    )
+                }
                 
                 DispatchQueue.main.async {
                     print("✅ Results generated, navigating to floor plan...")
                     
                     let floorPlanVC = FloorPlanViewController()
-                    floorPlanVC.updateWithData(heatmapData: heatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager, validationResults: nil)
+                    floorPlanVC.updateWithData(heatmapData: mergedHeatmap, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager)
                     floorPlanVC.modalPresentationStyle = .fullScreen
                     self.present(floorPlanVC, animated: true)
                     
@@ -1279,7 +1180,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                     coverageMap: [:],
                     optimalRouterPlacements: []
                 )
-                floorPlanVC.updateWithData(heatmapData: emptyHeatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager, validationResults: nil)
+                floorPlanVC.updateWithData(heatmapData: emptyHeatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager)
                 floorPlanVC.modalPresentationStyle = .fullScreen
                 self.present(floorPlanVC, animated: true)
                 
@@ -1289,6 +1190,28 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         }
     }
     
+    private func viewSimulatorResults() {
+        print("🎭 Showing simulator results with mock data...")
+        
+        statusLabel?.text = "📊 Loading mock analysis results..."
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            // Use mock heatmap data
+            let mockHeatmapData = self.createMockHeatmapData()
+            
+            DispatchQueue.main.async {
+                print("✅ Mock results generated, navigating to floor plan...")
+                
+                let floorPlanVC = FloorPlanViewController()
+                floorPlanVC.updateWithData(heatmapData: mockHeatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager)
+                floorPlanVC.modalPresentationStyle = .fullScreen
+                self.present(floorPlanVC, animated: true)
+                
+                // Reset status
+                self.statusLabel?.text = "Mock analysis complete"
+            }
+        }
+    }
     
     private func switchToARMode() {
         isARMode = true
@@ -1330,51 +1253,54 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     // Alternatively, `.mesh` exports a nonparametric file and `.all`
     // exports both in a single USDZ.
     @IBAction func exportResults(_ sender: UIButton) {
-        print("📊 Export Results button tapped - showing WiFi analysis results...")
-        
-        // Check if we have WiFi measurements
-        if wifiSurveyManager.measurements.count > 0 {
-            print("📊 Found \(wifiSurveyManager.measurements.count) WiFi measurements")
-            showAnalysisResults()
-        } else if roomAnalyzer.identifiedRooms.count > 0 {
-            print("📊 No WiFi measurements found, showing basic floor plan...")
-            // Show basic floor plan without WiFi data
-            let floorPlanVC = FloorPlanViewController()
-            let emptyHeatmapData = WiFiHeatmapData(
-                measurements: [],
-                coverageMap: [:],
-                optimalRouterPlacements: []
-            )
-            floorPlanVC.updateWithData(heatmapData: emptyHeatmapData, roomAnalyzer: roomAnalyzer, networkDeviceManager: networkDeviceManager)
-            floorPlanVC.modalPresentationStyle = .fullScreen
-            present(floorPlanVC, animated: true)
-        } else {
-            print("⚠️ No room data available to show results")
-            let alert = UIAlertController(title: "No Data", message: "Please complete a room scan first", preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            present(alert, animated: true)
+        let destinationURL = FileManager.default.temporaryDirectory.appending(path: "Room_With_Heatmap.usdz")
+        guard let captured = finalResults else {
+            print("⚠️ No captured room to export")
+            return
         }
-    }
-    
-    private func showAnalysisResults() {
-        print("📊 Showing WiFi analysis results...")
-        
-        // Generate heatmap data from measurements
-        let heatmapData = WiFiHeatmapData(
-            measurements: wifiSurveyManager.measurements,
-            coverageMap: [:], // Could be calculated if needed
-            optimalRouterPlacements: [] // Could be calculated if needed
-        )
-        
-        // Present the floor plan view controller
-        let floorPlanVC = FloorPlanViewController()
-        floorPlanVC.updateWithData(
-            heatmapData: heatmapData,
-            roomAnalyzer: roomAnalyzer,
-            networkDeviceManager: networkDeviceManager
-        )
-        floorPlanVC.modalPresentationStyle = .fullScreen
-        present(floorPlanVC, animated: true)
+        do {
+            // Build current heatmap (merge predicted if possible)
+            let baseHeatmap = wifiSurveyManager.generateHeatmapData()
+            let routers: [simd_float3]
+            if let placedRouter = networkDeviceManager.router?.position {
+                routers = [placedRouter]
+            } else {
+                routers = baseHeatmap.optimalRouterPlacements
+            }
+            var coverage = baseHeatmap.coverageMap
+            if !routers.isEmpty && !roomAnalyzer.identifiedRooms.isEmpty {
+                var predicted: [simd_float3: Double] = [:]
+                let hasMultipleFloors = Set(roomAnalyzer.identifiedRooms.map { $0.floorIndex }).count > 1
+                if !hasMultipleFloors {
+                    if let metal = MetalRFPropagation() {
+                        if let gpuResult = metal.generateCoverage(rooms: roomAnalyzer.identifiedRooms, routers: routers) {
+                            predicted = gpuResult
+                        }
+                    }
+                }
+                if predicted.isEmpty {
+                    predicted = RFPropagationModel.generatePropagationMap(
+                        rooms: roomAnalyzer.identifiedRooms,
+                        routers: routers
+                    )
+                }
+                coverage = RFPropagationModel.mergePredictedWithMeasured(
+                    predicted: predicted,
+                    measured: wifiSurveyManager.measurements
+                )
+            }
+            try USDZHeatmapExporter.exportRoomWithHeatmap(capturedRoom: captured, coverageMap: coverage, destinationURL: destinationURL)
+            
+            let activityVC = UIActivityViewController(activityItems: [destinationURL], applicationActivities: nil)
+            activityVC.modalPresentationStyle = .popover
+            
+            present(activityVC, animated: true, completion: nil)
+            if let popOver = activityVC.popoverPresentationController {
+                popOver.sourceView = self.exportButton
+            }
+        } catch {
+            print("Error = \(error)")
+        }
     }
     
     private func setActiveNavBar() {
@@ -1391,107 +1317,6 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             self.exportButton?.alpha = 1.0
         }
     }
-    
-    // MARK: - Accuracy Validation
-    
-    /*
-    private func performAccuracyValidation(capturedRoom: CapturedRoom) {
-        print("🎯 Performing room accuracy validation...")
-        
-        // Run validation in background to avoid blocking UI
-        DispatchQueue.global(qos: .userInitiated).async {
-            let validationResults = self.roomAccuracyValidator.validateRoomAccuracy(
-                capturedRoom: capturedRoom,
-                roomAnalyzer: self.roomAnalyzer
-            )
-            
-            DispatchQueue.main.async {
-                self.handleValidationResults(validationResults)
-            }
-        }
-    }
-    */
-    
-    // MARK: - Room Accuracy Validation (Disabled for Build Compatibility)
-    /*
-    private func handleValidationResults(_ results: RoomAccuracyValidator.ValidationResults) {
-        print("📊 Accuracy validation completed:")
-        print("   Overall accuracy: \(String(format: "%.1f", results.overallAccuracyScore * 100))%")
-        print("   Wall matching: \(String(format: "%.1f", results.comparisonResults.wallAccuracy.wallMatchingRate * 100))%")
-        print("   Furniture matching: \(String(format: "%.1f", results.comparisonResults.furnitureAccuracy.furnitureMatchingRate * 100))%")
-        print("   Recommendations: \(roomAccuracyValidator.recommendations.count)")
-        
-        // Update status label with accuracy information
-        let accuracyText = String(format: "%.0f", results.overallAccuracyScore * 100)
-        statusLabel?.text = "✅ Room scanned with \(accuracyText)% accuracy - Tap 'View Plan' to see results"
-        
-        // Change status color based on accuracy
-        if results.overallAccuracyScore >= 0.8 {
-            statusLabel?.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.9)
-        } else if results.overallAccuracyScore >= 0.6 {
-            statusLabel?.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.9)
-        } else {
-            statusLabel?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
-        }
-        
-        // Show alert for significant accuracy issues
-        if results.overallAccuracyScore < 0.6 && !roomAccuracyValidator.recommendations.isEmpty {
-            showAccuracyAlert(results: results)
-        }
-        
-        // Log detailed recommendations
-        for recommendation in roomAccuracyValidator.recommendations {
-            print("   \(recommendation.severity.color) \(recommendation.type): \(recommendation.issue)")
-            print("     → \(recommendation.recommendation)")
-        }
-    }
-    
-    private func showAccuracyAlert(results: RoomAccuracyValidator.ValidationResults) {
-        let accuracyPercent = String(format: "%.0f", results.overallAccuracyScore * 100)
-        let criticalIssues = roomAccuracyValidator.recommendations.filter { $0.severity == .critical || $0.severity == .high }
-        
-        let title = "Room Accuracy Issues Detected"
-        var message = "Floor plan accuracy: \(accuracyPercent)%\n\n"
-        
-        if !criticalIssues.isEmpty {
-            message += "Key issues found:\n"
-            for issue in criticalIssues.prefix(3) {
-                message += "• \(issue.issue)\n"
-            }
-        }
-        
-        message += "\nYou can still proceed with the current results or rescan for better accuracy."
-        
-        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        
-        alert.addAction(UIAlertAction(title: "View Detailed Report", style: .default) { _ in
-            self.showDetailedAccuracyReport(results)
-        })
-        
-        alert.addAction(UIAlertAction(title: "Continue", style: .default))
-        alert.addAction(UIAlertAction(title: "Rescan Room", style: .cancel) { _ in
-            self.retryRoomCapture()
-        })
-        
-        present(alert, animated: true)
-    }
-    
-    private func showDetailedAccuracyReport(_ results: RoomAccuracyValidator.ValidationResults) {
-        let reportText = results.validationSummary + "\n\n" + 
-            roomAccuracyValidator.recommendations.map { rec in
-                "\(rec.severity.color) \(rec.issue)\n→ \(rec.recommendation)\n"
-            }.joined(separator: "\n")
-        
-        let alert = UIAlertController(
-            title: "Room Accuracy Report",
-            message: reportText,
-            preferredStyle: .alert
-        )
-        
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
-    }
-    */
     
     // MARK: - Navigation Methods
     
@@ -1637,6 +1462,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     private func isTrackingStateGood() -> Bool {
         // In simulator mode, simulate good tracking most of the time
+        if isSimulatorMode {
+            return true // For UI testing, assume good tracking
+        }
         
         guard let arSession = roomCaptureView?.captureSession.arSession else { return false }
         
@@ -1658,8 +1486,155 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         showEnhancedTrackingGuidance()
     }
     
+    // MARK: - Mock Data for Simulator
     
+    private func createMockRoomAnalysis() -> [RoomAnalyzer.IdentifiedRoom] {
+        // Note: This is a simplified mock - will need to match actual RoomAnalyzer.IdentifiedRoom structure
+        // For now, we'll just set an empty array and let the real room analyzer work
+        return []
+    }
     
+    private func createMockWiFiMeasurements() -> [WiFiMeasurement] {
+        var measurements: [WiFiMeasurement] = []
+        
+        // Living room measurements (good signal near router)
+        measurements.append(contentsOf: [
+            WiFiMeasurement(
+                location: simd_float3(2.0, 0, 1.0),
+                timestamp: Date().addingTimeInterval(-300),
+                signalStrength: -35,
+                networkName: "SpectrumSetup-A7",
+                speed: 450.0,
+                frequency: "5.18 GHz",
+                roomType: .livingRoom,
+                floorIndex: 0,
+                roomId: nil
+            ),
+            WiFiMeasurement(
+                location: simd_float3(4.0, 0, 2.0),
+                timestamp: Date().addingTimeInterval(-280),
+                signalStrength: -42,
+                networkName: "SpectrumSetup-A7",
+                speed: 380.0,
+                frequency: "5.18 GHz",
+                roomType: .livingRoom,
+                floorIndex: 0,
+                roomId: nil
+            ),
+            WiFiMeasurement(
+                location: simd_float3(3.5, 0, 3.0),
+                timestamp: Date().addingTimeInterval(-260),
+                signalStrength: -38,
+                networkName: "SpectrumSetup-A7",
+                speed: 420.0,
+                frequency: "5.18 GHz",
+                roomType: .livingRoom,
+                floorIndex: 0,
+                roomId: nil
+            )
+        ])
+        
+        // Kitchen measurements (moderate signal)
+        measurements.append(contentsOf: [
+            WiFiMeasurement(
+                location: simd_float3(-1.0, 0, 1.5),
+                timestamp: Date().addingTimeInterval(-240),
+                signalStrength: -58,
+                networkName: "SpectrumSetup-A7",
+                speed: 180.0,
+                frequency: "5.18 GHz",
+                roomType: .kitchen,
+                floorIndex: 0,
+                roomId: nil
+            ),
+            WiFiMeasurement(
+                location: simd_float3(-2.5, 0, 2.5),
+                timestamp: Date().addingTimeInterval(-220),
+                signalStrength: -65,
+                networkName: "SpectrumSetup-A7",
+                speed: 120.0,
+                frequency: "5.18 GHz",
+                roomType: .kitchen,
+                floorIndex: 0,
+                roomId: nil
+            )
+        ])
+        
+        // Bedroom measurements (weaker signal)
+        measurements.append(contentsOf: [
+            WiFiMeasurement(
+                location: simd_float3(2.5, 0, -2.0),
+                timestamp: Date().addingTimeInterval(-200),
+                signalStrength: -72,
+                networkName: "SpectrumSetup-A7",
+                speed: 85.0,
+                frequency: "5.18 GHz",
+                roomType: .bedroom,
+                floorIndex: 0,
+                roomId: nil
+            ),
+            WiFiMeasurement(
+                location: simd_float3(4.0, 0, -3.5),
+                timestamp: Date().addingTimeInterval(-180),
+                signalStrength: -78,
+                networkName: "SpectrumSetup-A7",
+                speed: 45.0,
+                frequency: "5.18 GHz",
+                roomType: .bedroom,
+                floorIndex: 0,
+                roomId: nil
+            )
+        ])
+        
+        return measurements
+    }
+    
+    private func createMockHeatmapData() -> WiFiHeatmapData {
+        let measurements = createMockWiFiMeasurements()
+        
+        // Generate interpolated coverage map
+        var coverageMap: [simd_float3: Double] = [:]
+        
+        // Create a grid covering the mock room area
+        for x in stride(from: -4.0, through: 6.0, by: 0.5) {
+            for z in stride(from: -5.0, through: 4.0, by: 0.5) {
+                let point = simd_float3(Float(x), 0, Float(z))
+                
+                // Calculate interpolated signal strength based on distance from measurements
+                var totalWeight: Float = 0
+                var weightedSignal: Float = 0
+                
+                for measurement in measurements {
+                    let distance = simd_distance(point, measurement.location)
+                    let weight = 1.0 / (distance + 0.1) // Avoid division by zero
+                    
+                    totalWeight += weight
+                    weightedSignal += weight * Float(measurement.signalStrength)
+                }
+                
+                if totalWeight > 0 {
+                    let interpolatedStrength = weightedSignal / totalWeight
+                    let normalizedSignal = Double(interpolatedStrength + 100) / 100.0
+                    
+                    if interpolatedStrength > -120 {
+                        coverageMap[point] = max(0, min(1, normalizedSignal))
+                    }
+                }
+            }
+        }
+        
+        // Mock optimal router placements (simplified as coordinates)
+        let optimalPlacements = [
+            simd_float3(1.0, 1.5, 0.5),
+            simd_float3(0.0, 1.5, 1.0)
+        ]
+        
+        return WiFiHeatmapData(
+            measurements: measurements,
+            coverageMap: coverageMap,
+            optimalRouterPlacements: optimalPlacements
+        )
+    }
 }
 
 // MARK: - RoomCaptureSessionDelegate
@@ -1880,6 +1855,10 @@ extension RoomCaptureViewController {
         lastSurfaceHapticTime = now
         
         // Skip haptics in simulator mode
+        guard !isSimulatorMode else {
+            print("📳 [Simulator] Would trigger scanning haptic for surface detection")
+            return
+        }
         
         // Ensure generators are ready
         ensureHapticGeneratorsReady()
@@ -1900,6 +1879,10 @@ extension RoomCaptureViewController {
         lastObjectHapticTime = now
         
         // Skip haptics in simulator mode
+        guard !isSimulatorMode else {
+            print("📳 [Simulator] Would trigger scanning haptic for object detection")
+            return
+        }
         
         // Create more detailed scanning sensation for objects
         triggerScanningPattern(intensity: .medium, duration: .medium)
@@ -1908,6 +1891,10 @@ extension RoomCaptureViewController {
     
     private func triggerMajorDiscoveryHaptic() {
         // Skip haptics in simulator mode
+        guard !isSimulatorMode else {
+            print("📳 [Simulator] Would trigger discovery haptic for major discovery")
+            return
+        }
         
         // Create discovery confirmation pattern
         triggerDiscoveryPattern()
@@ -1970,6 +1957,10 @@ extension RoomCaptureViewController {
     private func triggerActiveScanningFeedback() {
         // Continuous subtle feedback while actively scanning
         // Very light, rhythmic pulse to indicate scanning is active
+        guard !isSimulatorMode else { 
+            print("📳 [Simulator] Would trigger active scanning feedback")
+            return 
+        }
         
         // Ensure generators are ready
         ensureHapticGeneratorsReady()
@@ -2007,6 +1998,5 @@ extension RoomCaptureViewController {
         scanningProgressTimer = nil
         print("📳 Stopped scanning progress haptics")
     }
-    
 }
 

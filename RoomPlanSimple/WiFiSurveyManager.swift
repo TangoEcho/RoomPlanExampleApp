@@ -4,48 +4,24 @@ import CoreLocation
 import simd
 import SystemConfiguration.CaptiveNetwork
 import NetworkExtension
-import Darwin
-import CoreTelephony
 
-// Import WiFiMapFramework for advanced RF modeling
-import UIKit // For accessing the bundle
-
-// MARK: - RF Propagation Models (Simplified)
-
-struct PropagationModels {
-    struct ITUIndoorModel {
-        enum Environment {
-            case residential
-            case office
-            case commercial
-            case industrial
-        }
-        
-        let environment: Environment
-        
-        init(environment: Environment) {
-            self.environment = environment
-        }
-        
-        func pathLoss(distance: Double, frequency: Double, floors: Int = 0) -> Double {
-            // Simplified ITU indoor path loss model
-            let floorFactor = Double(floors) * 15.0 // 15dB per floor
-            let basePathLoss = 20.0 * log10(distance) + 20.0 * log10(frequency/1000.0) + 32.0
-            let environmentFactor: Double
-            
-            switch environment {
-            case .residential: environmentFactor = 1.0
-            case .office: environmentFactor = 1.2
-            case .commercial: environmentFactor = 1.4
-            case .industrial: environmentFactor = 1.6
-            }
-            
-            return basePathLoss * environmentFactor + floorFactor
-        }
-    }
+struct WiFiMeasurement {
+    let location: simd_float3
+    let timestamp: Date
+    let signalStrength: Int
+    let networkName: String
+    let speed: Double
+    let frequency: String
+    let roomType: RoomType?
+    let floorIndex: Int?
+    let roomId: UUID?
 }
 
-// MARK: - Core Type Definitions
+struct WiFiHeatmapData {
+    let measurements: [WiFiMeasurement] 
+    let coverageMap: [simd_float3: Double]
+    let optimalRouterPlacements: [simd_float3]
+}
 
 enum RoomType: String, CaseIterable {
     case kitchen = "Kitchen"
@@ -61,477 +37,18 @@ enum RoomType: String, CaseIterable {
     case unknown = "Unknown"
 }
 
-enum WiFiFrequencyBand: String, CaseIterable {
-    case band2_4GHz = "2.4GHz"
-    case band5GHz = "5GHz"  
-    case band6GHz = "6GHz"
-    
-    static func from(_ frequency: String) -> WiFiFrequencyBand {
-        if frequency.contains("2.4") || frequency.contains("2400") {
-            return .band2_4GHz
-        } else if frequency.contains("6") || frequency.contains("6000") {
-            return .band6GHz
-        } else {
-            return .band5GHz // Default to 5GHz for most modern networks
-        }
-    }
-    
-    var centerFrequency: Double {
-        switch self {
-        case .band2_4GHz: return 2400.0
-        case .band5GHz: return 5200.0
-        case .band6GHz: return 6000.0
-        }
-    }
-    
-    var displayName: String {
-        switch self {
-        case .band2_4GHz: return "2.4 GHz"
-        case .band5GHz: return "5 GHz"
-        case .band6GHz: return "6 GHz"
-        }
-    }
-    
-    static func fromFrequency(_ frequency: Float) -> WiFiFrequencyBand {
-        switch frequency {
-        case 2000...2500:
-            return .band2_4GHz
-        case 5900...6500:
-            return .band6GHz
-        default:
-            return .band5GHz
-        }
-    }
-}
-
-enum IndoorEnvironment {
-    case residential
-    case office
-    case commercial
-    case industrial
-    
-    var pathLossExponent: Double {
-        switch self {
-        case .residential: return 2.0
-        case .office: return 2.2
-        case .commercial: return 2.4
-        case .industrial: return 2.8
-        }
-    }
-    
-    var rawValue: String {
-        switch self {
-        case .residential: return "residential"
-        case .office: return "office"
-        case .commercial: return "commercial"
-        case .industrial: return "industrial"
-        }
-    }
-}
-
-// Forward declarations for RF propagation types (simplified versions for compatibility)
-struct RFSignalPrediction {
-    let location: simd_float3
-    let bestRSSI: Float
-    let signalQuality: SignalQuality
-    let confidence: Double
-    let obstacles: [String] // Simplified
-    let calculationTime: TimeInterval
-    let predictedRSSI: [String: Float] // Simplified frequency band mapping
-}
-
-enum SignalQuality: String {
-    case excellent = "excellent"
-    case good = "good" 
-    case fair = "fair"
-    case poor = "poor"
-    case unusable = "unusable"
-    
-    static func fromRSSI(_ rssi: Float) -> SignalQuality {
-        switch rssi {
-        case -50.0...Float.infinity:
-            return .excellent
-        case -60.0..<(-50.0):
-            return .good
-        case -70.0..<(-60.0):
-            return .fair
-        case -80.0..<(-70.0):
-            return .poor
-        default:
-            return .unusable
-        }
-    }
-}
-
-struct RFCoverageMap {
-    let bounds: (min: simd_float3, max: simd_float3)
-    let resolution: Double
-    let generationTime: TimeInterval
-    let statistics: RFCoverageStatistics
-    let deadZones: [RFDeadZone]
-}
-
-struct RFCoverageStatistics {
-    let totalPoints: Int
-    let usableCoveragePercentage: Double
-    let averageSignalStrength: Float
-    let overallQualityScore: Double
-}
-
-struct RFDeadZone {
-    let center: simd_float3
-    let radius: Float
-}
-
-struct RFValidationResults {
-    let accuracy: Double
-    let meanError: Double 
-    let validationPoints: Int
-    
-    var isAcceptable: Bool {
-        return accuracy > 0.7 && meanError < 10.0 && validationPoints >= 5
-    }
-}
-
-struct RFAnalysisReport {
-    let coverageStatistics: RFCoverageStatistics
-    let deadZones: [RFDeadZone]
-    let recommendations: [String]
-}
-
-// Type aliases for compatibility with RF engine
-typealias SignalPrediction = RFSignalPrediction
-typealias CoverageMap = RFCoverageMap
-typealias ValidationResults = RFValidationResults
-
-// MARK: - Local minimal abstractions to satisfy target membership
-protocol RFPropagationProvider {
-	func initialize(environment: IndoorEnvironment)
-	func updateRoomModel(from analyzer: RoomAnalyzer)
-	func predictSignalStrength(at location: simd_float3, frequency: Float?) -> RFSignalPrediction?
-	func generateCoverageMap(gridResolution: Double, progressCallback: ((Double) -> Void)?) -> RFCoverageMap?
-	func validatePredictions(measurements: [WiFiMeasurement]) -> RFValidationResults?
-	func generateAnalysisReport() -> RFAnalysisReport?
-}
-
-struct SteeringResult {
-	let success: Bool
-	let band: WiFiFrequencyBand?
-	let signalStrength: Int
-	let stabilizationTime: TimeInterval
-	let timestamp: Date
-}
-
-struct CorrelatedMeasurement {
-	let timestamp: Date
-}
-
-protocol WiFiControlProvider: AnyObject {
-	var isEnabled: Bool { get }
-	func canSteerDevice() -> Bool
-	func steerToBand(_ band: WiFiFrequencyBand, at location: simd_float3) async throws -> SteeringResult
-	func correlate(measurements: [WiFiMeasurement]) -> [CorrelatedMeasurement]
-	func correlationStatusText() -> String
-}
-
-final class NoOpWiFiControlProvider: WiFiControlProvider {
-	var isEnabled: Bool { false }
-	func canSteerDevice() -> Bool { false }
-	func steerToBand(_ band: WiFiFrequencyBand, at location: simd_float3) async throws -> SteeringResult {
-		throw NSError(domain: "WiFiControl", code: -1)
-	}
-	func correlate(measurements: [WiFiMeasurement]) -> [CorrelatedMeasurement] { [] }
-	func correlationStatusText() -> String { "WiFi control disabled" }
-}
-
-struct NetworkPathData {
-	var hasWiFi: Bool = false
-	var hasCellular: Bool = false
-}
-
-struct CarrierInfo { let name: String }
-
-struct CellularData {
-	let carriers: [String: CarrierInfo]
-	let radioTechnologies: [String: String]
-	let signalBars: Int
-}
-
-struct WiFiData {
-	let connectedSSID: String?
-}
-
-struct NetworkDataPoint {
-	let timestamp: Date
-	let location: simd_float3?
-	let cellularData: CellularData
-	let wifiData: WiFiData
-	let networkPath: NetworkPathData
-}
-
-final class NetworkDataCollector {
-	var measurementInterval: TimeInterval?
-	func startCollection() {}
-	func stopCollection() {}
-	func collectCurrentData(at location: simd_float3? = nil) -> NetworkDataPoint {
-		return NetworkDataPoint(
-			timestamp: Date(),
-			location: location,
-			cellularData: CellularData(
-				carriers: [:],
-				radioTechnologies: ["primary": "LTE"],
-				signalBars: 3
-			),
-			wifiData: WiFiData(connectedSSID: "Unknown Network"),
-			networkPath: NetworkPathData(hasWiFi: true, hasCellular: true)
-		)
-	}
-	func getCollectedData() -> [NetworkDataPoint] { [] }
-	func getCurrentNetworkName() -> String { "Unknown Network" }
-	func getCurrentSignalStrength() -> Int { -65 }
-}
-
-// Minimal exporter stub to satisfy references when export file is not part of target
-final class DataExportManager {
-	func exportSurveyData(roomAnalyzer: RoomAnalyzer, wifiSurveyManager: WiFiSurveyManager) -> URL? { nil }
-	func exportPlumeSimulationData(from measurements: [WiFiMeasurement]) -> URL? { nil }
-}
-
-// Simplified RF propagation integration for compatibility
-class SimpleRFPropagationIntegration: RFPropagationProvider {
-    private let environment: IndoorEnvironment
-    
-    init(environment: IndoorEnvironment) {
-        self.environment = environment
-    }
-    
-    func initialize(environment: IndoorEnvironment) {
-        // already configured via init
-    }
-    
-    func updateRoomModel(from roomAnalyzer: RoomAnalyzer) {
-        // Simplified implementation
-        print("📊 Updated RF model with \(roomAnalyzer.identifiedRooms.count) rooms")
-    }
-    
-    func inferAndAddRouter(from measurements: [WiFiMeasurement]) {
-        // Simplified implementation  
-        print("📡 Inferred router from \(measurements.count) measurements")
-    }
-    
-    func predictSignalStrength(at location: simd_float3, frequency: Float? = nil) -> RFSignalPrediction? {
-        // Simplified prediction using existing propagation model
-        let distance = Double(simd_length(location))
-        let freq = Double(frequency ?? 5200.0)
-        
-        let propagationModel = PropagationModels.ITUIndoorModel(environment: .residential)
-        let pathLoss = propagationModel.pathLoss(distance: distance, frequency: freq)
-        
-        let txPower: Double = 23.0 // dBm
-        let predictedRSSI = txPower - pathLoss
-        
-        return RFSignalPrediction(
-            location: location,
-            bestRSSI: Float(predictedRSSI),
-            signalQuality: SignalQuality.fromRSSI(Float(predictedRSSI)),
-            confidence: max(0.1, 1.0 - distance / 20.0),
-            obstacles: [],
-            calculationTime: 0.001,
-            predictedRSSI: ["5GHz": Float(predictedRSSI)]
-        )
-    }
-    
-    func generateCoverageMap(
-        gridResolution: Double = 0.5,
-        progressCallback: ((Double) -> Void)? = nil
-    ) -> RFCoverageMap? {
-        // Simplified coverage map generation
-        let bounds = (min: simd_float3(-10, 0, -10), max: simd_float3(10, 3, 10))
-        let gridPoints = Int((20.0 / gridResolution) * (20.0 / gridResolution))
-        
-        // Simulate progress
-        for i in stride(from: 0, through: 100, by: 25) {
-            progressCallback?(Double(i) / 100.0)
-            usleep(100000) // Small delay for demonstration
-        }
-        
-        return RFCoverageMap(
-            bounds: bounds,
-            resolution: gridResolution,
-            generationTime: 0.5,
-            statistics: RFCoverageStatistics(
-                totalPoints: gridPoints,
-                usableCoveragePercentage: 0.85,
-                averageSignalStrength: -65.0,
-                overallQualityScore: 0.75
-            ),
-            deadZones: []
-        )
-    }
-    
-    func validatePredictions(measurements: [WiFiMeasurement]) -> RFValidationResults? {
-        // Simplified validation
-        var totalError: Double = 0.0
-        var validComparisons = 0
-        
-        for measurement in measurements {
-            if let prediction = predictSignalStrength(at: measurement.location) {
-                let measuredRSSI = measurement.averageRSSI()
-                let error = abs(Double(prediction.bestRSSI - measuredRSSI))
-                totalError += error
-                validComparisons += 1
-            }
-        }
-        
-        let meanError = validComparisons > 0 ? totalError / Double(validComparisons) : 0.0
-        let accuracy = max(0.0, 1.0 - meanError / 20.0)
-        
-        return RFValidationResults(
-            accuracy: accuracy,
-            meanError: meanError,
-            validationPoints: validComparisons
-        )
-    }
-    
-    func generateAnalysisReport() -> RFAnalysisReport? {
-        return RFAnalysisReport(
-            coverageStatistics: RFCoverageStatistics(
-                totalPoints: 400,
-                usableCoveragePercentage: 0.85,
-                averageSignalStrength: -65.0,
-                overallQualityScore: 0.75
-            ),
-            deadZones: [],
-            recommendations: [
-                "Consider adding extender in far corner",
-                "Router placement is optimal for current layout"
-            ]
-        )
-    }
-}
-
-struct WiFiMeasurement {
-    let location: simd_float3
-    let timestamp: Date
-    let signalStrength: Int
-    let networkName: String
-    let speed: Double
-    let frequency: String
-    let roomType: RoomType?
-    
-    // Enhanced multi-band support
-    let bandMeasurements: [BandMeasurement]
-    
-    // For compatibility with RF propagation engine
-    var bands: [BandMeasurement] {
-        return bandMeasurements
-    }
-    
-    init(location: simd_float3, timestamp: Date, signalStrength: Int, networkName: String, speed: Double, frequency: String, roomType: RoomType?, bandMeasurements: [BandMeasurement] = []) {
-        self.location = location
-        self.timestamp = timestamp
-        self.signalStrength = signalStrength
-        self.networkName = networkName
-        self.speed = speed
-        self.frequency = frequency
-        self.roomType = roomType
-        self.bandMeasurements = bandMeasurements.isEmpty ? [BandMeasurement.createFromLegacy(signalStrength: signalStrength, frequency: frequency, speed: speed)] : bandMeasurements
-    }
-    
-    /// Average RSSI across all bands
-    func averageRSSI() -> Float {
-        guard !bandMeasurements.isEmpty else {
-            return Float(signalStrength)
-        }
-        let sum = bandMeasurements.map { $0.signalStrength }.reduce(0, +)
-        return sum / Float(bandMeasurements.count)
-    }
-}
-
-/// Individual frequency band measurement
-struct BandMeasurement {
-    let band: WiFiFrequencyBand
-    let signalStrength: Float // dBm
-    let snr: Float? // Signal-to-noise ratio in dB
-    let channelWidth: Int // MHz (20, 40, 80, 160)
-    let speed: Float // Mbps for this specific band
-    let utilization: Float? // Channel utilization percentage (0-1)
-    
-    // For compatibility with RF engine
-    var frequency: Double {
-        return band.centerFrequency
-    }
-    
-    var rssi: Double {
-        return Double(signalStrength)
-    }
-    
-    /// Create from legacy single-band data
-    static func createFromLegacy(signalStrength: Int, frequency: String, speed: Double) -> BandMeasurement {
-        let band = WiFiFrequencyBand.from(frequency)
-        return BandMeasurement(
-            band: band,
-            signalStrength: Float(signalStrength),
-            snr: nil,
-            channelWidth: band == .band2_4GHz ? 20 : 80, // Default channel widths
-            speed: Float(speed),
-            utilization: nil
-        )
-    }
-}
-
-struct WiFiHeatmapData {
-    let measurements: [WiFiMeasurement] 
-    let coverageMap: [simd_float3: Double]
-    let optimalRouterPlacements: [simd_float3]
-    
-    // Multi-band coverage maps
-    let bandCoverageMaps: [WiFiFrequencyBand: [simd_float3: Double]]
-    let bandConfidenceScores: [WiFiFrequencyBand: Float]
-    
-    init(measurements: [WiFiMeasurement], coverageMap: [simd_float3: Double], optimalRouterPlacements: [simd_float3], bandCoverageMaps: [WiFiFrequencyBand: [simd_float3: Double]] = [:], bandConfidenceScores: [WiFiFrequencyBand: Float] = [:]) {
-        self.measurements = measurements
-        self.coverageMap = coverageMap
-        self.optimalRouterPlacements = optimalRouterPlacements
-        self.bandCoverageMaps = bandCoverageMaps
-        self.bandConfidenceScores = bandConfidenceScores
-    }
-}
-
 class WiFiSurveyManager: NSObject, ObservableObject {
     @Published var measurements: [WiFiMeasurement] = []
     @Published var isRecording = false
     @Published var currentSignalStrength: Int = 0
     @Published var currentNetworkName: String = ""
     
-    // Plume/External WiFi control — kept separate via provider (no hard dep on plugin module)
-    @Published var isPlumeEnabled: Bool = false
-    @Published var plumeSteeringActive: Bool = false
-    private var wifiControlProvider: WiFiControlProvider = NoOpWiFiControlProvider()
-    
-    // Network Data Collection Plugin
-    @Published var networkDataCollector: NetworkDataCollector?
-    @Published var isNetworkDataEnabled: Bool = false
-    
+    private let networkMonitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "WiFiMonitor")
     private var speedTestTimer: Timer?
     private var lastMeasurementTime: TimeInterval = 0
     private var lastMeasurementPosition: simd_float3?
-    private let measurementDistanceThreshold: Float = 0.9144 // ~3 feet in meters to prevent test point overlapping
-    
-    // Advanced RF propagation modeling
-    private let propagationModel: PropagationModels.ITUIndoorModel
-    private var currentEnvironment: IndoorEnvironment = .residential
-    private var transmitPower: Float = 20.0 // Default router transmit power in dBm
-    
-    // Multi-band analysis support
-    private var enableMultiBandAnalysis: Bool = true
-    private var supportedBands: [WiFiFrequencyBand] = [.band2_4GHz, .band5GHz, .band6GHz]
-    
-    // Advanced RF propagation integration via provider abstraction
-    private var rfProvider: RFPropagationProvider?
-    private var isRFEngineEnabled: Bool = false
-    private var currentActiveBands: [WiFiFrequencyBand] = []
+    private let measurementDistanceThreshold: Float = 0.6096 // ~2 feet in meters for better coverage without overwhelming data
     
     // Memory management limits
     private let maxMeasurements = 500 // Prevent unlimited measurement growth
@@ -545,88 +62,41 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     private var isFirstMeasurement = true
     
     override init() {
-        // Initialize advanced RF propagation model
-        self.propagationModel = PropagationModels.ITUIndoorModel(environment: .residential)
-        
         super.init()
-        initializePlumePlugin()
-        initializeNetworkDataCollector()
+        setupNetworkMonitoring()
     }
     
-    // MARK: - Plume Plugin Integration
-    
-    private func initializePlumePlugin() {
-        // Defer to external team/module; default to NoOp. This avoids compile-time dependency.
-        self.isPlumeEnabled = false
-        self.wifiControlProvider = NoOpWiFiControlProvider()
-        print("ℹ️ Plume integration deferred: provider not linked in this target")
-    }
-    
-    func enablePlumeIntegration(_ enabled: Bool) {
-        isPlumeEnabled = enabled
-        if enabled {
-            initializePlumePlugin()
+    private func setupNetworkMonitoring() {
+        networkMonitor.pathUpdateHandler = { [weak self] (path: Network.NWPath) in
+            DispatchQueue.main.async {
+                self?.updateNetworkInfo(path: path)
+            }
         }
-        print("🔌 Plume integration: \(enabled ? "enabled" : "disabled")")
+        networkMonitor.start(queue: queue)
     }
     
-    // MARK: - Network Data Collection Integration
-    
-    private func initializeNetworkDataCollector() {
-        networkDataCollector = NetworkDataCollector()
-        
-        // Auto-enable network data collection
-        isNetworkDataEnabled = true
-        
-        // Set up network info updates
-        updateNetworkInfoFromCollector()
-        
-        print("📱 Network data collector initialized")
-    }
-    
-    private func updateNetworkInfoFromCollector() {
-        guard let collector = networkDataCollector else { return }
-        
-        // Update current network info from NetworkDataCollector
-        currentNetworkName = collector.getCurrentNetworkName()
-        currentSignalStrength = collector.getCurrentSignalStrength()
-        
-        print("📱 Updated network info: \(currentNetworkName) (\(currentSignalStrength)dBm)")
-    }
-    
-    func enableNetworkDataCollection(_ enabled: Bool) {
-        isNetworkDataEnabled = enabled
-        
-        if enabled {
-            networkDataCollector?.startCollection()
-        } else {
-            networkDataCollector?.stopCollection()
+    private func updateNetworkInfo(path: Network.NWPath) {
+        if path.status == .satisfied {
+            if let interface = path.availableInterfaces.first(where: { $0.type == .wifi }) {
+                currentNetworkName = interface.name
+                
+                // Update with real network info if available
+                let networkInfo = getCurrentNetworkInfo()
+                if let ssid = networkInfo.ssid, !ssid.isEmpty {
+                    currentNetworkName = ssid
+                }
+                if let rssi = networkInfo.rssi {
+                    currentSignalStrength = rssi
+                }
+            }
         }
-        
-        print("📱 Network data collection: \(enabled ? "enabled" : "disabled")")
     }
-    
-    /// Get dynamic measurement interval from current settings
-    private func getCurrentMeasurementInterval() -> TimeInterval {
-        return TimeInterval(measurementDistanceThreshold) // Convert distance to time approximation
-    }
-    
-    // Network monitoring now handled by NetworkDataCollector
     
     func startSurvey() {
         isRecording = true
         isFirstMeasurement = true
         positionHistory.removeAll()
         lastMovementTime = Date().timeIntervalSince1970
-        
-        // Start network data collection
-        if isNetworkDataEnabled {
-            networkDataCollector?.measurementInterval = getCurrentMeasurementInterval()
-            networkDataCollector?.startCollection()
-            
-            // Update network info from collector
-            updateNetworkInfoFromCollector()
-        }
         
         print("📡 Starting WiFi survey with simplified movement detection")
         
@@ -662,14 +132,10 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         isRecording = false
         speedTestTimer?.invalidate()
         speedTestTimer = nil
-        
-        // Stop network data collection
-        if isNetworkDataEnabled {
-            networkDataCollector?.stopCollection()
-        }
     }
     
-    func recordMeasurement(at location: simd_float3, roomType: RoomType?) {
+    // New floor/room-aware API
+    func recordMeasurement(at location: simd_float3, roomType: RoomType?, floorIndex: Int?, roomId: UUID?) {
         guard isRecording else { return }
         
         let currentTime = Date().timeIntervalSince1970
@@ -677,41 +143,24 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         // Update position history for movement detection
         updatePositionHistory(location: location, timestamp: currentTime)
         
-        // Check if user has moved at least 3 feet from last measurement
+        // Check distance threshold
         if let lastPosition = lastMeasurementPosition {
             let distance = simd_distance(location, lastPosition)
-            guard distance >= measurementDistanceThreshold else { 
-                // Still update movement tracking even if not measuring
+            guard distance >= measurementDistanceThreshold else {
                 updateMovementTracking(location: location, timestamp: currentTime)
-                return 
+                return
             }
         }
         
-        // Check if user has stopped moving (no significant movement in last 2 seconds)
+        // Check stability
         guard hasUserStoppedMoving(currentTime: currentTime) else {
             print("🏃‍♂️ User still moving, waiting for stop...")
             updateMovementTracking(location: location, timestamp: currentTime)
             return
         }
         
-        // User has moved >3 feet and stopped - take measurement
         lastMeasurementPosition = location
         lastMeasurementTime = currentTime
-        
-        // Trigger Plume steering sequence if enabled
-        if isPlumeEnabled && wifiControlProvider.canSteerDevice() {
-            Task {
-                await performPlumeSteeringSurvey(at: location, roomType: roomType)
-            }
-        } else {
-            // Standard measurement without Plume integration
-            recordStandardMeasurement(at: location, roomType: roomType)
-        }
-    }
-    
-    private func recordStandardMeasurement(at location: simd_float3, roomType: RoomType?) {
-        // Perform multi-band measurements if enabled
-        let bandMeasurements = enableMultiBandAnalysis ? performMultiBandMeasurements() : []
         
         let measurement = WiFiMeasurement(
             location: location,
@@ -721,140 +170,21 @@ class WiFiSurveyManager: NSObject, ObservableObject {
             speed: performSpeedTest(),
             frequency: detectFrequency(),
             roomType: roomType,
-            bandMeasurements: bandMeasurements
+            floorIndex: floorIndex,
+            roomId: roomId
         )
         
-        // Collect network data if enabled
-        var enhancedMeasurement = measurement
-        if isNetworkDataEnabled, let collector = networkDataCollector {
-            let networkData = collector.collectCurrentData(at: location)
-            
-            // Store network data in measurement (we'll extend WiFiMeasurement later if needed)
-            // For now, log the network data
-            logNetworkData(networkData, for: measurement)
-        }
-        
-        measurements.append(enhancedMeasurement)
-        
-        // Prevent unlimited memory growth by limiting measurement count
+        measurements.append(measurement)
         maintainMeasurementBounds()
         
-        // Debug logging
-        print("📍 WiFi measurement #\(measurements.count) recorded at (\(String(format: "%.2f", location.x)), \(String(format: "%.2f", location.y)), \(String(format: "%.2f", location.z))) in \(roomType?.rawValue ?? "Unknown room")")
+        print("📍 WiFi measurement #\(measurements.count) recorded at (\(String(format: "%.2f", location.x)), \(String(format: "%.2f", location.y)), \(String(format: "%.2f", location.z))) in \(roomType?.rawValue ?? "Unknown room") floor=\(floorIndex ?? -1)")
         print("   Signal: \(currentSignalStrength)dBm, Speed: \(Int(round(measurement.speed)))Mbps")
         print("   📊 User stopped moving - measurement taken automatically")
     }
     
-    private func logNetworkData(_ networkData: NetworkDataPoint, for measurement: WiFiMeasurement) {
-        print("📱 Network data collected:")
-        print("   Cellular: \(networkData.cellularData.radioTechnologies.values.joined(separator: ", ")) (\(networkData.cellularData.signalBars) bars)")
-        print("   Carriers: \(networkData.cellularData.carriers.values.map { $0.name }.joined(separator: ", "))")
-        if let ssid = networkData.wifiData.connectedSSID {
-            print("   WiFi SSID: \(ssid)")
-        }
-        print("   Path: WiFi=\(networkData.networkPath.hasWiFi), Cellular=\(networkData.networkPath.hasCellular)")
-    }
-    
-    private func performPlumeSteeringSurvey(at location: simd_float3, roomType: RoomType?) async {
-        guard isPlumeEnabled, wifiControlProvider.canSteerDevice() else { return }
-        
-        await MainActor.run {
-            self.plumeSteeringActive = true
-        }
-        
-        print("🎯 Starting Plume steering survey at location (\(String(format: "%.2f", location.x)), \(String(format: "%.2f", location.y)), \(String(format: "%.2f", location.z)))")
-        
-        var allMeasurements: [WiFiMeasurement] = []
-        
-        // Record baseline measurement
-        let baselineMeasurement = createBaseMeasurement(at: location, roomType: roomType, note: "baseline")
-        allMeasurements.append(baselineMeasurement)
-        
-        // Perform comprehensive steering if possible
-        let supportedBands: [WiFiFrequencyBand] = [.band2_4GHz, .band5GHz, .band6GHz]
-        
-        for band in supportedBands {
-            do {
-                print("📡 Steering to \(band.displayName)...")
-                let steeringResult = try await wifiControlProvider.steerToBand(band, at: location)
-                
-                if steeringResult.success {
-                    // Wait for signal stabilization
-                    try await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
-                    
-                    // Take measurement on this band
-                    let bandMeasurement = createMeasurementFromSteering(
-                        steeringResult: steeringResult,
-                        at: location,
-                        roomType: roomType,
-                        note: "steered_\(band.rawValue)"
-                    )
-                    allMeasurements.append(bandMeasurement)
-                    
-                    print("✅ Measured \(band.displayName): \(steeringResult.signalStrength)dBm")
-                } else {
-                    print("⚠️ Failed to steer to \(band.displayName)")
-                }
-                
-            } catch {
-                print("❌ Steering error for \(band.displayName): \(error)")
-            }
-        }
-        
-        // Store all measurements
-        await MainActor.run {
-            self.measurements.append(contentsOf: allMeasurements)
-            self.maintainMeasurementBounds()
-            self.plumeSteeringActive = false
-        }
-        
-        print("🎯 Plume steering survey complete: \(allMeasurements.count) measurements collected")
-        
-        // Correlate with Plume data
-        let correlatedMeasurements = wifiControlProvider.correlate(measurements: allMeasurements)
-        print("🔗 Correlated \(correlatedMeasurements.count) measurements with WiFi control provider data")
-    }
-    
-    private func createBaseMeasurement(at location: simd_float3, roomType: RoomType?, note: String) -> WiFiMeasurement {
-        let bandMeasurements = enableMultiBandAnalysis ? performMultiBandMeasurements() : []
-        
-        return WiFiMeasurement(
-            location: location,
-            timestamp: Date(),
-            signalStrength: currentSignalStrength,
-            networkName: "\(currentNetworkName)_\(note)",
-            speed: performSpeedTest(),
-            frequency: detectFrequency(),
-            roomType: roomType,
-            bandMeasurements: bandMeasurements
-        )
-    }
-    
-    private func createMeasurementFromSteering(steeringResult: SteeringResult,
-                                             at location: simd_float3,
-                                             roomType: RoomType?,
-                                             note: String) -> WiFiMeasurement {
-        
-        // Create band measurement from steering result
-        let bandMeasurement = BandMeasurement(
-            band: steeringResult.band ?? .band5GHz,
-            signalStrength: Float(steeringResult.signalStrength),
-            snr: Float.random(in: 20...40), // Simulated SNR
-            channelWidth: 80, // Typical for 5GHz
-            speed: Float(performSpeedTest()),
-            utilization: Float.random(in: 0.1...0.6)
-        )
-        
-        return WiFiMeasurement(
-            location: location,
-            timestamp: steeringResult.timestamp,
-            signalStrength: steeringResult.signalStrength,
-            networkName: "\(currentNetworkName)_\(note)",
-            speed: Double(bandMeasurement.speed),
-            frequency: steeringResult.band?.rawValue ?? detectFrequency(),
-            roomType: roomType,
-            bandMeasurements: [bandMeasurement]
-        )
+    // Backward-compatible wrapper used elsewhere
+    func recordMeasurement(at location: simd_float3, roomType: RoomType?) {
+        recordMeasurement(at: location, roomType: roomType, floorIndex: nil, roomId: nil)
     }
     
     private func performSpeedTest() -> Double {
@@ -1021,7 +351,22 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         }
     }
     
-    // Network info now provided by NetworkDataCollector
+    func getCurrentNetworkInfo() -> (ssid: String?, rssi: Int?) {
+        // Attempt to get current WiFi network info
+        // Note: This requires location permissions and may not work in all scenarios
+        
+        if let interfaces = CNCopySupportedInterfaces() as? [CFString] {
+            for interface in interfaces {
+                if let info = CNCopyCurrentNetworkInfo(interface) as? [CFString: Any] {
+                    let ssid = info[kCNNetworkInfoKeySSID] as? String
+                    // RSSI is not available through public APIs on iOS
+                    return (ssid: ssid, rssi: getCurrentSignalStrength())
+                }
+            }
+        }
+        
+        return (ssid: currentNetworkName.isEmpty ? "Unknown Network" : currentNetworkName, rssi: getCurrentSignalStrength())
+    }
     
     func generateHeatmapData() -> WiFiHeatmapData {
         print("📊 Generating heatmap data from \(measurements.count) measurements")
@@ -1116,216 +461,21 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     private func interpolateSignalStrength(at point: simd_float3) -> Float {
         guard !measurements.isEmpty else { return -100 }
         
-        // Use advanced RF propagation modeling for accurate signal prediction
-        return predictSignalStrength(at: point)
-    }
-    
-    /// Advanced signal strength prediction using RF propagation models
-    private func predictSignalStrength(at point: simd_float3) -> Float {
-        guard !measurements.isEmpty else { return -100 }
+        var weightedSum: Float = 0
+        var totalWeight: Float = 0
         
-        // Find the nearest measurement point to use as reference transmitter
-        let nearestMeasurement = measurements.min(by: { first, second in
-            simd_distance(point, first.location) < simd_distance(point, second.location)
-        })
-        
-        guard let reference = nearestMeasurement else { return -100 }
-        
-        let distance = simd_distance(point, reference.location)
-        guard distance > 0 else { return Float(reference.signalStrength) }
-        
-        // Use current frequency band for propagation calculation
-        let frequency = getFrequencyFromString(reference.frequency)
-        
-        // Calculate path loss using ITU indoor propagation model
-        let pathLoss = propagationModel.pathLoss(
-            distance: Double(distance),
-            frequency: Double(frequency),
-            floors: 0 // Single floor for now
-        )
-        
-        // Calculate predicted signal strength: transmit power - path loss
-        let predictedSignal = transmitPower - Float(pathLoss)
-        
-        // Weight prediction with actual measurement for better accuracy
-        let measurementWeight = 1.0 / (Float(distance) + 0.1)
-        let predictionWeight: Float = 0.3 // Lower weight for prediction vs measurement
-        
-        let refSignal = Float(reference.signalStrength)
-        let predSignal = Float(predictedSignal)
-        let weightedResult = (refSignal * measurementWeight + predSignal * predictionWeight) / (measurementWeight + predictionWeight)
-        
-        return weightedResult
-    }
-    
-    /// Extract frequency in MHz from frequency string
-    private func getFrequencyFromString(_ frequencyString: String) -> Float {
-        if frequencyString.contains("2.4") || frequencyString.contains("2G") {
-            return 2437.0 // 2.4GHz Channel 6
-        } else if frequencyString.contains("5") || frequencyString.contains("5G") {
-            return 5200.0 // 5GHz Channel 40
-        } else if frequencyString.contains("6") || frequencyString.contains("6G") {
-            return 6525.0 // 6GHz center
-        } else {
-            return 5200.0 // Default to 5GHz
-        }
-    }
-    
-    /// Update environment type for more accurate propagation modeling
-    func updateEnvironment(_ environment: IndoorEnvironment) {
-        currentEnvironment = environment
-        print("📡 Updated RF environment to: \(environment)")
-    }
-    
-    /// Set transmitter power for more accurate calculations
-    func setTransmitPower(_ power: Float) {
-        transmitPower = power
-        print("📡 Updated transmit power to: \(power) dBm")
-    }
-    
-    // MARK: - Multi-Band Analysis
-    
-    /// Perform measurements across all supported frequency bands
-    private func performMultiBandMeasurements() -> [BandMeasurement] {
-        var bandMeasurements: [BandMeasurement] = []
-        
-        // In a real implementation, this would scan all bands
-        // For now, we'll simulate multi-band measurements
-        for band in supportedBands {
-            if let measurement = measureBand(band) {
-                bandMeasurements.append(measurement)
-            }
+        // Use inverse distance weighting for interpolation
+        for measurement in measurements {
+            let distance = simd_distance(point, measurement.location)
+            
+            // Avoid division by zero for exact matches
+            let weight = distance < 0.01 ? 1000.0 : 1.0 / (distance * distance)
+            
+            weightedSum += Float(measurement.signalStrength) * weight
+            totalWeight += weight
         }
         
-        currentActiveBands = bandMeasurements.map { $0.band }
-        print("📡 Multi-band measurement complete: \(currentActiveBands.map { $0.displayName }.joined(separator: ", "))")
-        
-        return bandMeasurements
-    }
-    
-    /// Measure a specific frequency band
-    private func measureBand(_ band: WiFiFrequencyBand) -> BandMeasurement? {
-        // Simulate band-specific measurements
-        // In production, this would use enterprise WiFi APIs or hardware-specific methods
-        
-        let baseSignalStrength = Float(currentSignalStrength)
-        let bandSpecificAttenuation = getBandAttenuation(band)
-        let adjustedSignalStrength = baseSignalStrength - bandSpecificAttenuation
-        
-        // Skip bands that are too weak to be useful
-        guard adjustedSignalStrength > -85.0 else { return nil }
-        
-        let channelWidth = getTypicalChannelWidth(for: band)
-        let bandSpeed = estimateBandSpeed(band: band, signalStrength: adjustedSignalStrength, channelWidth: channelWidth)
-        let snr = estimateSNR(for: band, signalStrength: adjustedSignalStrength)
-        
-        return BandMeasurement(
-            band: band,
-            signalStrength: adjustedSignalStrength,
-            snr: snr,
-            channelWidth: channelWidth,
-            speed: bandSpeed,
-            utilization: estimateChannelUtilization(for: band)
-        )
-    }
-    
-    /// Get band-specific attenuation factors
-    private func getBandAttenuation(_ band: WiFiFrequencyBand) -> Float {
-        switch band {
-        case .band2_4GHz:
-            return 0.0 // Base reference
-        case .band5GHz:
-            return 3.0 // 5GHz typically 3dB weaker
-        case .band6GHz:
-            return 5.0 // 6GHz typically 5dB weaker
-        }
-    }
-    
-    /// Get typical channel width for each band
-    private func getTypicalChannelWidth(for band: WiFiFrequencyBand) -> Int {
-        switch band {
-        case .band2_4GHz:
-            return 20 // 2.4GHz typically uses 20MHz
-        case .band5GHz:
-            return 80 // 5GHz commonly uses 80MHz
-        case .band6GHz:
-            return 160 // 6GHz can use wider channels
-        }
-    }
-    
-    /// Estimate throughput for specific band
-    private func estimateBandSpeed(band: WiFiFrequencyBand, signalStrength: Float, channelWidth: Int) -> Float {
-        // Simplified throughput estimation based on signal strength and channel width
-        let baseSpeed: Float
-        
-        switch signalStrength {
-        case -30...(-20):
-            baseSpeed = 800.0 // Excellent signal
-        case -50...(-30):
-            baseSpeed = 500.0 // Good signal
-        case -70...(-50):
-            baseSpeed = 200.0 // Fair signal
-        case -85...(-70):
-            baseSpeed = 50.0 // Poor signal
-        default:
-            baseSpeed = 10.0 // Very poor signal
-        }
-        
-        // Apply channel width multiplier
-        let channelMultiplier = Float(channelWidth) / 20.0
-        
-        // Apply band-specific efficiency factors
-        let bandEfficiency: Float
-        switch band {
-        case .band2_4GHz:
-            bandEfficiency = 0.6 // More congested, lower efficiency
-        case .band5GHz:
-            bandEfficiency = 0.8 // Good efficiency
-        case .band6GHz:
-            bandEfficiency = 0.9 // Latest standard, highest efficiency
-        }
-        
-        return baseSpeed * channelMultiplier * bandEfficiency
-    }
-    
-    /// Estimate signal-to-noise ratio
-    private func estimateSNR(for band: WiFiFrequencyBand, signalStrength: Float) -> Float {
-        // Simplified SNR estimation
-        let noiseFloor: Float
-        switch band {
-        case .band2_4GHz:
-            noiseFloor = -95.0 // More interference
-        case .band5GHz:
-            noiseFloor = -100.0 // Less interference
-        case .band6GHz:
-            noiseFloor = -105.0 // Cleanest band
-        }
-        
-        return signalStrength - noiseFloor
-    }
-    
-    /// Estimate channel utilization
-    private func estimateChannelUtilization(for band: WiFiFrequencyBand) -> Float {
-        // Simplified utilization estimation
-        switch band {
-        case .band2_4GHz:
-            return Float.random(in: 0.4...0.8) // High utilization
-        case .band5GHz:
-            return Float.random(in: 0.2...0.5) // Medium utilization
-        case .band6GHz:
-            return Float.random(in: 0.1...0.3) // Low utilization
-        }
-    }
-    
-    /// Enable or disable multi-band analysis
-    func setMultiBandAnalysis(enabled: Bool) {
-        enableMultiBandAnalysis = enabled
-        print("📡 Multi-band analysis: \(enabled ? "enabled" : "disabled")")
-    }
-    
-    /// Get currently active bands from last measurement
-    func getActiveBands() -> [WiFiFrequencyBand] {
-        return currentActiveBands
+        return totalWeight > 0 ? weightedSum / totalWeight : -100
     }
     
     private func calculateOptimalRouterPlacements() -> [simd_float3] {
@@ -1389,36 +539,6 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         
         print("✅ Recommended \(placements.count) optimal router placement(s)")
         return placements
-    }
-    
-    /// Get the best performing frequency band based on measurements
-    func getBestPerformingBand() -> WiFiFrequencyBand? {
-        let multiBandMeasurements = measurements.filter { !$0.bandMeasurements.isEmpty }
-        guard !multiBandMeasurements.isEmpty else { return nil }
-        
-        var bandPerformance: [WiFiFrequencyBand: (avgSignal: Float, avgSpeed: Float, count: Int)] = [:]
-        
-        for measurement in multiBandMeasurements {
-            for bandMeasurement in measurement.bandMeasurements {
-                let band = bandMeasurement.band
-                let current = bandPerformance[band] ?? (avgSignal: 0, avgSpeed: 0, count: 0)
-                
-                bandPerformance[band] = (
-                    avgSignal: (current.avgSignal * Float(current.count) + bandMeasurement.signalStrength) / Float(current.count + 1),
-                    avgSpeed: (current.avgSpeed * Float(current.count) + bandMeasurement.speed) / Float(current.count + 1),
-                    count: current.count + 1
-                )
-            }
-        }
-        
-        // Find band with best overall performance (weighted average of signal and speed)
-        let bestBand = bandPerformance.max { first, second in
-            let firstScore = first.value.avgSignal * 0.6 + (first.value.avgSpeed / 100.0) * 0.4
-            let secondScore = second.value.avgSignal * 0.6 + (second.value.avgSpeed / 100.0) * 0.4
-            return firstScore < secondScore
-        }
-        
-        return bestBand?.key
     }
     
     private func calculateCenterPoint(from locations: [simd_float3]) -> simd_float3 {
@@ -1573,311 +693,5 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         lastMovementTime = 0
         
         print("🧹 Cleared all measurement data to free memory")
-    }
-    
-    // MARK: - Data Export for Plume Testing
-    
-    func exportMeasurementData(roomAnalyzer: RoomAnalyzer?) -> URL? {
-        let exportManager = DataExportManager()
-        
-        if let roomAnalyzer = roomAnalyzer {
-            return exportManager.exportSurveyData(roomAnalyzer: roomAnalyzer, wifiSurveyManager: self)
-        } else {
-            // Export only WiFi measurements without room data
-            return exportManager.exportPlumeSimulationData(from: measurements)
-        }
-    }
-    
-    func getPlumeCorrelationStatus() -> String {
-        guard isPlumeEnabled else {
-            return "WiFi control disabled"
-        }
-        return wifiControlProvider.correlationStatusText()
-    }
-    
-    func getPlumeAnalytics() -> [String] {
-        guard isPlumeEnabled else { return ["WiFi control disabled"] }
-        return ["WiFi control provider active"]
-    }
-    
-    // MARK: - RF Propagation Model Testing
-    
-    /// Calculate signal strength at a point based on reference measurement
-    private func calculateSignalStrength(at targetPoint: simd_float3, basedOn reference: WiFiMeasurement) -> Float {
-        let distance = Double(simd_distance(targetPoint, reference.location))
-        let baseSignal = Double(reference.signalStrength)
-        
-        // Use ITU indoor propagation model
-        let pathLoss = propagationModel.pathLoss(distance: distance, frequency: 5200.0, floors: 0)
-        
-        // Calculate predicted signal strength
-        let predictedSignal = baseSignal - (pathLoss - 32.0) // Subtract additional path loss beyond 1m reference
-        
-        return Float(predictedSignal)
-    }
-    
-    /// Initialize advanced RF propagation engine
-    func initializeRFPropagationEngine(environment: IndoorEnvironment = .residential) {
-        print("🔬 Initializing advanced RF propagation engine...")
-        let provider = SimpleRFPropagationIntegration(environment: environment)
-        provider.updateRoomModel(from: RoomAnalyzer()) // no-op placeholder
-        self.rfProvider = provider
-        self.isRFEngineEnabled = true
-        print("✅ RF propagation engine initialized for \(environment.rawValue) environment")
-    }
-    
-    /// Update RF engine with room data from RoomAnalyzer
-    func updateRFEngineWithRoomData(_ roomAnalyzer: RoomAnalyzer) {
-        guard let rfEngine = rfProvider else {
-            print("⚠️ RF engine not initialized - call initializeRFPropagationEngine() first")
-            return
-        }
-        
-        print("🏠 Updating RF engine with room data...")
-        rfEngine.updateRoomModel(from: roomAnalyzer)
-        
-        // If we have measurements, infer router position
-        if !measurements.isEmpty {
-            // Using provider abstraction; optional step implemented by concrete provider
-            _ = rfEngine.generateAnalysisReport()
-            print("📡 Router position inferred from existing measurements")
-        }
-    }
-    
-    /// Get RF propagation prediction for a specific location
-    func getRFPrediction(at location: simd_float3, frequency: Float? = nil) -> SignalPrediction? {
-        guard let rfEngine = rfProvider, isRFEngineEnabled else {
-            print("⚠️ RF engine not available")
-            return nil
-        }
-        
-        return rfEngine.predictSignalStrength(at: location, frequency: frequency)
-    }
-    
-    /// Generate coverage map using advanced RF propagation
-    func generateAdvancedCoverageMap(
-        gridResolution: Double = 0.5,
-        progressCallback: ((Double) -> Void)? = nil
-    ) -> CoverageMap? {
-        guard let rfEngine = rfProvider, isRFEngineEnabled else {
-            print("⚠️ RF engine not available")
-            return nil
-        }
-        
-        print("🗺️ Generating advanced coverage map...")
-        return rfEngine.generateCoverageMap(
-            gridResolution: gridResolution,
-            progressCallback: progressCallback
-        )
-    }
-    
-    /// Validate RF predictions against actual measurements
-    func validateRFPredictions() -> ValidationResults? {
-        guard let rfEngine = rfProvider, isRFEngineEnabled else {
-            print("⚠️ RF engine not available")
-            return nil
-        }
-        
-        print("🔬 Validating RF predictions against \(measurements.count) measurements...")
-        return rfEngine.validatePredictions(measurements: measurements)
-    }
-    
-    /// Get comprehensive RF analysis report
-    func getRFAnalysisReport() -> RFAnalysisReport? {
-        guard let rfEngine = rfProvider, isRFEngineEnabled else {
-            print("⚠️ RF engine not available")
-            return nil
-        }
-        
-        return rfEngine.generateAnalysisReport()
-    }
-    
-    /// Comprehensive test of new RF propagation engine
-    func testAdvancedRFPropagationEngine() {
-        print("\n🚀 Testing Advanced RF Propagation Engine")
-        print(String(repeating: "=", count: 60))
-        
-        // Initialize the RF engine
-        initializeRFPropagationEngine(environment: .residential)
-        
-        // Test prediction at sample locations
-        let testLocations: [simd_float3] = [
-            simd_float3(0, 1.5, 0),     // Center of room
-            simd_float3(5, 1.5, 0),     // 5m away
-            simd_float3(-3, 1.5, 2),    // Behind wall
-            simd_float3(10, 1.5, -5)    // Far corner
-        ]
-        
-        for (index, location) in testLocations.enumerated() {
-            print("\n📍 Test Location \(index + 1): \(location)")
-            
-            if let prediction = getRFPrediction(at: location) {
-                print("   Signal Quality: \(prediction.signalQuality.rawValue)")
-                print("   Best RSSI: \(String(format: "%.1f", prediction.bestRSSI))dBm")
-                print("   Confidence: \(String(format: "%.1f", prediction.confidence * 100))%")
-                print("   Obstacles: \(prediction.obstacles.count)")
-                print("   Calculation time: \(String(format: "%.1f", prediction.calculationTime * 1000))ms")
-            } else {
-                print("   ⚠️ No prediction available")
-            }
-        }
-        
-        // Test coverage map generation
-        print("\n🗺️ Testing Coverage Map Generation...")
-        let startTime = CFAbsoluteTimeGetCurrent()
-        
-        if let coverageMap = generateAdvancedCoverageMap(
-            gridResolution: 1.0,
-            progressCallback: { progress in
-                if Int(progress * 100) % 25 == 0 {
-                    print("   Progress: \(Int(progress * 100))%")
-                }
-            }
-        ) {
-            let endTime = CFAbsoluteTimeGetCurrent()
-            let stats = coverageMap.statistics
-            
-            print("\n📊 Coverage Map Results:")
-            print("   Generation time: \(String(format: "%.1f", endTime - startTime))s")
-            print("   Coverage points: \(stats.totalPoints)")
-            print("   Usable coverage: \(String(format: "%.1f", stats.usableCoveragePercentage * 100))%")
-            print("   Average signal: \(String(format: "%.1f", stats.averageSignalStrength))dBm")
-            print("   Quality score: \(String(format: "%.3f", stats.overallQualityScore))")
-            print("   Dead zones: \(coverageMap.deadZones.count)")
-            
-            // Test validation if we have measurements
-            if !measurements.isEmpty {
-                print("\n🔬 Testing Prediction Validation...")
-                if let validation = validateRFPredictions() {
-                    print("   Validation accuracy: \(String(format: "%.1f", validation.accuracy * 100))%")
-                    print("   Mean error: \(String(format: "%.1f", validation.meanError))dB")
-                    print("   Validation points: \(validation.validationPoints)")
-                    print("   Is acceptable: \(validation.isAcceptable ? "✅" : "❌")")
-                }
-            }
-            
-            // Generate analysis report
-            if let report = getRFAnalysisReport() {
-                print("\n📋 Generated comprehensive analysis report")
-                print("   Recommendations: \(report.recommendations.count)")
-            }
-        } else {
-            print("   ❌ Coverage map generation failed")
-        }
-        
-        print("\n✅ Advanced RF propagation engine testing completed")
-    }
-    
-    /// Test RF propagation model calculations to validate integration
-    func testRFPropagationModels() {
-        print("\n🧪 Testing RF Propagation Models Integration")
-        print(String(repeating: "=", count: 50))
-        
-        // Test 1: Basic ITU Indoor Path Loss Calculation
-        print("\n1️⃣ Testing ITU Indoor Path Loss Model:")
-        let testDistances: [Double] = [1.0, 5.0, 10.0, 20.0]
-        let testFrequency: Double = 5200.0 // 5.2 GHz
-        
-        for distance in testDistances {
-            let pathLoss = propagationModel.pathLoss(distance: distance, frequency: testFrequency, floors: 0)
-            let signalStrength = transmitPower - Float(pathLoss)
-            print("  📏 Distance: \(distance)m → Path Loss: \(String(format: "%.1f", pathLoss))dB → Signal: \(String(format: "%.1f", signalStrength))dBm")
-        }
-        
-        // Test 2: Multi-band Frequency Response
-        print("\n2️⃣ Testing Multi-band Frequency Response:")
-        let testDistance: Double = 10.0
-        let frequencies = [
-            (WiFiFrequencyBand.band2_4GHz, 2400.0),
-            (WiFiFrequencyBand.band5GHz, 5200.0),
-            (WiFiFrequencyBand.band6GHz, 6000.0)
-        ]
-        
-        for (band, freq) in frequencies {
-            let pathLoss = propagationModel.pathLoss(distance: testDistance, frequency: freq, floors: 0)
-            let signalStrength = transmitPower - Float(pathLoss)
-            print("  📡 \(band.displayName): \(String(format: "%.1f", pathLoss))dB loss → \(String(format: "%.1f", signalStrength))dBm")
-        }
-        
-        // Test 3: Environment Impact
-        print("\n3️⃣ Testing Environment Impact:")
-        let environments: [(IndoorEnvironment, String)] = [
-            (.residential, "Residential"),
-            (.office, "Office"),
-            (.commercial, "Commercial"),
-            (.industrial, "Industrial")
-        ]
-        
-        for (env, name) in environments {
-            let testModel = PropagationModels.ITUIndoorModel(environment: .residential) // Use our base model
-            let pathLoss = testModel.pathLoss(distance: 10.0, frequency: 5200.0, floors: 0)
-            let adjustedLoss = pathLoss * Double(env.pathLossExponent) / 2.0 // Apply environment factor
-            print("  🏢 \(name): \(String(format: "%.1f", adjustedLoss))dB loss")
-        }
-        
-        // Test 4: Floor Penetration
-        print("\n4️⃣ Testing Floor Penetration Loss:")
-        for floors in 0...3 {
-            let pathLoss = propagationModel.pathLoss(distance: 10.0, frequency: 5200.0, floors: floors)
-            let signalStrength = transmitPower - Float(pathLoss)
-            print("  🏢 \(floors) floors: \(String(format: "%.1f", pathLoss))dB loss → \(String(format: "%.1f", signalStrength))dBm")
-        }
-        
-        // Test 5: Multi-band Measurement Creation
-        print("\n5️⃣ Testing Multi-band Measurement Creation:")
-        let testLocation = simd_float3(5.0, 1.0, 5.0)
-        let bandMeasurements = [
-            BandMeasurement(band: .band2_4GHz, signalStrength: -65.0, snr: 25.0, channelWidth: 20, speed: 50.0, utilization: 0.6),
-            BandMeasurement(band: .band5GHz, signalStrength: -68.0, snr: 28.0, channelWidth: 80, speed: 150.0, utilization: 0.3),
-            BandMeasurement(band: .band6GHz, signalStrength: -72.0, snr: 30.0, channelWidth: 160, speed: 300.0, utilization: 0.1)
-        ]
-        
-        let testMeasurement = WiFiMeasurement(
-            location: testLocation,
-            timestamp: Date(),
-            signalStrength: -68,
-            networkName: "TestNetwork-WiFi7",
-            speed: 180.0,
-            frequency: "5GHz",
-            roomType: .livingRoom,
-            bandMeasurements: bandMeasurements
-        )
-        
-        print("  📊 Created measurement with \(testMeasurement.bandMeasurements.count) bands:")
-        for band in testMeasurement.bandMeasurements {
-            print("    • \(band.band.displayName): \(String(format: "%.1f", band.signalStrength))dBm, \(String(format: "%.0f", band.speed))Mbps")
-        }
-        
-        // Test 6: Coverage Prediction
-        print("\n6️⃣ Testing Coverage Prediction:")
-        let referenceLocation = simd_float3(0, 1, 0)
-        let referenceMeasurement = WiFiMeasurement(
-            location: referenceLocation,
-            timestamp: Date(),
-            signalStrength: -45,
-            networkName: "TestRouter",
-            speed: 200.0,
-            frequency: "5GHz",
-            roomType: .livingRoom
-        )
-        
-        let testPoints = [
-            simd_float3(3, 1, 0),   // 3m away
-            simd_float3(6, 1, 0),   // 6m away  
-            simd_float3(10, 1, 0),  // 10m away
-            simd_float3(0, 1, 8)    // 8m perpendicular
-        ]
-        
-        for point in testPoints {
-            let predictedSignal = calculateSignalStrength(at: point, basedOn: referenceMeasurement)
-            let distance = simd_distance(point, referenceLocation)
-            print("  📍 \(String(format: "%.1f", distance))m: Predicted \(String(format: "%.1f", predictedSignal))dBm")
-        }
-        
-        print("\n✅ RF Propagation Model Tests Complete!")
-        print("📡 Advanced ITU indoor propagation modeling is working correctly")
-        print("🎯 Multi-band WiFi 7 support validated")
-        print("🔬 Coverage prediction algorithms functional")
-        print(String(repeating: "=", count: 50))
     }
 }

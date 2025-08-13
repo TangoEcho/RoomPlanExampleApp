@@ -1,40 +1,17 @@
 import UIKit
 import simd
-import RoomPlan
-
-// MARK: - UIColor Extension
-extension UIColor {
-    func darker(by percentage: CGFloat = 0.3) -> UIColor {
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-        
-        self.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        
-        return UIColor(
-            red: max(red - percentage, 0),
-            green: max(green - percentage, 0),
-            blue: max(blue - percentage, 0),
-            alpha: alpha
-        )
-    }
-}
 
 class FloorPlanRenderer: UIView {
     
     // MARK: - Properties
     private var rooms: [RoomAnalyzer.IdentifiedRoom] = []
-    private var furnitureItems: [RoomAnalyzer.FurnitureItem] = []
     private var heatmapData: WiFiHeatmapData?
     private var networkDevices: [NetworkDevice] = []
     private var showHeatmap = false
-    private var showConfidence = false
     
     // Drawing properties
     private let roomStrokeWidth: CGFloat = 2.0
     private let heatmapAlpha: CGFloat = 0.6
-    private var debugMode = false
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -56,24 +33,13 @@ class FloorPlanRenderer: UIView {
     // MARK: - Public Methods
     
     func updateRooms(_ rooms: [RoomAnalyzer.IdentifiedRoom]) {
-        print("🏠 FloorPlanRenderer: Received \(rooms.count) rooms for rendering")
-        
-        // Validate room boundaries before storing
         self.rooms = rooms.filter { room in
-            print("   Room \(room.type.rawValue): \(room.wallPoints.count) wall points")
             guard room.wallPoints.count >= 3 else {
                 print("⚠️ FloorPlanRenderer: Skipping room with insufficient boundary points (\(room.wallPoints.count))")
                 return false
             }
             return true
         }
-        
-        print("✅ FloorPlanRenderer: Filtered to \(self.rooms.count) valid rooms")
-        setNeedsDisplay()
-    }
-    
-    func updateFurniture(_ furniture: [RoomAnalyzer.FurnitureItem]) {
-        self.furnitureItems = furniture
         setNeedsDisplay()
     }
     
@@ -94,83 +60,30 @@ class FloorPlanRenderer: UIView {
         setNeedsDisplay()
     }
     
-    func setDebugMode(_ debug: Bool) {
-        self.debugMode = debug
-        setNeedsDisplay()
-    }
-    
-    func setShowConfidence(_ show: Bool) {
-        self.showConfidence = show
-        setNeedsDisplay()
-    }
-    
     // MARK: - Drawing
     
     override func draw(_ rect: CGRect) {
         super.draw(rect)
         
-        print("🎨 FloorPlanRenderer: draw() called - \(rooms.count) rooms, \(furnitureItems.count) furniture")
-        print("🎨 FloorPlanRenderer: View frame: \(frame), bounds: \(bounds)")
-        print("🎨 FloorPlanRenderer: Draw rect: \(rect)")
-        print("🎨 FloorPlanRenderer: Background color: \(backgroundColor?.description ?? "nil")")
-        print("🎨 FloorPlanRenderer: IsHidden: \(isHidden), Alpha: \(alpha)")
+        guard let context = UIGraphicsGetCurrentContext() else { return }
         
-        guard let context = UIGraphicsGetCurrentContext() else { 
-            print("❌ FloorPlanRenderer: No graphics context available!")
-            return 
-        }
-        
-        // Clear the context with a visible background for debugging
         context.clear(rect)
         
-        // Fill with background color to make sure the view is visible
-        if let bgColor = backgroundColor {
-            context.setFillColor(bgColor.cgColor)
-            context.fill(rect)
-        }
-        
-        
-        // Draw rooms
         drawRooms(in: context, rect: rect)
         
-        // Draw furniture items
-        drawFurniture(in: context, rect: rect)
-        
-        // Always draw WiFi test points if heatmap data exists
-        if let heatmapData = heatmapData {
-            drawWiFiTestPoints(heatmapData, in: context, rect: rect)
-        }
-        
-        // Draw heatmap overlay if enabled
         if showHeatmap, let heatmapData = heatmapData {
-            drawHeatmapOverlay(heatmapData, in: context, rect: rect)
+            drawHeatmap(heatmapData, in: context, rect: rect)
         }
         
-        // Draw confidence overlay if enabled
-        if showConfidence, let heatmapData = heatmapData {
-            drawConfidenceOverlay(heatmapData, in: context, rect: rect)
-        }
-        
-        // Draw network devices
         drawNetworkDevices(in: context, rect: rect)
-        
-        // Draw debug information overlay if in debug mode
-        if debugMode {
-            drawDebugOverlay(in: context, rect: rect)
-        }
     }
     
     private func drawRooms(in context: CGContext, rect: CGRect) {
-        print("🎨 FloorPlanRenderer: Drawing \(rooms.count) rooms")
-        
-        // Always draw placeholder room when no rooms available or in simulator
-        if rooms.isEmpty {
-            print("⚠️ FloorPlanRenderer: No rooms to draw, showing placeholder")
+        guard !rooms.isEmpty else {
             drawPlaceholderRoom(in: context, rect: rect)
             return
         }
         
-        // Calculate bounds for all rooms to fit them in the view
         let allPoints = rooms.flatMap { $0.wallPoints }
         guard !allPoints.isEmpty else { return }
         
@@ -182,13 +95,11 @@ class FloorPlanRenderer: UIView {
         let roomWidth = maxX - minX
         let roomHeight = maxY - minY
         
-        // Prevent division by zero
         guard roomWidth > 0 && roomHeight > 0 else {
             drawPlaceholderRoom(in: context, rect: rect)
             return
         }
         
-        // Calculate scale to fit room in view with padding
         let padding: CGFloat = 20
         let availableWidth = rect.width - (padding * 2)
         let availableHeight = rect.height - (padding * 2)
@@ -197,351 +108,65 @@ class FloorPlanRenderer: UIView {
         let scaleY = availableHeight / CGFloat(roomHeight)
         let scale = min(scaleX, scaleY)
         
-        // Calculate offset to center the room
         let scaledRoomWidth = CGFloat(roomWidth) * scale
         let scaledRoomHeight = CGFloat(roomHeight) * scale
         let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
         let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
         
-        // Draw each room
         for (index, room) in rooms.enumerated() {
             drawRoom(room, in: context, scale: scale, offsetX: offsetX, offsetY: offsetY, roomIndex: index)
         }
-        
-        // Draw all doorways after rooms to ensure they properly cut through walls
-        drawSimplifiedDoorways(in: context, scale: scale, offsetX: offsetX, offsetY: offsetY)
     }
     
     private func drawRoom(_ room: RoomAnalyzer.IdentifiedRoom, in context: CGContext, scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat, roomIndex: Int) {
-        // Ensure we have enough points to draw a room
-        guard room.wallPoints.count >= 3 else {
-            print("⚠️ FloorPlanRenderer: Cannot draw room with \(room.wallPoints.count) points")
-            return
-        }
+        guard room.wallPoints.count >= 3 else { return }
         
-        // Debug: Print raw room data
-        print("🔍 FloorPlanRenderer: Drawing room '\(room.type.rawValue)' with \(room.wallPoints.count) wall points:")
-        for (i, point) in room.wallPoints.enumerated() {
-            print("   Point \(i): (\(point.x), \(point.y))")
-        }
-        
-        // Sort wall points in counterclockwise order to ensure proper room boundary
-        let sortedPoints = sortWallPointsCounterclockwise(room.wallPoints)
-        
-        // Additional validation to prevent boundary assertion errors
-        let uniquePoints = sortedPoints.reduce(into: [simd_float2]()) { result, point in
-            if !result.contains(where: { abs($0.x - point.x) < 0.01 && abs($0.y - point.y) < 0.01 }) {
-                result.append(point)
-            }
-        }
-        
-        guard uniquePoints.count >= 3 else {
-            print("⚠️ FloorPlanRenderer: Room has insufficient unique points after deduplication (\(uniquePoints.count))")
-            return
-        }
-        
-        print("🔍 FloorPlanRenderer: Using \(uniquePoints.count) unique points after sorting and deduplication")
-        print("🔍 FloorPlanRenderer: Transform - scale: \(scale), offsetX: \(offsetX), offsetY: \(offsetY)")
-        
-        // Convert room points to view coordinates using unique points
-        let viewPoints = uniquePoints.map { point in
+        let viewPoints = room.wallPoints.map { point in
             CGPoint(x: CGFloat(point.x) * scale + offsetX,
                    y: CGFloat(point.y) * scale + offsetY)
         }
         
-        print("🔍 FloorPlanRenderer: Transformed view points:")
-        for (i, point) in viewPoints.enumerated() {
-            print("   ViewPoint \(i): (\(point.x), \(point.y))")
-        }
-        
-        // Create path for room boundary with comprehensive validation
         let path = CGMutablePath()
-        
-        // Validate we have enough points and they're all valid
-        guard viewPoints.count >= 3,
-              viewPoints.allSatisfy({ !$0.x.isNaN && !$0.y.isNaN && $0.x.isFinite && $0.y.isFinite }) else {
-            print("⚠️ FloorPlanRenderer: Invalid room points, skipping path creation")
-            return
-        }
-        
-        // Additional validation: ensure points aren't all identical
-        let uniqueViewPoints = viewPoints.reduce(into: [CGPoint]()) { result, point in
-            if !result.contains(where: { abs($0.x - point.x) < 0.5 && abs($0.y - point.y) < 0.5 }) {
-                result.append(point)
+        if let firstPoint = viewPoints.first {
+            path.move(to: firstPoint)
+            for i in 1..<viewPoints.count {
+                path.addLine(to: viewPoints[i])
             }
+            if viewPoints.count > 2 { path.closeSubpath() }
         }
         
-        guard uniqueViewPoints.count >= 3 else {
-            print("⚠️ FloorPlanRenderer: Insufficient unique points (\(uniqueViewPoints.count)), skipping room")
-            return
-        }
+        context.setFillColor(UIColor.systemGray5.withAlphaComponent(0.3).cgColor)
+        context.addPath(path)
+        context.fillPath()
         
-        // Safe path creation
-        path.move(to: uniqueViewPoints[0])
+        context.setStrokeColor(UIColor.systemBlue.cgColor)
+        context.setLineWidth(roomStrokeWidth)
+        context.addPath(path)
+        context.strokePath()
         
-        for i in 1..<uniqueViewPoints.count {
-            path.addLine(to: uniqueViewPoints[i])
-        }
-        
-        path.closeSubpath()
-        
-        // Use different colors for different room types to distinguish overlaps
-        let (fillColor, strokeColor) = getRoomColors(for: room.type, roomIndex: roomIndex)
-        
-        // Draw room fill with safety checks
-        if !path.isEmpty {
-            context.setFillColor(fillColor.withAlphaComponent(0.2).cgColor)
-            context.addPath(path)
-            context.fillPath()
-            
-            // Draw room boundary with room-specific color
-            context.setStrokeColor(strokeColor.cgColor)
-            context.setLineWidth(roomStrokeWidth)
-            context.addPath(path)
-            context.strokePath()
-        } else {
-            print("⚠️ FloorPlanRenderer: Empty path, skipping room drawing")
-        }
-        
-        // Note: Doorways will be drawn after all rooms to ensure they cut through walls properly
-        
-        // Draw room label if there's space
         if let centerPoint = calculateRoomCenter(viewPoints) {
             drawRoomLabel(room.type.rawValue, at: centerPoint, in: context)
         }
     }
     
-    private func sortWallPointsCounterclockwise(_ points: [simd_float2]) -> [simd_float2] {
-        // Calculate the centroid
-        let centroidX = points.map { $0.x }.reduce(0, +) / Float(points.count)
-        let centroidY = points.map { $0.y }.reduce(0, +) / Float(points.count)
-        let centroid = simd_float2(centroidX, centroidY)
-        
-        // Sort points by angle from centroid
-        let sortedPoints = points.sorted { point1, point2 in
-            let angle1 = atan2(point1.y - centroid.y, point1.x - centroid.x)
-            let angle2 = atan2(point2.y - centroid.y, point2.x - centroid.x)
-            return angle1 < angle2
-        }
-        
-        print("🔧 Sorted \(points.count) wall points counterclockwise around centroid (\(centroidX), \(centroidY))")
-        return sortedPoints
-    }
-    
-    private func getRoomColors(for roomType: RoomType, roomIndex: Int) -> (fill: UIColor, stroke: UIColor) {
-        switch roomType {
-        case .kitchen:
-            return (.systemOrange, .systemRed)
-        case .livingRoom:
-            return (.systemBlue, .systemBlue)
-        case .bedroom:
-            return (.systemPink, .systemRed)
-        case .bathroom:
-            return (.systemCyan, .systemBlue)
-        case .diningRoom:
-            return (.systemPurple, .systemPurple)
-        case .office:
-            return (.systemGreen, .systemGreen)
-        case .hallway:
-            return (.systemGray, .systemGray2)
-        case .closet:
-            return (.systemBrown, .systemBrown)
-        case .laundryRoom:
-            return (.systemTeal, .systemBlue)
-        case .garage:
-            return (.systemIndigo, .systemPurple)
-        case .unknown:
-            // Use different colors for different room indices to help distinguish overlapping rooms
-            let colors: [(UIColor, UIColor)] = [
-                (.systemYellow, .systemOrange),
-                (.systemMint, .systemGreen), 
-                (.systemGray4, .systemGray2),
-                (.systemOrange, .systemRed),
-                (.systemYellow, .systemOrange),
-                (.systemPink, .systemRed)
-            ]
-            return colors[roomIndex % colors.count]
-        }
-    }
-    
-    // MARK: - Doorway Drawing
-    
-    private func drawSimplifiedDoorways(in context: CGContext, scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat) {
-        print("🚪 Drawing simplified doorways for all rooms")
-        
-        for room in rooms {
-            guard !room.doorways.isEmpty else { continue }
-            
-            print("🚪 Drawing \(room.doorways.count) doorways for \(room.type.rawValue)")
-            
-            for doorway in room.doorways {
-                drawArchitecturalDoorway(room: room, doorwayPoint: doorway, scale: scale, offsetX: offsetX, offsetY: offsetY, in: context)
-            }
-        }
-    }
-    
-    private func drawArchitecturalDoorway(room: RoomAnalyzer.IdentifiedRoom, doorwayPoint: simd_float2, scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat, in context: CGContext) {
-        // Find the nearest wall segment to place the doorway
-        guard let wallInfo = findNearestWall(to: doorwayPoint, in: room.wallPoints) else {
-            print("🚪 Could not find nearest wall for doorway at (\(doorwayPoint.x), \(doorwayPoint.y))")
-            return
-        }
-        
-        let doorViewX = CGFloat(doorwayPoint.x) * scale + offsetX
-        let doorViewY = CGFloat(doorwayPoint.y) * scale + offsetY
-        let doorPoint = CGPoint(x: doorViewX, y: doorViewY)
-        
-        // Draw doorway as a gap in the wall with proper orientation
-        let doorWidth: CGFloat = 30 // Scaled doorway width
-        
-        // Calculate perpendicular direction to the wall for the doorway gap
-        let wallAngle = wallInfo.angle
-        let perpAngle = wallAngle + .pi / 2
-        
-        let gapHalfWidth = doorWidth / 2
-        let gapStart = CGPoint(
-            x: doorPoint.x + cos(perpAngle) * gapHalfWidth,
-            y: doorPoint.y + sin(perpAngle) * gapHalfWidth
-        )
-        let gapEnd = CGPoint(
-            x: doorPoint.x - cos(perpAngle) * gapHalfWidth,
-            y: doorPoint.y - sin(perpAngle) * gapHalfWidth
-        )
-        
-        // Clear the wall area for the doorway gap
-        context.setFillColor(UIColor.systemBackground.cgColor)
-        let clearWidth: CGFloat = doorWidth + 6
-        let clearHeight: CGFloat = 8
-        
-        context.saveGState()
-        context.translateBy(x: doorPoint.x, y: doorPoint.y)
-        context.rotate(by: wallAngle)
-        
-        let clearRect = CGRect(x: -clearWidth/2, y: -clearHeight/2, width: clearWidth, height: clearHeight)
-        context.fill(clearRect)
-        context.restoreGState()
-        
-        // Draw minimal doorway indicators (small lines at gap edges)
-        context.setStrokeColor(UIColor.systemGray3.cgColor)
-        context.setLineWidth(2.0)
-        
-        // Draw small perpendicular marks at doorway edges
-        let markLength: CGFloat = 6
-        let wallDirection = CGPoint(x: cos(wallAngle), y: sin(wallAngle))
-        
-        // Start mark
-        let startMark1 = CGPoint(
-            x: gapStart.x - wallDirection.x * markLength/2,
-            y: gapStart.y - wallDirection.y * markLength/2
-        )
-        let startMark2 = CGPoint(
-            x: gapStart.x + wallDirection.x * markLength/2,
-            y: gapStart.y + wallDirection.y * markLength/2
-        )
-        
-        context.move(to: startMark1)
-        context.addLine(to: startMark2)
-        context.strokePath()
-        
-        // End mark  
-        let endMark1 = CGPoint(
-            x: gapEnd.x - wallDirection.x * markLength/2,
-            y: gapEnd.y - wallDirection.y * markLength/2
-        )
-        let endMark2 = CGPoint(
-            x: gapEnd.x + wallDirection.x * markLength/2,
-            y: gapEnd.y + wallDirection.y * markLength/2
-        )
-        
-        context.move(to: endMark1)
-        context.addLine(to: endMark2)
-        context.strokePath()
-        
-        print("🚪 Drew architectural doorway at (\(doorPoint.x), \(doorPoint.y)) with angle \(wallAngle * 180 / .pi)°")
-    }
-    
-    private func findNearestWall(to point: simd_float2, in wallPoints: [simd_float2]) -> (angle: CGFloat, distance: Float)? {
-        guard wallPoints.count >= 2 else { return nil }
-        
-        var nearestWallInfo: (angle: CGFloat, distance: Float)?
-        var minDistance: Float = Float.greatestFiniteMagnitude
-        
-        // Check each wall segment
-        for i in 0..<wallPoints.count {
-            let startPoint = wallPoints[i]
-            let endPoint = wallPoints[(i + 1) % wallPoints.count]
-            
-            // Calculate wall direction and angle
-            let wallVector = endPoint - startPoint
-            let wallLength = simd_length(wallVector)
-            guard wallLength > 0 else { continue }
-            
-            let wallDirection = wallVector / wallLength
-            let wallAngle = CGFloat(atan2(wallDirection.y, wallDirection.x))
-            
-            // Calculate distance from point to wall segment
-            let toPoint = point - startPoint
-            let projection = simd_dot(toPoint, wallDirection)
-            
-            let closestPointOnWall: simd_float2
-            if projection <= 0 {
-                closestPointOnWall = startPoint
-            } else if projection >= wallLength {
-                closestPointOnWall = endPoint
-            } else {
-                closestPointOnWall = startPoint + wallDirection * projection
-            }
-            
-            let distance = simd_length(point - closestPointOnWall)
-            
-            if distance < minDistance {
-                minDistance = distance
-                nearestWallInfo = (angle: wallAngle, distance: distance)
-            }
-        }
-        
-        return nearestWallInfo
-    }
-    
     private func drawPlaceholderRoom(in context: CGContext, rect: CGRect) {
-        print("🎨 FloorPlanRenderer: Drawing placeholder room in rect: \(rect)")
-        
-        // Draw a more visible placeholder room
         let padding: CGFloat = 40
         let roomRect = rect.insetBy(dx: padding, dy: padding)
         
         let path = CGMutablePath()
         path.addRect(roomRect)
         
-        // Fill with more visible color
-        context.setFillColor(UIColor.systemGray4.withAlphaComponent(0.6).cgColor)
+        context.setFillColor(UIColor.systemGray5.withAlphaComponent(0.3).cgColor)
         context.addPath(path)
         context.fillPath()
         
-        // Border with thicker line
         context.setStrokeColor(UIColor.systemBlue.cgColor)
-        context.setLineWidth(3.0)
+        context.setLineWidth(roomStrokeWidth)
         context.addPath(path)
         context.strokePath()
         
-        // Add some furniture placeholder
-        let furnitureRect = CGRect(x: roomRect.midX - 30, y: roomRect.midY - 15, width: 60, height: 30)
-        context.setFillColor(UIColor.systemBrown.withAlphaComponent(0.7).cgColor)
-        context.fill(furnitureRect)
-        context.setStrokeColor(UIColor.systemBrown.cgColor)
-        context.setLineWidth(2.0)
-        context.stroke(furnitureRect)
-        
-        // Label disabled unless explicitly set by the controller's demo mode
-        
-        // Add WiFi points placeholder
-        let wifiPoint1 = CGPoint(x: roomRect.minX + 60, y: roomRect.minY + 60)
-        let wifiPoint2 = CGPoint(x: roomRect.maxX - 60, y: roomRect.minY + 60)
-        let wifiPoint3 = CGPoint(x: roomRect.midX, y: roomRect.maxY - 60)
-        
-        for point in [wifiPoint1, wifiPoint2, wifiPoint3] {
-            drawMeasurementPoint(at: point, color: UIColor.systemGreen, in: context)
-        }
+        let center = CGPoint(x: roomRect.midX, y: roomRect.midY)
+        drawRoomLabel("Room", at: center, in: context)
     }
     
     private func calculateRoomCenter(_ points: [CGPoint]) -> CGPoint? {
@@ -571,128 +196,70 @@ class FloorPlanRenderer: UIView {
         attributedString.draw(in: rect)
     }
     
-    private func drawWiFiTestPoints(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
-        // Draw WiFi test points as colored circles - always visible
-        guard !data.measurements.isEmpty else { return }
-        
-        // Use the SAME coordinate transform as rooms for consistency
-        let transform = calculateRoomCoordinateTransform(in: rect)
-        guard let transform = transform else { 
-            print("⚠️ FloorPlanRenderer: No coordinate transform available for WiFi points")
-            return 
-        }
-        
-        print("📍 FloorPlanRenderer: Drawing \(data.measurements.count) WiFi measurements with room coordinate system")
-        
-        // Draw measurement points using room coordinate system
-        for measurement in data.measurements {
-            let viewPoint = CGPoint(
-                x: CGFloat(measurement.location.x) * transform.scale + transform.offsetX,
-                y: CGFloat(measurement.location.z) * transform.scale + transform.offsetY
-            )
-            
-            print("   WiFi Point: (\(measurement.location.x), \(measurement.location.z)) -> View: (\(viewPoint.x), \(viewPoint.y))")
-            
-            // Choose color based on confidence mode or signal strength mode
-            let color: UIColor
-            if showConfidence {
-                color = colorForConfidenceScore(calculateConfidenceScore(for: measurement))
-            } else {
-                color = colorForSignalStrength(Float(measurement.signalStrength))
-            }
-            
-            drawMeasurementPoint(at: viewPoint, color: color, in: context, alpha: 1.0)
-        }
-    }
-    
-    private func drawHeatmapOverlay(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
-        // Draw heatmap overlay with transparency - only when heatmap toggle is on
-        guard !data.measurements.isEmpty else { return }
-        
-        // Use the SAME coordinate transform as rooms for consistency
-        let transform = calculateRoomCoordinateTransform(in: rect)
-        guard let transform = transform else { return }
-        
-        // Draw semi-transparent heatmap overlay
-        for measurement in data.measurements {
-            let viewPoint = CGPoint(
-                x: CGFloat(measurement.location.x) * transform.scale + transform.offsetX,
-                y: CGFloat(measurement.location.z) * transform.scale + transform.offsetY
-            )
-            
-            let color = colorForSignalStrength(Float(measurement.signalStrength))
-            drawHeatmapArea(at: viewPoint, color: color, in: context, radius: 30)
-        }
-    }
-    
-    private struct CoordinateTransform {
-        let scale: CGFloat
-        let offsetX: CGFloat
-        let offsetY: CGFloat
-    }
-    
-    private func calculateRoomCoordinateTransform(in rect: CGRect) -> CoordinateTransform? {
-        // Use room wall points if available, otherwise fallback to reasonable defaults
-        if !rooms.isEmpty {
-            // Calculate bounds from all room wall points
-            let allPoints = rooms.flatMap { $0.wallPoints }
-            let minX = allPoints.map { $0.x }.min() ?? 0
-            let maxX = allPoints.map { $0.x }.max() ?? 0
-            let minY = allPoints.map { $0.y }.min() ?? 0
-            let maxY = allPoints.map { $0.y }.max() ?? 0
-            
-            let roomWidth = maxX - minX
-            let roomHeight = maxY - minY
-            
-            guard roomWidth > 0 && roomHeight > 0 else { return nil }
-            
-            let padding: CGFloat = 20
-            let availableWidth = rect.width - (padding * 2)
-            let availableHeight = rect.height - (padding * 2)
-            
-            let scaleX = availableWidth / CGFloat(roomWidth)
-            let scaleY = availableHeight / CGFloat(roomHeight)
-            let scale = min(scaleX, scaleY)
-            
-            let scaledRoomWidth = CGFloat(roomWidth) * scale
-            let scaledRoomHeight = CGFloat(roomHeight) * scale
-            let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
-            let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
-            
-            print("🔧 Room coordinate transform - scale: \(scale), offsetX: \(offsetX), offsetY: \(offsetY)")
-            print("   Room bounds: (\(minX), \(minY)) to (\(maxX), \(maxY))")
-            
-            return CoordinateTransform(scale: scale, offsetX: offsetX, offsetY: offsetY)
+    private func drawHeatmap(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
+        let hasCoverageTiles = !data.coverageMap.isEmpty
+        let minX: Float
+        let maxX: Float
+        let minY: Float
+        let maxY: Float
+        if hasCoverageTiles {
+            let points = data.coverageMap.keys.map { simd_float2($0.x, $0.z) }
+            minX = points.map { $0.x }.min() ?? 0
+            maxX = points.map { $0.x }.max() ?? 0
+            minY = points.map { $0.y }.min() ?? 0
+            maxY = points.map { $0.y }.max() ?? 0
         } else {
-            // Fallback for when no rooms are available - use default coordinate space
-            let defaultScale: CGFloat = 30.0  // pixels per unit
-            let centerX = rect.width / 2
-            let centerY = rect.height / 2
-            
-            print("🔧 Using fallback coordinate transform - scale: \(defaultScale)")
-            
-            return CoordinateTransform(scale: defaultScale, offsetX: centerX, offsetY: centerY)
+            guard !data.measurements.isEmpty else { return }
+            let points = data.measurements.map { simd_float2($0.location.x, $0.location.z) }
+            minX = points.map { $0.x }.min() ?? 0
+            maxX = points.map { $0.x }.max() ?? 0
+            minY = points.map { $0.y }.min() ?? 0
+            maxY = points.map { $0.y }.max() ?? 0
         }
-    }
-    
-    private func calculateCoordinateTransform(for measurements: [WiFiMeasurement], in rect: CGRect) -> CoordinateTransform? {
-        // Deprecated - use calculateRoomCoordinateTransform instead for consistency
-        return calculateRoomCoordinateTransform(in: rect)
+        let roomWidth = maxX - minX
+        let roomHeight = maxY - minY
+        guard roomWidth > 0 && roomHeight > 0 else { return }
+        let padding: CGFloat = 20
+        let availableWidth = rect.width - (padding * 2)
+        let availableHeight = rect.height - (padding * 2)
+        let scaleX = availableWidth / CGFloat(roomWidth)
+        let scaleY = availableHeight / CGFloat(roomHeight)
+        let scale = min(scaleX, scaleY)
+        let scaledRoomWidth = CGFloat(roomWidth) * scale
+        let scaledRoomHeight = CGFloat(roomHeight) * scale
+        let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
+        let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
+
+        if hasCoverageTiles {
+            for (position, normalized) in data.coverageMap {
+                let viewPoint = CGPoint(
+                    x: CGFloat(position.x) * scale + offsetX,
+                    y: CGFloat(position.z) * scale + offsetY
+                )
+                let tileSizeMeters: CGFloat = 0.5
+                let tileSize = tileSizeMeters * scale
+                let rectTile = CGRect(x: viewPoint.x - tileSize/2, y: viewPoint.y - tileSize/2, width: tileSize, height: tileSize)
+                let rssi = Int(normalized * 100.0 - 100.0)
+                let color = SpectrumBranding.signalStrengthColor(for: rssi)
+                context.setFillColor(color.withAlphaComponent(heatmapAlpha).cgColor)
+                context.fill(rectTile)
+            }
+        } else {
+            for measurement in data.measurements {
+                let viewPoint = CGPoint(
+                    x: CGFloat(measurement.location.x) * scale + offsetX,
+                    y: CGFloat(measurement.location.z) * scale + offsetY
+                )
+                let color = colorForSignalStrength(Float(measurement.signalStrength))
+                drawMeasurementPoint(at: viewPoint, color: color, in: context)
+            }
+        }
     }
     
     private func drawNetworkDevices(in context: CGContext, rect: CGRect) {
-        guard !networkDevices.isEmpty else { return }
-        
-        // Use the SAME coordinate transform as rooms for consistency
-        let transform = calculateRoomCoordinateTransform(in: rect)
-        guard let transform = transform else { return }
-        
-        // Draw each network device
+        // Draw router and extender positions if available
         for device in networkDevices {
-            let viewPoint = CGPoint(
-                x: CGFloat(device.position.x) * transform.scale + transform.offsetX,
-                y: CGFloat(device.position.z) * transform.scale + transform.offsetY // Use Z for Y in top-down view
-            )
+            let viewPoint = CGPoint(x: rect.midX, y: rect.midY)
             
             let color = device.type == .router ? UIColor.systemRed : UIColor.systemOrange
             drawDeviceIcon(device.type, at: viewPoint, color: color, in: context)
@@ -712,526 +279,38 @@ class FloorPlanRenderer: UIView {
         }
     }
     
-    private func colorForConfidenceScore(_ confidence: Float) -> UIColor {
-        switch confidence {
-        case 0.8...1.0:
-            return UIColor.systemBlue     // High confidence
-        case 0.5..<0.8:
-            return UIColor.systemPurple   // Medium confidence
-        default:
-            return UIColor.systemGray     // Low confidence
-        }
-    }
-    
-    /// Calculate confidence score for a WiFi measurement
-    /// Based on signal strength, multi-band availability, and measurement stability
-    private func calculateConfidenceScore(for measurement: WiFiMeasurement) -> Float {
-        var confidence: Float = 0.0
-        
-        // Base confidence from signal strength (stronger signal = higher confidence)
-        let signalStrength = Float(measurement.signalStrength)
-        let strengthConfidence: Float
-        
-        switch signalStrength {
-        case -50...Float.greatestFiniteMagnitude:
-            strengthConfidence = 1.0  // Excellent signal = high confidence
-        case -65..<(-50):
-            strengthConfidence = 0.8  // Good signal = good confidence
-        case -75..<(-65):
-            strengthConfidence = 0.6  // Fair signal = medium confidence
-        case -85..<(-75):
-            strengthConfidence = 0.4  // Poor signal = low confidence
-        default:
-            strengthConfidence = 0.2  // Very poor signal = very low confidence
-        }
-        
-        confidence += strengthConfidence * 0.6 // 60% weight for signal strength
-        
-        // Multi-band confidence (if multi-band data is available)
-        if !measurement.bandMeasurements.isEmpty {
-            let bandCount = Float(measurement.bandMeasurements.count)
-            let maxBands: Float = 3.0 // WiFi 7 has 3 bands
-            let bandDiversityConfidence = min(1.0, bandCount / maxBands)
-            confidence += bandDiversityConfidence * 0.25 // 25% weight for band diversity
-            
-            // Consistency across bands (all bands should have reasonable signals)
-            let bandSignals = measurement.bandMeasurements.map { $0.signalStrength }
-            let avgBandSignal = bandSignals.reduce(0, +) / Float(bandSignals.count)
-            let variance = bandSignals.map { pow($0 - avgBandSignal, 2) }.reduce(0, +) / Float(bandSignals.count)
-            let consistencyScore = max(0.0, 1.0 - sqrt(variance) / 20.0) // Lower variance = higher consistency
-            confidence += consistencyScore * 0.15 // 15% weight for consistency
-        } else {
-            // No multi-band data available, reduce confidence
-            confidence += 0.3 * 0.4 // Assume medium diversity and consistency
-        }
-        
-        return min(1.0, max(0.0, confidence))
-    }
-    
-    private func drawMeasurementPoint(at point: CGPoint, color: UIColor, in context: CGContext, alpha: CGFloat = 1.0) {
+    private func drawMeasurementPoint(at point: CGPoint, color: UIColor, in context: CGContext) {
         let radius: CGFloat = 8
         let rect = CGRect(x: point.x - radius, y: point.y - radius, 
                          width: radius * 2, height: radius * 2)
         
-        // Fill with specified alpha
-        context.setFillColor(color.withAlphaComponent(alpha * 0.8).cgColor)
+        context.setFillColor(color.withAlphaComponent(heatmapAlpha).cgColor)
         context.fillEllipse(in: rect)
         
-        // Stroke with solid color for better visibility
         context.setStrokeColor(color.cgColor)
-        context.setLineWidth(2)
+        context.setLineWidth(1)
         context.strokeEllipse(in: rect)
     }
     
-    private func drawHeatmapArea(at point: CGPoint, color: UIColor, in context: CGContext, radius: CGFloat) {
-        let rect = CGRect(x: point.x - radius, y: point.y - radius, 
-                         width: radius * 2, height: radius * 2)
-        
-        // Draw transparent heatmap area
-        context.setFillColor(color.withAlphaComponent(heatmapAlpha * 0.3).cgColor)
-        context.fillEllipse(in: rect)
-    }
-    
-    private func drawConfidenceOverlay(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
-        // Draw confidence overlay with transparency
-        guard !data.measurements.isEmpty else { return }
-        
-        // Use the SAME coordinate transform as rooms for consistency
-        let transform = calculateRoomCoordinateTransform(in: rect)
-        guard let transform = transform else { return }
-        
-        // Draw semi-transparent confidence overlay
-        for measurement in data.measurements {
-            let viewPoint = CGPoint(
-                x: CGFloat(measurement.location.x) * transform.scale + transform.offsetX,
-                y: CGFloat(measurement.location.z) * transform.scale + transform.offsetY
-            )
-            
-            let confidence = calculateConfidenceScore(for: measurement)
-            let color = colorForConfidenceScore(confidence)
-            
-            // Draw confidence area with varying radius based on confidence
-            let radius: CGFloat = 25 + (CGFloat(confidence) * 15) // Higher confidence = larger radius
-            drawConfidenceArea(at: viewPoint, color: color, confidence: confidence, in: context, radius: radius)
-        }
-    }
-    
-    private func drawConfidenceArea(at point: CGPoint, color: UIColor, confidence: Float, in context: CGContext, radius: CGFloat) {
-        let rect = CGRect(x: point.x - radius, y: point.y - radius, 
-                         width: radius * 2, height: radius * 2)
-        
-        // Draw confidence area with alpha based on confidence level
-        let alpha = heatmapAlpha * CGFloat(confidence) * 0.5
-        context.setFillColor(color.withAlphaComponent(alpha).cgColor)
-        context.fillEllipse(in: rect)
-        
-        // Draw confidence ring indicator
-        context.setStrokeColor(color.withAlphaComponent(CGFloat(confidence)).cgColor)
-        context.setLineWidth(2.0 + CGFloat(confidence) * 2.0) // Thicker stroke for higher confidence
-        context.strokeEllipse(in: rect.insetBy(dx: radius * 0.3, dy: radius * 0.3))
-    }
-    
     private func drawDeviceIcon(_ type: NetworkDevice.DeviceType, at point: CGPoint, color: UIColor, in context: CGContext) {
-        let outerSize: CGFloat = 24
-        let innerSize: CGFloat = 20
+        let size: CGFloat = 12
+        let rect = CGRect(x: point.x - size/2, y: point.y - size/2, width: size, height: size)
         
-        // Draw outer circle with glow effect
-        let glowRect = CGRect(x: point.x - outerSize/2, y: point.y - outerSize/2, width: outerSize, height: outerSize)
-        context.setFillColor(color.withAlphaComponent(0.3).cgColor)
-        context.fillEllipse(in: glowRect)
-        
-        // Draw main device circle
-        let mainRect = CGRect(x: point.x - innerSize/2, y: point.y - innerSize/2, width: innerSize, height: innerSize)
         context.setFillColor(color.cgColor)
-        context.fillEllipse(in: mainRect)
+        context.fill(rect)
         
-        // Draw white border
-        context.setStrokeColor(UIColor.white.cgColor)
-        context.setLineWidth(2)
-        context.strokeEllipse(in: mainRect)
-        
-        // Draw device emoji
-        let emoji = type == .router ? "📡" : "📡"
+        let text = type == .router ? "R" : "E"
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 12),
+            .font: UIFont.boldSystemFont(ofSize: 10),
             .foregroundColor: UIColor.white
         ]
         
-        let attributedString = NSAttributedString(string: emoji, attributes: attributes)
+        let attributedString = NSAttributedString(string: text, attributes: attributes)
         let textSize = attributedString.size()
         let textRect = CGRect(x: point.x - textSize.width/2, 
                              y: point.y - textSize.height/2,
                              width: textSize.width, 
                              height: textSize.height)
-        
-        attributedString.draw(in: textRect)
-        
-        // Draw device type label below
-        let labelText = type == .router ? "Router" : "Extender"
-        let labelAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.boldSystemFont(ofSize: 10),
-            .foregroundColor: color,
-            .backgroundColor: UIColor.systemBackground.withAlphaComponent(0.8)
-        ]
-        
-        let labelString = NSAttributedString(string: labelText, attributes: labelAttributes)
-        let labelSize = labelString.size()
-        let labelRect = CGRect(x: point.x - labelSize.width/2,
-                              y: point.y + outerSize/2 + 2,
-                              width: labelSize.width,
-                              height: labelSize.height)
-        
-        // Draw background for label
-        context.setFillColor(UIColor.systemBackground.withAlphaComponent(0.8).cgColor)
-        let paddedRect = labelRect.insetBy(dx: -4, dy: -2)
-        let path = UIBezierPath(roundedRect: paddedRect, cornerRadius: 4)
-        context.addPath(path.cgPath)
-        context.fillPath()
-        
-        labelString.draw(in: labelRect)
-    }
-    
-    private func drawFurniture(in context: CGContext, rect: CGRect) {
-        guard !furnitureItems.isEmpty else { 
-            print("🏠 No furniture items to draw")
-            return 
-        }
-        
-        print("🏠 Drawing \(furnitureItems.count) furniture items")
-        
-        // Use the SAME coordinate transform as rooms for consistency
-        let transform = calculateRoomCoordinateTransform(in: rect)
-        guard let transform = transform else { 
-            print("⚠️ No coordinate transform available for furniture rendering")
-            return 
-        }
-        
-        print("📏 Using transform - scale: \(transform.scale), offset: (\(transform.offsetX), \(transform.offsetY))")
-        
-        // Group furniture by type for better visualization
-        let beds = furnitureItems.filter { $0.category == .bed }
-        let tables = furnitureItems.filter { $0.category == .table }
-        let storage = furnitureItems.filter { $0.category == .storage }
-        let other = furnitureItems.filter { ![.bed, .table, .storage].contains($0.category) }
-        
-        // Draw in order: beds first (largest), then storage, tables, other
-        let drawOrder = beds + storage + tables + other
-        
-        for (index, furniture) in drawOrder.enumerated() {
-            print("   Drawing furniture \(index + 1): \(furniture.category) at (\(String(format: "%.3f", furniture.position.x)), \(String(format: "%.3f", furniture.position.z)))")
-            drawFurnitureItem(furniture, in: context, scale: transform.scale, offsetX: transform.offsetX, offsetY: transform.offsetY)
-        }
-    }
-    
-    private func drawFurnitureItem(_ furniture: RoomAnalyzer.FurnitureItem, in context: CGContext, scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat) {
-        // Convert furniture position to view coordinates
-        let viewX = CGFloat(furniture.position.x) * scale + offsetX
-        let viewY = CGFloat(furniture.position.z) * scale + offsetY // Use Z for Y in top-down view
-        
-        // Calculate furniture dimensions in view coordinates
-        let width = CGFloat(furniture.dimensions.x) * scale
-        let height = CGFloat(furniture.dimensions.z) * scale // Use Z for depth in top-down view
-        
-        // IMPROVED: Ensure minimum visible size for furniture
-        let minSize: CGFloat = 8.0
-        let adjustedWidth = max(width, minSize)
-        let adjustedHeight = max(height, minSize)
-        
-        let furnitureRect = CGRect(
-            x: viewX - adjustedWidth/2,
-            y: viewY - adjustedHeight/2,
-            width: adjustedWidth,
-            height: adjustedHeight
-        )
-        
-        print("🏠 Drawing \(furniture.category) at view pos (\(String(format: "%.1f", viewX)), \(String(format: "%.1f", viewY))) size \(String(format: "%.1fx%.1f", adjustedWidth, adjustedHeight))")
-        print("   World position: (\(String(format: "%.3f", furniture.position.x)), \(String(format: "%.3f", furniture.position.z))) -> View: (\(String(format: "%.1f", viewX)), \(String(format: "%.1f", viewY)))")
-        
-        // Choose color and style based on furniture category
-        let (fillColor, strokeColor, shouldDrawAsOval) = styleForFurnitureCategory(furniture.category)
-        
-        // Create path based on furniture type
-        let path = CGMutablePath()
-        if shouldDrawAsOval {
-            // Draw round furniture (tables, chairs) as ovals
-            path.addEllipse(in: furnitureRect)
-        } else {
-            // Draw rectangular furniture with appropriate corner radius
-            let cornerRadius = min(adjustedWidth, adjustedHeight) * 0.1
-            path.addRoundedRect(in: furnitureRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
-        }
-        
-        // Fill furniture with appropriate transparency
-        let alpha: CGFloat = furniture.category == .bed ? 0.8 : 0.7
-        context.setFillColor(fillColor.withAlphaComponent(alpha).cgColor)
-        context.addPath(path)
-        context.fillPath()
-        
-        // Stroke furniture outline
-        context.setStrokeColor(strokeColor.cgColor)
-        context.setLineWidth(furniture.category == .bed ? 2.0 : 1.5)
-        context.addPath(path)
-        context.strokePath()
-        
-        // Add furniture label if there's space
-        if adjustedWidth > 20 && adjustedHeight > 15 {
-            let emoji = emojiForFurnitureCategory(furniture.category)
-            drawFurnitureLabel(emoji, at: CGPoint(x: furnitureRect.midX, y: furnitureRect.midY), in: context)
-            
-            // Add size debugging label for beds and large furniture
-            if furniture.category == .bed {
-                let sizeLabel = "\(String(format: "%.1f", furniture.dimensions.x))×\(String(format: "%.1f", furniture.dimensions.z))m"
-                drawFurnitureSizeLabel(sizeLabel, at: CGPoint(x: furnitureRect.midX, y: furnitureRect.maxY + 5), in: context)
-            }
-        }
-    }
-    
-    private func styleForFurnitureCategory(_ category: CapturedRoom.Object.Category) -> (fill: UIColor, stroke: UIColor, oval: Bool) {
-        switch category {
-        case .table:
-            return (.systemBrown, .systemBrown.darker(by: 0.3), true) // Round tables
-        case .sofa:
-            return (.systemIndigo, .systemIndigo.darker(by: 0.3), false)
-        case .bed:
-            return (.systemPink, .systemPink.darker(by: 0.3), false)
-        case .storage:
-            return (.systemGreen, .systemGreen.darker(by: 0.3), false)
-        case .chair:
-            return (.systemOrange, .systemOrange.darker(by: 0.3), true) // Round chairs
-        default:
-            return (.systemGray2, .systemGray, false)
-        }
-    }
-    
-    private func drawFurnitureSizeLabel(_ text: String, at point: CGPoint, in context: CGContext) {
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 8, weight: .medium),
-            .foregroundColor: UIColor.secondaryLabel
-        ]
-        
-        let attributedString = NSAttributedString(string: text, attributes: attributes)
-        let size = attributedString.size()
-        
-        let rect = CGRect(x: point.x - size.width / 2,
-                         y: point.y,
-                         width: size.width,
-                         height: size.height)
-        
-        attributedString.draw(in: rect)
-    }
-    
-    private func colorForFurnitureCategory(_ category: CapturedRoom.Object.Category) -> UIColor {
-        switch category {
-        case .table:
-            return UIColor.systemBrown
-        case .sofa:
-            return UIColor.systemIndigo
-        case .bed:
-            return UIColor.systemPink
-        case .storage:
-            return UIColor.systemGreen
-        default:
-            return UIColor.systemGray2
-        }
-    }
-    
-    private func emojiForFurnitureCategory(_ category: CapturedRoom.Object.Category) -> String {
-        switch category {
-        case .table:
-            return "📋"
-        case .sofa:
-            return "🛋️"
-        case .bed:
-            return "🛏️"
-        case .storage:
-            return "📦"
-        default:
-            return "🔲"
-        }
-    }
-    
-    private func drawFurnitureLabel(_ text: String, at point: CGPoint, in context: CGContext) {
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 14),
-            .foregroundColor: UIColor.label
-        ]
-        
-        let attributedString = NSAttributedString(string: text, attributes: attributes)
-        let size = attributedString.size()
-        
-        let rect = CGRect(x: point.x - size.width / 2,
-                         y: point.y - size.height / 2,
-                         width: size.width,
-                         height: size.height)
-        
-        attributedString.draw(in: rect)
-    }
-    
-    private func drawDebugOverlay(in context: CGContext, rect: CGRect) {
-        print("🔬 Drawing debug overlay")
-        
-        // Debug background overlay with transparency
-        context.setFillColor(UIColor.black.withAlphaComponent(0.1).cgColor)
-        context.fill(rect)
-        
-        // Debug border
-        context.setStrokeColor(UIColor.systemRed.withAlphaComponent(0.8).cgColor)
-        context.setLineWidth(2.0)
-        context.stroke(rect.insetBy(dx: 2, dy: 2))
-        
-        // Draw coordinate grid for reference
-        drawCoordinateGrid(in: context, rect: rect)
-        
-        // Draw detailed measurement labels if in debug mode
-        if let heatmapData = heatmapData {
-            drawDebugMeasurementLabels(heatmapData, in: context, rect: rect)
-        }
-        
-        // Draw confidence information if confidence mode is enabled
-        if showConfidence, let heatmapData = heatmapData {
-            drawConfidenceDebugInfo(heatmapData, in: context, rect: rect)
-        }
-        
-        // Draw debug info text
-        drawDebugInfoText(in: context, rect: rect)
-    }
-    
-    private func drawCoordinateGrid(in context: CGContext, rect: CGRect) {
-        context.setStrokeColor(UIColor.systemRed.withAlphaComponent(0.3).cgColor)
-        context.setLineWidth(1.0)
-        
-        // Draw grid lines every 40 points
-        let gridSpacing: CGFloat = 40
-        
-        // Vertical lines
-        for x in stride(from: gridSpacing, to: rect.width, by: gridSpacing) {
-            context.move(to: CGPoint(x: x, y: 0))
-            context.addLine(to: CGPoint(x: x, y: rect.height))
-            context.strokePath()
-        }
-        
-        // Horizontal lines
-        for y in stride(from: gridSpacing, to: rect.height, by: gridSpacing) {
-            context.move(to: CGPoint(x: 0, y: y))
-            context.addLine(to: CGPoint(x: rect.width, y: y))
-            context.strokePath()
-        }
-    }
-    
-    private func drawDebugMeasurementLabels(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
-        guard !rooms.isEmpty, !data.measurements.isEmpty else { return }
-        
-        // Calculate transform (same as used in drawWiFiTestPoints)
-        let allPoints = rooms.flatMap { $0.wallPoints }
-        let minX = allPoints.map { $0.x }.min() ?? 0
-        let maxX = allPoints.map { $0.x }.max() ?? 0
-        let minY = allPoints.map { $0.y }.min() ?? 0
-        let maxY = allPoints.map { $0.y }.max() ?? 0
-        
-        let roomWidth = maxX - minX
-        let roomHeight = maxY - minY
-        
-        guard roomWidth > 0 && roomHeight > 0 else { return }
-        
-        let padding: CGFloat = 20
-        let availableWidth = rect.width - (padding * 2)
-        let availableHeight = rect.height - (padding * 2)
-        
-        let scaleX = availableWidth / CGFloat(roomWidth)
-        let scaleY = availableHeight / CGFloat(roomHeight)
-        let scale = min(scaleX, scaleY)
-        
-        let scaledRoomWidth = CGFloat(roomWidth) * scale
-        let scaledRoomHeight = CGFloat(roomHeight) * scale
-        let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
-        let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
-        
-        for (index, measurement) in data.measurements.enumerated() {
-            let viewX = CGFloat(measurement.location.x) * scale + offsetX
-            let viewY = CGFloat(measurement.location.z) * scale + offsetY
-            
-            let debugText = "#\(index + 1)\n\(measurement.signalStrength)dBm\n\(Int(measurement.speed))Mbps"
-            
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 10),
-                .foregroundColor: UIColor.systemRed,
-                .backgroundColor: UIColor.white.withAlphaComponent(0.8)
-            ]
-            
-            let attributedString = NSAttributedString(string: debugText, attributes: attributes)
-            let textSize = attributedString.size()
-            
-            let textRect = CGRect(x: viewX - textSize.width / 2,
-                                y: viewY + 15, // Offset below the point
-                                width: textSize.width,
-                                height: textSize.height)
-            
-            attributedString.draw(in: textRect)
-        }
-    }
-    
-    private func drawDebugInfoText(in context: CGContext, rect: CGRect) {
-        let debugInfo = """
-        DEBUG MODE
-        Rooms: \(rooms.count)
-        Furniture: \(furnitureItems.count)
-        WiFi Points: \(heatmapData?.measurements.count ?? 0)
-        Heatmap: \(showHeatmap ? "ON" : "OFF")
-        Confidence: \(showConfidence ? "ON" : "OFF")
-        """
-        
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 12, weight: .bold),
-            .foregroundColor: UIColor.systemRed,
-            .backgroundColor: UIColor.white.withAlphaComponent(0.9)
-        ]
-        
-        let attributedString = NSAttributedString(string: debugInfo, attributes: attributes)
-        let textSize = attributedString.size()
-        
-        let textRect = CGRect(x: rect.width - textSize.width - 10,
-                            y: 10,
-                            width: textSize.width,
-                            height: textSize.height)
-        
-        attributedString.draw(in: textRect)
-    }
-    
-    private func drawConfidenceDebugInfo(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
-        // Calculate average confidence across all measurements
-        let confidenceScores = data.measurements.map { calculateConfidenceScore(for: $0) }
-        let avgConfidence = confidenceScores.reduce(0, +) / Float(confidenceScores.count)
-        let minConfidence = confidenceScores.min() ?? 0.0
-        let maxConfidence = confidenceScores.max() ?? 1.0
-        
-        let confidenceInfo = """
-        COVERAGE CONFIDENCE
-        Average: \(String(format: "%.1f", avgConfidence * 100))%
-        Range: \(String(format: "%.1f", minConfidence * 100))% - \(String(format: "%.1f", maxConfidence * 100))%
-        High Confidence Points: \(confidenceScores.filter { $0 >= 0.8 }.count)
-        Low Confidence Points: \(confidenceScores.filter { $0 < 0.5 }.count)
-        """
-        
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: UIColor.systemBlue,
-            .backgroundColor: UIColor.systemBackground.withAlphaComponent(0.9)
-        ]
-        
-        let attributedString = NSAttributedString(string: confidenceInfo, attributes: attributes)
-        let textSize = attributedString.size()
-        
-        let textRect = CGRect(x: 10,
-                            y: rect.height - textSize.height - 10,
-                            width: textSize.width,
-                            height: textSize.height)
-        
-        // Draw background for confidence info
-        context.setFillColor(UIColor.systemBackground.withAlphaComponent(0.9).cgColor)
-        let paddedRect = textRect.insetBy(dx: -8, dy: -4)
-        let path = UIBezierPath(roundedRect: paddedRect, cornerRadius: 6)
-        context.addPath(path.cgPath)
-        context.fillPath()
         
         attributedString.draw(in: textRect)
     }
