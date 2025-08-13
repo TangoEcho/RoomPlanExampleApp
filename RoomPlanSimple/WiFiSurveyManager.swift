@@ -5,7 +5,7 @@ import simd
 import SystemConfiguration.CaptiveNetwork
 import NetworkExtension
 
-struct WiFiMeasurement {
+struct WiFiMeasurement: Codable {
     let location: simd_float3
     let timestamp: Date
     let signalStrength: Int
@@ -21,7 +21,7 @@ struct WiFiHeatmapData {
     let optimalRouterPlacements: [simd_float3]
 }
 
-enum RoomType: String, CaseIterable {
+enum RoomType: String, CaseIterable, Codable {
     case kitchen = "Kitchen"
     case livingRoom = "Living Room" 
     case bedroom = "Bedroom"

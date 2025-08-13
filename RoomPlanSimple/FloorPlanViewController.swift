@@ -247,7 +247,9 @@ class FloorPlanViewController: UIViewController {
         
         DispatchQueue.main.async {
             // Update the renderer with the new data
-            self.floorPlanRenderer.updateRooms(roomAnalyzer.identifiedRooms)
+            if !roomAnalyzer.identifiedRooms.isEmpty {
+                self.floorPlanRenderer.updateRooms(roomAnalyzer.identifiedRooms)
+            }
             self.floorPlanRenderer.updateHeatmap(heatmapData)
             if let devices = self.networkDeviceManager?.getAllDevices() {
                 // Convert NetworkDeviceManager.NetworkDevice to our NetworkDevice type
@@ -258,6 +260,17 @@ class FloorPlanViewController: UIViewController {
                 self.floorPlanRenderer.updateNetworkDevices(convertedDevices)
             }
             self.floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
+            self.measurementsList.reloadData()
+        }
+    }
+    
+    func updateWithPersistedSession(_ saved: SavedSession) {
+        self.wifiHeatmapData = WiFiHeatmapData(measurements: SessionManager.shared.runtimeMeasurements(from: saved.measurements), coverageMap: [:], optimalRouterPlacements: [])
+        DispatchQueue.main.async {
+            self.floorPlanRenderer.updatePersistedRooms(saved.rooms)
+            self.floorPlanRenderer.updateHeatmap(self.wifiHeatmapData)
+            self.floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
+            self.measurements = self.wifiHeatmapData?.measurements ?? []
             self.measurementsList.reloadData()
         }
     }

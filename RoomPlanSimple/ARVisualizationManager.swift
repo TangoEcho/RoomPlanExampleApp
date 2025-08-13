@@ -893,6 +893,16 @@ class ARVisualizationManager: NSObject, ObservableObject {
         // Simplified inverse transformation - just return as-is for now
         return roomPosition
     }
+    
+    func relocalize(with worldMap: ARWorldMap) {
+        guard let sceneView = sceneView else { return }
+        let configuration = ARWorldTrackingConfiguration()
+        configuration.initialWorldMap = worldMap
+        configuration.sceneReconstruction = .mesh
+        configuration.environmentTexturing = .none
+        sceneView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+        print("✅ ARVisualizationManager relocalized with provided world map")
+    }
 }
 
 extension ARVisualizationManager: ARSCNViewDelegate {

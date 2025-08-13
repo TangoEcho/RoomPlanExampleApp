@@ -1,5 +1,5 @@
 /*
-See LICENSE folder for this sample’s licensing information.
+See LICENSE folder for this sample's licensing information.
 
 Abstract:
 The sample app's main view controller that manages the scanning process.
@@ -17,6 +17,10 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var arVisualizationManager = ARVisualizationManager()
     private var networkDeviceManager = NetworkDeviceManager()
     private var arSceneView: ARSCNView!
+    
+    // Session restoration
+    private var pendingSavedSession: SavedSession?
+    private var pendingWorldMapData: Data?
     
     // iOS 17+ Custom ARSession for perfect coordinate alignment
     private lazy var sharedARSession: ARSession = {
@@ -100,6 +104,11 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         setupWiFiSurvey()
         setupBottomNavigation()
         setupHapticFeedback()
+        
+        if let saved = pendingSavedSession {
+            restoreFromSavedSession(saved)
+        }
+        
         updateButtonStates()
     }
     
@@ -608,13 +617,13 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         wifiSurveyManager.startSurvey()
         
         // iOS 17+: Set shared session mode BEFORE switching to AR mode to preserve coordinates
-        if isIOS17Available {
+        if isIOS17Available && pendingSavedSession == nil {
             print("🎯 Enabling shared ARSession mode for perfect coordinate alignment")
             arVisualizationManager.setSharedARSessionMode(true)
         } else {
-            // iOS 16: Disable shared session mode
+            // iOS 16 or when restoring from world map: use separate session
             arVisualizationManager.setSharedARSessionMode(false)
-            print("⚠️ Using separate ARSession (iOS 16)")
+            print("⚠️ Using separate ARSession (iOS 16 or world-map restore)")
         }
         
         // Switch to AR mode for WiFi visualization (this will respect shared session mode)
@@ -788,7 +797,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         startCameraPreview()
         
         // Auto-start scanning immediately since we bypassed the instruction screen
-        if !isScanning && capturedRoomData == nil {
+        if !isScanning && capturedRoomData == nil && pendingSavedSession == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 print("🚀 Auto-starting room scan...")
                 self.startSession()
@@ -827,6 +836,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         stopTrackingStateMonitoring()
         stopStatusUpdateTimer()
         stopScanningProgressHaptics()
+        
+        // Auto-save snapshot on exit (non-blocking)
+        autoSaveSessionSnapshot()
         
         // Clean up haptic generators to free memory
         cleanupHapticGenerators()
@@ -1094,9 +1106,21 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         currentMode = .completed
         print("📊 User requested results view - setting completed mode")
         
+        // Trigger background save of current session snapshot
+        autoSaveSessionSnapshot()
+        
         // In simulator mode, allow viewing results with mock data even without captured room data
         if isSimulatorMode {
             viewSimulatorResults()
+            return
+        }
+        
+        if let saved = pendingSavedSession {
+            // Allow viewing floor plan directly from saved session
+            let floorPlanVC = FloorPlanViewController()
+            floorPlanVC.updateWithPersistedSession(saved)
+            floorPlanVC.modalPresentationStyle = .fullScreen
+            present(floorPlanVC, animated: true)
             return
         }
         
@@ -1614,6 +1638,89 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             coverageMap: coverageMap,
             optimalRouterPlacements: optimalPlacements
         )
+    }
+    
+    func applySavedSession(_ saved: SavedSession) {
+        pendingSavedSession = saved
+        pendingWorldMapData = SessionManager.shared.worldMapData(for: saved.id)
+    }
+    
+    private func captureCurrentWorldMap(completion: @escaping (ARWorldMap?) -> Void) {
+        #if targetEnvironment(simulator)
+        completion(nil)
+        #else
+        sharedARSession.getCurrentWorldMap { worldMap, error in
+            if let error = error { print("⚠️ WorldMap capture error: \(error.localizedDescription)") }
+            completion(worldMap)
+        }
+        #endif
+    }
+    
+    private func autoSaveSessionSnapshot() {
+        // Do not save if no data
+        let hasAnyData = !roomAnalyzer.identifiedRooms.isEmpty || !wifiSurveyManager.measurements.isEmpty
+        guard hasAnyData else { return }
+        
+        captureCurrentWorldMap { [weak self] worldMap in
+            guard let self = self else { return }
+            let name = "Session " + DateFormatter.reportDateFormatter.string(from: Date())
+            do {
+                _ = try SessionManager.shared.saveSession(
+                    name: name,
+                    rooms: self.roomAnalyzer.identifiedRooms,
+                    measurements: self.wifiSurveyManager.measurements,
+                    worldMap: worldMap
+                )
+                print("💾 Auto-saved session: \(name)")
+            } catch {
+                print("❌ Failed to auto-save session: \(error)")
+            }
+        }
+    }
+    
+    private func restoreFromSavedSession(_ saved: SavedSession) {
+        // Restore rooms into analyzer as lightweight polygons for floor plan use
+        let simpleRooms = SessionManager.shared.simpleRooms(from: saved.rooms)
+        let identified: [RoomAnalyzer.IdentifiedRoom] = simpleRooms.map { s in
+            // bounds is required by struct but not used by renderer anymore; create minimal placeholder
+            let placeholderSurface = CapturedRoom.Surface(
+                transform: matrix_identity_float4x4,
+                dimensions: simd_float3( max(1.0, sqrt(s.area)), 2.5, max(1.0, sqrt(s.area)) ),
+                confidence: .medium
+            )
+            return RoomAnalyzer.IdentifiedRoom(
+                type: s.type,
+                bounds: placeholderSurface,
+                center: s.center,
+                area: s.area,
+                confidence: 0.5,
+                wallPoints: s.wallPoints,
+                doorways: []
+            )
+        }
+        roomAnalyzer.identifiedRooms = identified
+        
+        // Restore WiFi measurements
+        let restoredMeasurements = SessionManager.shared.runtimeMeasurements(from: saved.measurements)
+        wifiSurveyManager.measurements = restoredMeasurements
+        
+        // If we have a world map, attempt relocalization
+        if let data = pendingWorldMapData,
+           let worldMap = try? NSKeyedUnarchiver.unarchivedObject(ofClass: ARWorldMap.self, from: data) {
+            arVisualizationManager.relocalize(with: worldMap)
+        }
+        
+        // Show AR mode ready for continued surveying
+        currentMode = .surveying
+        isScanning = false
+        roomPlanPaused = true
+        switchToARMode()
+        updateButtonStates()
+    }
+    
+    private func relocalizeARSession(with data: Data) {
+        guard let worldMap = try? NSKeyedUnarchiver.unarchivedObject(ofClass: ARWorldMap.self, from: data) else { return }
+        arVisualizationManager.relocalize(with: worldMap)
     }
 }
 
