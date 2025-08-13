@@ -1116,13 +1116,46 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             
             // Generate heatmap data in background to prevent UI freezing
             DispatchQueue.global(qos: .userInitiated).async {
-                let heatmapData = self.wifiSurveyManager.generateHeatmapData()
+                // Base heatmap from measurements
+                let baseHeatmap = self.wifiSurveyManager.generateHeatmapData()
+                
+                // Predict propagation and merge with measured data
+                let routers: [simd_float3]
+                if let placedRouter = self.networkDeviceManager.router?.position {
+                    routers = [placedRouter]
+                } else {
+                    routers = baseHeatmap.optimalRouterPlacements
+                }
+                var mergedHeatmap = baseHeatmap
+                if !routers.isEmpty && !self.roomAnalyzer.identifiedRooms.isEmpty {
+                    var predicted: [simd_float3: Double] = [:]
+                    if let metal = MetalRFPropagation() {
+                        if let gpuResult = metal.generateCoverage(rooms: self.roomAnalyzer.identifiedRooms, routers: routers) {
+                            predicted = gpuResult
+                        }
+                    }
+                    if predicted.isEmpty {
+                        predicted = RFPropagationModel.generatePropagationMap(
+                            rooms: self.roomAnalyzer.identifiedRooms,
+                            routers: routers
+                        )
+                    }
+                    let mergedCoverage = RFPropagationModel.mergePredictedWithMeasured(
+                        predicted: predicted,
+                        measured: self.wifiSurveyManager.measurements
+                    )
+                    mergedHeatmap = WiFiHeatmapData(
+                        measurements: baseHeatmap.measurements,
+                        coverageMap: mergedCoverage,
+                        optimalRouterPlacements: baseHeatmap.optimalRouterPlacements
+                    )
+                }
                 
                 DispatchQueue.main.async {
                     print("✅ Results generated, navigating to floor plan...")
                     
                     let floorPlanVC = FloorPlanViewController()
-                    floorPlanVC.updateWithData(heatmapData: heatmapData, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager)
+                    floorPlanVC.updateWithData(heatmapData: mergedHeatmap, roomAnalyzer: self.roomAnalyzer, networkDeviceManager: self.networkDeviceManager)
                     floorPlanVC.modalPresentationStyle = .fullScreen
                     self.present(floorPlanVC, animated: true)
                     
@@ -1217,9 +1250,40 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     // Alternatively, `.mesh` exports a nonparametric file and `.all`
     // exports both in a single USDZ.
     @IBAction func exportResults(_ sender: UIButton) {
-        let destinationURL = FileManager.default.temporaryDirectory.appending(path: "Room.usdz")
+        let destinationURL = FileManager.default.temporaryDirectory.appending(path: "Room_With_Heatmap.usdz")
+        guard let captured = finalResults else {
+            print("⚠️ No captured room to export")
+            return
+        }
         do {
-            try finalResults?.export(to: destinationURL, exportOptions: .parametric)
+            // Build current heatmap (merge predicted if possible)
+            let baseHeatmap = wifiSurveyManager.generateHeatmapData()
+            let routers: [simd_float3]
+            if let placedRouter = networkDeviceManager.router?.position {
+                routers = [placedRouter]
+            } else {
+                routers = baseHeatmap.optimalRouterPlacements
+            }
+            var coverage = baseHeatmap.coverageMap
+            if !routers.isEmpty && !roomAnalyzer.identifiedRooms.isEmpty {
+                var predicted: [simd_float3: Double] = [:]
+                if let metal = MetalRFPropagation() {
+                    if let gpuResult = metal.generateCoverage(rooms: roomAnalyzer.identifiedRooms, routers: routers) {
+                        predicted = gpuResult
+                    }
+                }
+                if predicted.isEmpty {
+                    predicted = RFPropagationModel.generatePropagationMap(
+                        rooms: roomAnalyzer.identifiedRooms,
+                        routers: routers
+                    )
+                }
+                coverage = RFPropagationModel.mergePredictedWithMeasured(
+                    predicted: predicted,
+                    measured: wifiSurveyManager.measurements
+                )
+            }
+            try USDZHeatmapExporter.exportRoomWithHeatmap(capturedRoom: captured, coverageMap: coverage, destinationURL: destinationURL)
             
             let activityVC = UIActivityViewController(activityItems: [destinationURL], applicationActivities: nil)
             activityVC.modalPresentationStyle = .popover

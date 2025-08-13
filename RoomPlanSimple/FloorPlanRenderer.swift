@@ -227,43 +227,66 @@ class FloorPlanRenderer: UIView {
     }
     
     private func drawHeatmap(_ data: WiFiHeatmapData, in context: CGContext, rect: CGRect) {
-        // Simple heatmap visualization - draw measurement points as colored circles
-        guard !data.measurements.isEmpty else { return }
-        
-        // Calculate bounds similar to rooms
-        let points = data.measurements.map { simd_float2($0.location.x, $0.location.z) }
-        let minX = points.map { $0.x }.min() ?? 0
-        let maxX = points.map { $0.x }.max() ?? 0
-        let minY = points.map { $0.y }.min() ?? 0
-        let maxY = points.map { $0.y }.max() ?? 0
-        
+        // Prefer rendering the coverageMap as tiles; fallback to measurement points
+        let hasCoverageTiles = !data.coverageMap.isEmpty
+        let minX: Float
+        let maxX: Float
+        let minY: Float
+        let maxY: Float
+        if hasCoverageTiles {
+            let points = data.coverageMap.keys.map { simd_float2($0.x, $0.z) }
+            minX = points.map { $0.x }.min() ?? 0
+            maxX = points.map { $0.x }.max() ?? 0
+            minY = points.map { $0.y }.min() ?? 0
+            maxY = points.map { $0.y }.max() ?? 0
+        } else {
+            guard !data.measurements.isEmpty else { return }
+            let points = data.measurements.map { simd_float2($0.location.x, $0.location.z) }
+            minX = points.map { $0.x }.min() ?? 0
+            maxX = points.map { $0.x }.max() ?? 0
+            minY = points.map { $0.y }.min() ?? 0
+            maxY = points.map { $0.y }.max() ?? 0
+        }
         let roomWidth = maxX - minX
         let roomHeight = maxY - minY
-        
         guard roomWidth > 0 && roomHeight > 0 else { return }
-        
         let padding: CGFloat = 20
         let availableWidth = rect.width - (padding * 2)
         let availableHeight = rect.height - (padding * 2)
-        
         let scaleX = availableWidth / CGFloat(roomWidth)
         let scaleY = availableHeight / CGFloat(roomHeight)
         let scale = min(scaleX, scaleY)
-        
         let scaledRoomWidth = CGFloat(roomWidth) * scale
         let scaledRoomHeight = CGFloat(roomHeight) * scale
         let offsetX = (rect.width - scaledRoomWidth) / 2 - CGFloat(minX) * scale
         let offsetY = (rect.height - scaledRoomHeight) / 2 - CGFloat(minY) * scale
-        
-        // Draw measurement points
-        for measurement in data.measurements {
-            let viewPoint = CGPoint(
-                x: CGFloat(measurement.location.x) * scale + offsetX,
-                y: CGFloat(measurement.location.z) * scale + offsetY
-            )
-            
-            let color = colorForSignalStrength(Float(measurement.signalStrength))
-            drawMeasurementPoint(at: viewPoint, color: color, in: context)
+
+        if hasCoverageTiles {
+            // Draw coverage tiles
+            for (position, normalized) in data.coverageMap {
+                let viewPoint = CGPoint(
+                    x: CGFloat(position.x) * scale + offsetX,
+                    y: CGFloat(position.z) * scale + offsetY
+                )
+                // Approximate tile size to half a meter in view space
+                let tileSizeMeters: CGFloat = 0.5
+                let tileSize = tileSizeMeters * scale
+                let rectTile = CGRect(x: viewPoint.x - tileSize/2, y: viewPoint.y - tileSize/2, width: tileSize, height: tileSize)
+                let rssi = Int(normalized * 100.0 - 100.0)
+                let color = SpectrumBranding.signalStrengthColor(for: rssi)
+                context.setFillColor(color.withAlphaComponent(heatmapAlpha).cgColor)
+                context.fill(rectTile)
+            }
+        } else {
+            // Fallback: draw measurement points
+            for measurement in data.measurements {
+                let viewPoint = CGPoint(
+                    x: CGFloat(measurement.location.x) * scale + offsetX,
+                    y: CGFloat(measurement.location.z) * scale + offsetY
+                )
+                let color = colorForSignalStrength(Float(measurement.signalStrength))
+                drawMeasurementPoint(at: viewPoint, color: color, in: context)
+            }
         }
     }
     
