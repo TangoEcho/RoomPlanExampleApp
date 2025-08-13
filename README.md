@@ -444,7 +444,7 @@ func performRealSpeedTest(completion: @escaping (Result<Double, SpeedTestError>)
 
 **Distance-Based Recording**:
 ```swift
-func recordMeasurement(at location: simd_float3, roomType: RoomType?) {
+func recordMeasurement(at location: simd_float3, roomType: RoomType?, floorIndex: Int?, roomId: UUID?) {
     guard isRecording else { return }
     
     // Only record if moved at least 1 foot
@@ -454,7 +454,7 @@ func recordMeasurement(at location: simd_float3, roomType: RoomType?) {
     }
     
     lastMeasurementPosition = location
-    // Create and store measurement...
+    // Create and store measurement including floorIndex and roomId...
 }
 ```
 

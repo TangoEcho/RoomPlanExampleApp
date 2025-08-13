@@ -1129,9 +1129,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 var mergedHeatmap = baseHeatmap
                 if !routers.isEmpty && !self.roomAnalyzer.identifiedRooms.isEmpty {
                     var predicted: [simd_float3: Double] = [:]
-                    if let metal = MetalRFPropagation() {
-                        if let gpuResult = metal.generateCoverage(rooms: self.roomAnalyzer.identifiedRooms, routers: routers) {
-                            predicted = gpuResult
+                    let hasMultipleFloors = Set(self.roomAnalyzer.identifiedRooms.map { $0.floorIndex }).count > 1
+                    if !hasMultipleFloors {
+                        if let metal = MetalRFPropagation() {
+                            if let gpuResult = metal.generateCoverage(rooms: self.roomAnalyzer.identifiedRooms, routers: routers) {
+                                predicted = gpuResult
+                            }
                         }
                     }
                     if predicted.isEmpty {
@@ -1267,9 +1270,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             var coverage = baseHeatmap.coverageMap
             if !routers.isEmpty && !roomAnalyzer.identifiedRooms.isEmpty {
                 var predicted: [simd_float3: Double] = [:]
-                if let metal = MetalRFPropagation() {
-                    if let gpuResult = metal.generateCoverage(rooms: roomAnalyzer.identifiedRooms, routers: routers) {
-                        predicted = gpuResult
+                let hasMultipleFloors = Set(roomAnalyzer.identifiedRooms.map { $0.floorIndex }).count > 1
+                if !hasMultipleFloors {
+                    if let metal = MetalRFPropagation() {
+                        if let gpuResult = metal.generateCoverage(rooms: roomAnalyzer.identifiedRooms, routers: routers) {
+                            predicted = gpuResult
+                        }
                     }
                 }
                 if predicted.isEmpty {
@@ -1500,7 +1506,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 450.0,
                 frequency: "5.18 GHz",
-                roomType: .livingRoom
+                roomType: .livingRoom,
+                floorIndex: 0,
+                roomId: nil
             ),
             WiFiMeasurement(
                 location: simd_float3(4.0, 0, 2.0),
@@ -1509,7 +1517,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 380.0,
                 frequency: "5.18 GHz",
-                roomType: .livingRoom
+                roomType: .livingRoom,
+                floorIndex: 0,
+                roomId: nil
             ),
             WiFiMeasurement(
                 location: simd_float3(3.5, 0, 3.0),
@@ -1518,7 +1528,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 420.0,
                 frequency: "5.18 GHz",
-                roomType: .livingRoom
+                roomType: .livingRoom,
+                floorIndex: 0,
+                roomId: nil
             )
         ])
         
@@ -1531,7 +1543,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 180.0,
                 frequency: "5.18 GHz",
-                roomType: .kitchen
+                roomType: .kitchen,
+                floorIndex: 0,
+                roomId: nil
             ),
             WiFiMeasurement(
                 location: simd_float3(-2.5, 0, 2.5),
@@ -1540,7 +1554,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 120.0,
                 frequency: "5.18 GHz",
-                roomType: .kitchen
+                roomType: .kitchen,
+                floorIndex: 0,
+                roomId: nil
             )
         ])
         
@@ -1553,7 +1569,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 85.0,
                 frequency: "5.18 GHz",
-                roomType: .bedroom
+                roomType: .bedroom,
+                floorIndex: 0,
+                roomId: nil
             ),
             WiFiMeasurement(
                 location: simd_float3(4.0, 0, -3.5),
@@ -1562,7 +1580,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 45.0,
                 frequency: "5.18 GHz",
-                roomType: .bedroom
+                roomType: .bedroom,
+                floorIndex: 0,
+                roomId: nil
             )
         ])
         
