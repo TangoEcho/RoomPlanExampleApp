@@ -915,11 +915,14 @@ extension ARVisualizationManager: ARSCNViewDelegate {
         if let wifiManager = wifiSurveyManager, wifiManager.isRecording {
             // Transform AR coordinates to room-aligned coordinates
             let alignedPosition = transformARToRoomCoordinates(position)
-            let roomType = determineCurrentRoomType(at: alignedPosition)
+            let containingRoom = roomAnalyzer?.findRoomContaining(position: alignedPosition)
+            let roomType = containingRoom?.type
+            let floorIndex = roomAnalyzer?.floorIndexForPosition(alignedPosition)
+            let roomId = containingRoom?.id
             let measurementCountBefore = wifiManager.measurements.count
             
-            // Record measurement using aligned coordinates
-            wifiManager.recordMeasurement(at: alignedPosition, roomType: roomType)
+            // Record measurement using aligned coordinates and floor context
+            wifiManager.recordMeasurement(at: alignedPosition, roomType: roomType, floorIndex: floorIndex, roomId: roomId)
             
             // Add visualization for new measurement (only if a new one was actually added)
             if wifiManager.measurements.count > measurementCountBefore,

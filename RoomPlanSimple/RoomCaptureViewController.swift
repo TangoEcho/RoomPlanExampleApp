@@ -1500,7 +1500,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 450.0,
                 frequency: "5.18 GHz",
-                roomType: .livingRoom
+                roomType: .livingRoom,
+                floorIndex: 0,
+                roomId: nil
             ),
             WiFiMeasurement(
                 location: simd_float3(4.0, 0, 2.0),
@@ -1509,7 +1511,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 380.0,
                 frequency: "5.18 GHz",
-                roomType: .livingRoom
+                roomType: .livingRoom,
+                floorIndex: 0,
+                roomId: nil
             ),
             WiFiMeasurement(
                 location: simd_float3(3.5, 0, 3.0),
@@ -1518,7 +1522,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 420.0,
                 frequency: "5.18 GHz",
-                roomType: .livingRoom
+                roomType: .livingRoom,
+                floorIndex: 0,
+                roomId: nil
             )
         ])
         
@@ -1531,7 +1537,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 180.0,
                 frequency: "5.18 GHz",
-                roomType: .kitchen
+                roomType: .kitchen,
+                floorIndex: 0,
+                roomId: nil
             ),
             WiFiMeasurement(
                 location: simd_float3(-2.5, 0, 2.5),
@@ -1540,7 +1548,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 120.0,
                 frequency: "5.18 GHz",
-                roomType: .kitchen
+                roomType: .kitchen,
+                floorIndex: 0,
+                roomId: nil
             )
         ])
         
@@ -1553,7 +1563,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 85.0,
                 frequency: "5.18 GHz",
-                roomType: .bedroom
+                roomType: .bedroom,
+                floorIndex: 0,
+                roomId: nil
             ),
             WiFiMeasurement(
                 location: simd_float3(4.0, 0, -3.5),
@@ -1562,7 +1574,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
                 networkName: "SpectrumSetup-A7",
                 speed: 45.0,
                 frequency: "5.18 GHz",
-                roomType: .bedroom
+                roomType: .bedroom,
+                floorIndex: 0,
+                roomId: nil
             )
         ])
         

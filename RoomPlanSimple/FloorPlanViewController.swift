@@ -16,12 +16,14 @@ class FloorPlanViewController: UIViewController {
     private var legendView: UIView!
     private var exportButton: UIButton!
     private var measurementsList: UITableView!
+    private var floorSelector: UISegmentedControl!
     
     private var floorPlanRenderer: FloorPlanRenderer!
     private var wifiHeatmapData: WiFiHeatmapData?
     private var roomAnalyzer: RoomAnalyzer?
     private var networkDeviceManager: NetworkDeviceManager?
     private var measurements: [WiFiMeasurement] = []
+    private var selectedFloorIndex: Int = 0
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -58,6 +60,10 @@ class FloorPlanViewController: UIViewController {
         measurementsList = UITableView()
         measurementsList.translatesAutoresizingMaskIntoConstraints = false
         
+        floorSelector = UISegmentedControl(items: [])
+        floorSelector.translatesAutoresizingMaskIntoConstraints = false
+        floorSelector.addTarget(self, action: #selector(floorChanged), for: .valueChanged)
+        
         // Add to view hierarchy
         view.addSubview(floorPlanView)
         view.addSubview(heatmapToggle)
@@ -65,6 +71,7 @@ class FloorPlanViewController: UIViewController {
         view.addSubview(legendView)
         view.addSubview(exportButton)
         view.addSubview(measurementsList)
+        view.addSubview(floorSelector)
     }
     
     private func setupConstraints() {
@@ -88,7 +95,11 @@ class FloorPlanViewController: UIViewController {
             heatmapLabel.trailingAnchor.constraint(equalTo: heatmapToggle.leadingAnchor, constant: -10),
             heatmapLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 20),
             
-            legendView.topAnchor.constraint(equalTo: heatmapToggle.bottomAnchor, constant: 10),
+            floorSelector.topAnchor.constraint(equalTo: heatmapToggle.bottomAnchor, constant: 8),
+            floorSelector.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            floorSelector.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.9),
+            
+            legendView.topAnchor.constraint(equalTo: floorSelector.bottomAnchor, constant: 10),
             legendView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
             legendView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
             legendView.heightAnchor.constraint(equalToConstant: 120),
@@ -245,21 +256,110 @@ class FloorPlanViewController: UIViewController {
         self.networkDeviceManager = networkDeviceManager
         self.measurements = heatmapData.measurements
         
+        // Build floor selector from analyzer floors
+        let floorCount = max(roomAnalyzer.floorHeights.count, 1)
+        floorSelector.removeAllSegments()
+        for i in 0..<floorCount {
+            floorSelector.insertSegment(withTitle: "Floor \(i + 1)", at: i, animated: false)
+        }
+        if floorCount > 0 {
+            selectedFloorIndex = min(selectedFloorIndex, floorCount - 1)
+            floorSelector.selectedSegmentIndex = selectedFloorIndex
+        }
+        
         DispatchQueue.main.async {
-            // Update the renderer with the new data
-            self.floorPlanRenderer.updateRooms(roomAnalyzer.identifiedRooms)
-            self.floorPlanRenderer.updateHeatmap(heatmapData)
-            if let devices = self.networkDeviceManager?.getAllDevices() {
-                // Convert NetworkDeviceManager.NetworkDevice to our NetworkDevice type
-                let convertedDevices = devices.compactMap { device -> NetworkDevice? in
+            self.refreshFloorFilteredViews()
+            self.measurementsList.reloadData()
+        }
+    }
+    
+    private func refreshFloorFilteredViews() {
+        guard let analyzer = roomAnalyzer else { return }
+        let currentFloor = selectedFloorIndex
+        let roomsOnFloor = analyzer.identifiedRooms.filter { $0.floorIndex == currentFloor }
+        floorPlanRenderer.updateRooms(roomsOnFloor)
+        
+        if let data = wifiHeatmapData {
+            let filteredMeasurements = data.measurements.filter { ($0.floorIndex ?? currentFloor) == currentFloor }
+            let filteredCoverage = generateCoverageMap(from: filteredMeasurements)
+            let filteredData = WiFiHeatmapData(measurements: filteredMeasurements, coverageMap: filteredCoverage, optimalRouterPlacements: data.optimalRouterPlacements)
+            floorPlanRenderer.updateHeatmap(filteredData)
+        } else {
+            floorPlanRenderer.updateHeatmap(nil)
+        }
+        
+        if let devices = networkDeviceManager?.getAllDevices() {
+            let convertedDevices = devices.compactMap { device -> NetworkDevice? in
+                let nearestRoom = roomsOnFloor.min { a, b in
+                    simd_distance(a.center, device.position) < simd_distance(b.center, device.position)
+                }
+                if nearestRoom != nil {
                     let type: NetworkDevice.DeviceType = device.type == .router ? .router : .extender
                     return NetworkDevice(type: type, position: device.position)
                 }
-                self.floorPlanRenderer.updateNetworkDevices(convertedDevices)
+                return nil
             }
-            self.floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
-            self.measurementsList.reloadData()
+            floorPlanRenderer.updateNetworkDevices(convertedDevices)
         }
+        floorPlanRenderer.setShowHeatmap(self.heatmapToggle.isOn)
+    }
+    
+    private func generateCoverageMap(from measurements: [WiFiMeasurement]) -> [simd_float3: Double] {
+        guard measurements.count >= 2 else {
+            var coverage: [simd_float3: Double] = [:]
+            for m in measurements {
+                let normalized = Double(m.signalStrength + 100) / 100.0
+                coverage[m.location] = max(0, min(1, normalized))
+            }
+            return coverage
+        }
+        
+        let positions = measurements.map { $0.location }
+        let minX = positions.map { $0.x }.min() ?? 0
+        let maxX = positions.map { $0.x }.max() ?? 0
+        let minZ = positions.map { $0.z }.min() ?? 0
+        let maxZ = positions.map { $0.z }.max() ?? 0
+        
+        let padding: Float = 2.0
+        let boundedMinX = minX - padding
+        let boundedMaxX = maxX + padding
+        let boundedMinZ = minZ - padding
+        let boundedMaxZ = maxZ + padding
+        
+        let gridResolution: Float = 0.5
+        let gridWidth = Int(ceil((boundedMaxX - boundedMinX) / gridResolution))
+        let gridDepth = Int(ceil((boundedMaxZ - boundedMinZ) / gridResolution))
+        
+        var coverageMap: [simd_float3: Double] = [:]
+        
+        for x in 0...gridWidth {
+            for z in 0...gridDepth {
+                let gridPoint = simd_float3(
+                    boundedMinX + Float(x) * gridResolution,
+                    0,
+                    boundedMinZ + Float(z) * gridResolution
+                )
+                
+                var weightedSum: Float = 0
+                var totalWeight: Float = 0
+                var nearest: Float = Float.greatestFiniteMagnitude
+                for m in measurements {
+                    let d = simd_distance(gridPoint, m.location)
+                    nearest = min(nearest, d)
+                    let w: Float = d < 0.01 ? 1000.0 : 1.0 / (d * d)
+                    weightedSum += Float(m.signalStrength) * w
+                    totalWeight += w
+                }
+                if nearest <= 4.0 && totalWeight > 0 {
+                    let interpolated = weightedSum / totalWeight
+                    if interpolated > -120 {
+                        let normalized = Double(interpolated + 100) / 100.0
+                        coverageMap[gridPoint] = max(0, min(1, normalized))
+                    }
+                }
+            }
+        }
+        return coverageMap
     }
     
     @objc private func toggleHeatmap() {
@@ -298,19 +398,30 @@ class FloorPlanViewController: UIViewController {
             return SpectrumBranding.Colors.poorSignal
         }
     }
+    
+    @objc private func floorChanged() {
+        selectedFloorIndex = max(0, floorSelector.selectedSegmentIndex)
+        refreshFloorFilteredViews()
+        measurementsList.reloadData()
+    }
 }
 
 extension FloorPlanViewController: UITableViewDataSource, UITableViewDelegate {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return measurements.count
+        let currentFloor = selectedFloorIndex
+        return measurements.filter { ($0.floorIndex ?? currentFloor) == currentFloor }.count
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "MeasurementCell", for: indexPath)
-        let measurement = measurements[indexPath.row]
+        let currentFloor = selectedFloorIndex
+        let floorMeasurements = measurements.filter { ($0.floorIndex ?? currentFloor) == currentFloor }
+        let measurement = floorMeasurements[indexPath.row]
         
         let roomName = measurement.roomType?.rawValue ?? "Unknown"
-        cell.textLabel?.text = "\(roomName): \(measurement.signalStrength)dBm, \(Int(round(measurement.speed)))Mbps"
+        var text = "\(roomName): \(measurement.signalStrength)dBm, \(Int(round(measurement.speed)))Mbps"
+        if let f = measurement.floorIndex { text += "  [F\(f+1)]" }
+        cell.textLabel?.text = text
         cell.detailTextLabel?.text = measurement.frequency
         
         let signalColor = signalStrengthColor(Float(measurement.signalStrength))

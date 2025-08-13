@@ -7,6 +7,7 @@ class RoomAnalyzer: ObservableObject {
     @Published var identifiedRooms: [IdentifiedRoom] = []
     @Published var furnitureItems: [FurnitureItem] = []
     @Published var roomConnections: [RoomConnection] = []
+    @Published var floorHeights: [Float] = []
     
     struct IdentifiedRoom {
         let id = UUID()
@@ -17,6 +18,7 @@ class RoomAnalyzer: ObservableObject {
         let confidence: Float
         let wallPoints: [simd_float2] // Actual room boundary points from RoomPlan
         let doorways: [simd_float2] // Door/opening positions from RoomPlan
+        let floorIndex: Int
     }
     
     struct FurnitureItem {
@@ -42,6 +44,8 @@ class RoomAnalyzer: ObservableObject {
     }
     
     func analyzeCapturedRoom(_ capturedRoom: CapturedRoom) {
+        // Compute floor clusters first
+        computeFloors(from: capturedRoom)
         identifyRoomTypes(from: capturedRoom)
         catalogFurniture(from: capturedRoom)
         mapRoomConnections(from: capturedRoom)
@@ -94,10 +98,9 @@ class RoomAnalyzer: ObservableObject {
         let roomType = classifyRoomByFurniture(surface: surface, objects: capturedRoom.objects)
         let center = extractSurfaceCenter(surface)
         let area = calculateSurfaceArea(surface)
-        
-        // Use RoomPlan's surface data directly for room boundaries
         let wallPoints = createRoomBoundaryFromSurface(surface)
         let doorways = extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+        let fIndex = determineFloorIndex(forY: center.y)
         
         return IdentifiedRoom(
             type: roomType,
@@ -106,7 +109,8 @@ class RoomAnalyzer: ObservableObject {
             area: area,
             confidence: calculateRoomTypeConfidence(roomType: roomType, objects: capturedRoom.objects, surface: surface),
             wallPoints: wallPoints,
-            doorways: doorways
+            doorways: doorways,
+            floorIndex: fIndex
         )
     }
     
@@ -117,6 +121,7 @@ class RoomAnalyzer: ObservableObject {
         print("   Found \(furnitureGroups.count) furniture clusters")
         
         var rooms: [IdentifiedRoom] = []
+        let fIndex = determineFloorIndex(forY: extractSurfaceCenter(mainFloor).y)
         
         for (index, group) in furnitureGroups.enumerated() {
             let roomType = classifyRoomFromFurnitureGroup(group)
@@ -134,7 +139,8 @@ class RoomAnalyzer: ObservableObject {
                 area: roomArea,
                 confidence: calculateConfidenceFromFurniture(group, roomType: roomType),
                 wallPoints: roomBoundary,
-                doorways: doorways
+                doorways: doorways,
+                floorIndex: fIndex
             )
             
             rooms.append(room)
@@ -343,6 +349,7 @@ class RoomAnalyzer: ObservableObject {
         // Analyze the space and furniture to create logical room divisions
         let allObjects = capturedRoom.objects
         let spaceCenter = extractSurfaceCenter(mainFloor)
+        let fIndex = determineFloorIndex(forY: spaceCenter.y)
         
         // Create rooms based on furniture distribution and typical home layout
         if allObjects.count >= 3 {
@@ -421,21 +428,24 @@ class RoomAnalyzer: ObservableObject {
         let roomBoundary = createRoomBoundaryFromFurnitureCluster(roomObjects, floor: baseFloor)
         let roomArea = calculateAreaFromWallPoints(roomBoundary)
         let doorways = extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+        let fIndex = determineFloorIndex(forY: extractSurfaceCenter(baseFloor).y)
         
         return IdentifiedRoom(
             type: roomType,
             bounds: baseFloor,
             center: roomCenter,
             area: roomArea,
-            confidence: objects.isEmpty ? 0.3 : 0.7,
+            confidence: calculateConfidenceFromFurniture(roomObjects, roomType: roomType),
             wallPoints: roomBoundary,
-            doorways: doorways
+            doorways: doorways,
+            floorIndex: fIndex
         )
     }
     
     private func createDefaultRoomLayout(capturedRoom: CapturedRoom, mainFloor: CapturedRoom.Surface) -> [IdentifiedRoom] {
         let spaceCenter = extractSurfaceCenter(mainFloor)
         let allObjects = capturedRoom.objects
+        let fIndex = determineFloorIndex(forY: spaceCenter.y)
         
         // Create a reasonable default layout with multiple rooms
         var rooms: [IdentifiedRoom] = []
@@ -454,7 +464,8 @@ class RoomAnalyzer: ObservableObject {
             area: 16.0,
             confidence: 0.4,
             wallPoints: livingBoundary,
-            doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+            doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom),
+            floorIndex: fIndex
         )
         rooms.append(livingRoom)
         
@@ -469,7 +480,8 @@ class RoomAnalyzer: ObservableObject {
             area: 9.0,
             confidence: 0.4,
             wallPoints: kitchenBoundary,
-            doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+            doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom),
+            floorIndex: fIndex
         )
         rooms.append(kitchen)
         
@@ -485,7 +497,8 @@ class RoomAnalyzer: ObservableObject {
                 area: 9.0,
                 confidence: 0.4,
                 wallPoints: diningBoundary,
-                doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom)
+                doorways: extractDoorwaysFromRoomPlan(capturedRoom: capturedRoom),
+                floorIndex: fIndex
             )
             rooms.append(diningRoom)
         }
@@ -632,7 +645,13 @@ class RoomAnalyzer: ObservableObject {
         print("🔍 Checking room containment for position (\(String(format: "%.2f", position.x)), \(String(format: "%.2f", position.z)))")
         
         for room in identifiedRooms {
-            print("   Testing room \(room.type.rawValue) at (\(String(format: "%.2f", room.center.x)), \(String(format: "%.2f", room.center.z)))")
+            // Floor-aware filter: ensure Y is within reasonable range of this room's floor
+            let yDelta = abs(position.y - room.center.y)
+            if yDelta > 3.0 { // more than ~3m above/below the floor center => different floor
+                continue
+            }
+            
+            print("   Testing room \(room.type.rawValue) at (\(String(format: "%.2f", room.center.x)), \(String(format: "%.2f", room.center.z))) on floor \(room.floorIndex)")
             
             if room.wallPoints.count >= 3 {
                 let isInside = isPointInPolygon(simd_float2(position.x, position.z), polygon: room.wallPoints)
@@ -699,5 +718,59 @@ class RoomAnalyzer: ObservableObject {
         DispatchQueue.main.async {
             self.roomConnections = []
         }
+    }
+    
+    // MARK: - Floor detection & helpers
+    
+    private func computeFloors(from capturedRoom: CapturedRoom) {
+        let heights = capturedRoom.floors.map { extractSurfaceCenter($0).y }
+        let clustered = clusterHeights(heights)
+        let sorted = clustered.sorted()
+        DispatchQueue.main.async {
+            self.floorHeights = sorted
+        }
+        print("🏢 Detected floors at heights: \(sorted.map { String(format: "%.2f", $0) }.joined(separator: ", "))")
+    }
+    
+    private func clusterHeights(_ heights: [Float], tolerance: Float = 0.5) -> [Float] {
+        guard !heights.isEmpty else { return [] }
+        let sorted = heights.sorted()
+        var clusters: [[Float]] = []
+        for h in sorted {
+            if var last = clusters.last, let representative = last.last, abs(h - representative) <= tolerance {
+                last.append(h)
+                clusters[clusters.count - 1] = last
+            } else {
+                clusters.append([h])
+            }
+        }
+        // Use average of each cluster as the floor height
+        return clusters.map { cluster in
+            cluster.reduce(0, +) / Float(cluster.count)
+        }
+    }
+    
+    private func determineFloorIndex(forY y: Float) -> Int {
+        // If we have no floors, treat as ground
+        guard !floorHeights.isEmpty else { return 0 }
+        var bestIndex = 0
+        var bestDelta = Float.greatestFiniteMagnitude
+        for (idx, fh) in floorHeights.enumerated() {
+            let delta = abs(fh - y)
+            if delta < bestDelta {
+                bestDelta = delta
+                bestIndex = idx
+            }
+        }
+        return bestIndex
+    }
+    
+    func floorIndexForPosition(_ position: simd_float3) -> Int? {
+        guard !floorHeights.isEmpty else { return 0 }
+        let deltas = floorHeights.map { abs($0 - position.y) }
+        if let (idx, minDelta) = deltas.enumerated().min(by: { $0.element < $1.element }) {
+            return minDelta <= 1.5 ? idx : idx // Allow generous tolerance for handheld device height
+        }
+        return nil
     }
 }
