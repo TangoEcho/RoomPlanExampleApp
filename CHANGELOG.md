@@ -14,6 +14,14 @@
 ### Notes
 - If you had local references to the removed `WiFiMap` package, point them to the integrated `WiFiMapFramework` modules.
 
+### UI/Behavior changes
+- Explicit demo mode for floor plan:
+  - `FloorPlanViewController` now loads sample content only when `isDemoMode == true`.
+  - `RoomCaptureViewController.showFloorPlanDemo()` sets `isDemoMode = true`.
+  - Real navigation uses `updateWithData(...)` which disables demo mode and clears any sample arrays so real data always takes precedence.
+- Removed default "Sample Room Layout" label from `FloorPlanRenderer` to avoid accidental demo branding.
+- Real-device fallback: if RoomPlan returns no valid floor surfaces/walls, a minimal fallback room labeled "Unknown" is created so WiFi visualization still works. Users are guided to retry scan in better conditions.
+
 ## Version 2.0.0 - Advanced Coordinate Alignment Implementation
 
 ### 🎯 Major Features

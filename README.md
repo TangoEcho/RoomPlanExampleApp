@@ -43,6 +43,11 @@ A professional WiFi analysis application for Spectrum that combines Apple's ARKi
 5. **Router & Extender Placement** → Interactive AR positioning for optimal network coverage
 6. **Professional Results** → Architectural-style floor plans and reports
 
+### Demo mode vs. real scan
+- Demo floor plan is now explicit only. Use the "📊 View Floor Plan Demo" button (unsupported devices) or call `RoomCaptureViewController.showFloorPlanDemo()`, which presents `FloorPlanViewController` with `isDemoMode = true` so it loads sample data.
+- Real scans navigate to `FloorPlanViewController` via `updateWithData(heatmapData:roomAnalyzer:...)`. In this path, demo mode is disabled and any sample arrays are cleared so only real RoomPlan-derived data renders.
+- On device, if RoomPlan returns no usable geometry (world tracking failure), the app creates a minimal fallback room labeled "Unknown" to allow WiFi visualization. This is not demo data.
+
 ### Visual Design
 - **Spectrum Branding**: Corporate colors, fonts, and styling throughout
 - **Color-Coded Status**: Blue (scanning), Green (complete), Orange (measuring)
@@ -136,6 +141,16 @@ WiFiMapFramework (Integrated into app)
 ├── Core, RFPropagation, PlacementOptimization, RoomPlan
 └── No external Swift Package dependency
 ```
+
+### Plume integration boundary
+- `WiFiControlProvider` protocol abstracts WiFi control/steering. A NoOp provider is used by default; the Plume module can be owned by a separate team and wired as a provider implementation later without adding a hard compile-time dependency to the app target.
+
+### Real-device fallback behavior
+- When RoomPlan cannot establish robust tracking or yields zero floors/walls, the app creates a minimal square room labeled "Unknown" to continue WiFi survey visualization.
+- Tips to avoid fallback:
+  - Ensure good lighting and scan the floor and full wall perimeter slowly.
+  - Allow a few seconds for AR tracking to stabilize before switching modes.
+  - Avoid covering the LiDAR/camera.
 
 ## 🔧 Technical Implementation
 
