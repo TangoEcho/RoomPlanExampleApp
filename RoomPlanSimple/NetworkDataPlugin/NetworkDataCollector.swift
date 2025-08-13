@@ -153,13 +153,15 @@ class NetworkDataCollector: NSObject, ObservableObject {
         var currentBSSID: String?
         var networkCount = 0
         
-        // Get current WiFi network info
-        if let interfaces = CNCopySupportedInterfaces() as? [String] {
-            for interface in interfaces {
-                if let info = CNCopyCurrentNetworkInfo(interface as CFString) as? [String: Any] {
-                    currentSSID = info[kCNNetworkInfoKeySSID as String] as? String
-                    currentBSSID = info[kCNNetworkInfoKeyBSSID as String] as? String
-                    break
+        // Get current WiFi network info (optional; CaptiveNetwork is deprecated and may require entitlements)
+        if AppConfig.useCaptiveNetworkAPIs {
+            if let interfaces = CNCopySupportedInterfaces() as? [String] {
+                for interface in interfaces {
+                    if let info = CNCopyCurrentNetworkInfo(interface as CFString) as? [String: Any] {
+                        currentSSID = info[kCNNetworkInfoKeySSID as String] as? String
+                        currentBSSID = info[kCNNetworkInfoKeyBSSID as String] as? String
+                        break
+                    }
                 }
             }
         }

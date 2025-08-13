@@ -29,7 +29,8 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     // Helper to check if iOS 17+ features are available
     private var isIOS17Available: Bool {
-        return true
+        if #available(iOS 17.0, *) { return true }
+        return false
     }
     
     private var primaryActionButton: UIButton?

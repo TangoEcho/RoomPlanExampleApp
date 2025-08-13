@@ -57,7 +57,7 @@ class PlumePlugin: ObservableObject, WiFiAnalysisPlugin {
     // MARK: - Internal Components
     private let configuration: PlumeConfiguration
     private let apiManager: PlumeAPIManager
-    private let steeringOrchestrator: PlumeSteering Orchestrator
+    private let steeringOrchestrator: PlumeSteeringOrchestrator
     private let dataCorrelator: PlumeDataCorrelator
     private let simulationEngine: PlumeSimulationEngine?
     

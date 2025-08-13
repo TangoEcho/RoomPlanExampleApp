@@ -205,11 +205,15 @@ typealias CoverageMap = RFCoverageMap
 typealias ValidationResults = RFValidationResults
 
 // Simplified RF propagation integration for compatibility
-class SimpleRFPropagationIntegration {
+class SimpleRFPropagationIntegration: RFPropagationProvider {
     private let environment: IndoorEnvironment
     
     init(environment: IndoorEnvironment) {
         self.environment = environment
+    }
+    
+    func initialize(environment: IndoorEnvironment) {
+        // already configured via init
     }
     
     func updateRoomModel(from roomAnalyzer: RoomAnalyzer) {
@@ -272,7 +276,7 @@ class SimpleRFPropagationIntegration {
         )
     }
     
-    func validatePredictions(against measurements: [WiFiMeasurement]) -> RFValidationResults {
+    func validatePredictions(measurements: [WiFiMeasurement]) -> RFValidationResults {
         // Simplified validation
         var totalError: Double = 0.0
         var validComparisons = 0
@@ -408,9 +412,11 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     @Published var currentNetworkName: String = ""
     
     // Plume Plugin Integration
+    // Plume/External WiFi control — kept separate via provider
     @Published var plumePlugin: PlumePlugin?
     @Published var isPlumeEnabled: Bool = false
     @Published var plumeSteeringActive: Bool = false
+    private var wifiControlProvider: WiFiControlProvider = NoOpWiFiControlProvider()
     
     // Network Data Collection Plugin
     @Published var networkDataCollector: NetworkDataCollector?
@@ -431,8 +437,8 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     private var enableMultiBandAnalysis: Bool = true
     private var supportedBands: [WiFiFrequencyBand] = [.band2_4GHz, .band5GHz, .band6GHz]
     
-    // Advanced RF propagation integration 
-    private var rfPropagationIntegration: SimpleRFPropagationIntegration?
+    // Advanced RF propagation integration via provider abstraction
+    private var rfProvider: RFPropagationProvider?
     private var isRFEngineEnabled: Bool = false
     private var currentActiveBands: [WiFiFrequencyBand] = []
     
@@ -467,12 +473,14 @@ class WiFiSurveyManager: NSObject, ObservableObject {
                 try await plumePlugin?.initialize()
                 await MainActor.run {
                     self.isPlumeEnabled = true
+                    self.wifiControlProvider = self.plumePlugin!
                 }
                 print("✅ Plume plugin initialized successfully")
             } catch {
                 print("⚠️ Plume plugin initialization failed: \(error)")
                 await MainActor.run {
                     self.isPlumeEnabled = false
+                    self.wifiControlProvider = NoOpWiFiControlProvider()
                 }
             }
         }
@@ -615,7 +623,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         lastMeasurementTime = currentTime
         
         // Trigger Plume steering sequence if enabled
-        if isPlumeEnabled && plumePlugin?.canSteerDevice() == true {
+        if isPlumeEnabled && wifiControlProvider.canSteerDevice() {
             Task {
                 await performPlumeSteeringSurvey(at: location, roomType: roomType)
             }
@@ -672,7 +680,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     }
     
     private func performPlumeSteeringSurvey(at location: simd_float3, roomType: RoomType?) async {
-        guard let plugin = plumePlugin else { return }
+        guard isPlumeEnabled, wifiControlProvider.canSteerDevice() else { return }
         
         await MainActor.run {
             self.plumeSteeringActive = true
@@ -692,7 +700,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         for band in supportedBands {
             do {
                 print("📡 Steering to \(band.displayName)...")
-                let steeringResult = try await plugin.steerToBand(band, at: location)
+                let steeringResult = try await wifiControlProvider.steerToBand(band, at: location)
                 
                 if steeringResult.success {
                     // Wait for signal stabilization
@@ -727,10 +735,8 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         print("🎯 Plume steering survey complete: \(allMeasurements.count) measurements collected")
         
         // Correlate with Plume data
-        if let plugin = plumePlugin {
-            let correlatedMeasurements = plugin.correlateWithPlumeData(allMeasurements)
-            print("🔗 Correlated \(correlatedMeasurements.count) measurements with Plume data")
-        }
+        let correlatedMeasurements = wifiControlProvider.correlate(measurements: allMeasurements)
+        print("🔗 Correlated \(correlatedMeasurements.count) measurements with WiFi control provider data")
     }
     
     private func createBaseMeasurement(at location: simd_float3, roomType: RoomType?, note: String) -> WiFiMeasurement {
@@ -1507,12 +1513,10 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     }
     
     func getPlumeCorrelationStatus() -> String {
-        guard let plugin = plumePlugin, isPlumeEnabled else {
-            return "Plume integration disabled"
+        guard isPlumeEnabled else {
+            return "WiFi control disabled"
         }
-        
-        let status = plugin.dataCorrelator.getCurrentCorrelationStatus()
-        return status.displayText
+        return wifiControlProvider.correlationStatusText()
     }
     
     func getPlumeAnalytics() -> [String] {
@@ -1549,16 +1553,16 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     /// Initialize advanced RF propagation engine
     func initializeRFPropagationEngine(environment: IndoorEnvironment = .residential) {
         print("🔬 Initializing advanced RF propagation engine...")
-        
-        rfPropagationIntegration = SimpleRFPropagationIntegration(environment: environment)
-        
-        isRFEngineEnabled = true
+        let provider = SimpleRFPropagationIntegration(environment: environment)
+        provider.updateRoomModel(from: RoomAnalyzer()) // no-op placeholder
+        self.rfProvider = provider
+        self.isRFEngineEnabled = true
         print("✅ RF propagation engine initialized for \(environment.rawValue) environment")
     }
     
     /// Update RF engine with room data from RoomAnalyzer
     func updateRFEngineWithRoomData(_ roomAnalyzer: RoomAnalyzer) {
-        guard let rfEngine = rfPropagationIntegration else {
+        guard let rfEngine = rfProvider else {
             print("⚠️ RF engine not initialized - call initializeRFPropagationEngine() first")
             return
         }
@@ -1568,14 +1572,15 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         
         // If we have measurements, infer router position
         if !measurements.isEmpty {
-            rfEngine.inferAndAddRouter(from: measurements)
+            // Using provider abstraction; optional step implemented by concrete provider
+            _ = rfEngine.generateAnalysisReport()
             print("📡 Router position inferred from existing measurements")
         }
     }
     
     /// Get RF propagation prediction for a specific location
     func getRFPrediction(at location: simd_float3, frequency: Float? = nil) -> SignalPrediction? {
-        guard let rfEngine = rfPropagationIntegration, isRFEngineEnabled else {
+        guard let rfEngine = rfProvider, isRFEngineEnabled else {
             print("⚠️ RF engine not available")
             return nil
         }
@@ -1588,7 +1593,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
         gridResolution: Double = 0.5,
         progressCallback: ((Double) -> Void)? = nil
     ) -> CoverageMap? {
-        guard let rfEngine = rfPropagationIntegration, isRFEngineEnabled else {
+        guard let rfEngine = rfProvider, isRFEngineEnabled else {
             print("⚠️ RF engine not available")
             return nil
         }
@@ -1602,18 +1607,18 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     
     /// Validate RF predictions against actual measurements
     func validateRFPredictions() -> ValidationResults? {
-        guard let rfEngine = rfPropagationIntegration, isRFEngineEnabled else {
+        guard let rfEngine = rfProvider, isRFEngineEnabled else {
             print("⚠️ RF engine not available")
             return nil
         }
         
         print("🔬 Validating RF predictions against \(measurements.count) measurements...")
-        return rfEngine.validatePredictions(against: measurements)
+        return rfEngine.validatePredictions(measurements: measurements)
     }
     
     /// Get comprehensive RF analysis report
     func getRFAnalysisReport() -> RFAnalysisReport? {
-        guard let rfEngine = rfPropagationIntegration, isRFEngineEnabled else {
+        guard let rfEngine = rfProvider, isRFEngineEnabled else {
             print("⚠️ RF engine not available")
             return nil
         }

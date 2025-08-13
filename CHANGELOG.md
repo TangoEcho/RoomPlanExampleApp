@@ -1,5 +1,19 @@
 # Changelog - RoomPlan WiFi Survey Coordinate Alignment
 
+## Unreleased
+
+### Project consolidation
+- Removed standalone `WiFiMap` package from the workspace; all RF propagation, placement optimization, RoomPlan parsing, and data models now live under `RoomPlanExampleApp/RoomPlanSimple/WiFiMapFramework/`.
+- Updated docs to reference the integrated modules only.
+
+### Fixes
+- RF coverage concurrency: `CoverageEngine.calculateGridCoverage` now aggregates results from task groups correctly and runs batches concurrently instead of reprocessing sequentially.
+- iOS 17 availability: replaced hardcoded `true` with `#available(iOS 17, *)` gate in `RoomCaptureViewController`.
+- Plume plugin compile fix: corrected `PlumeSteeringOrchestrator` type reference.
+
+### Notes
+- If you had local references to the removed `WiFiMap` package, point them to the integrated `WiFiMapFramework` modules.
+
 ## Version 2.0.0 - Advanced Coordinate Alignment Implementation
 
 ### 🎯 Major Features

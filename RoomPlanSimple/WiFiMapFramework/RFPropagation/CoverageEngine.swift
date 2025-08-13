@@ -239,14 +239,13 @@ public class CoverageEngine {
         floors: [FloorModel]? = nil
     ) async throws -> [GridPoint: SignalStrength] {
         
-        return try await withThrowingTaskGroup(of: (GridPoint, SignalStrength).self) { group in
+        // Process grid points concurrently in batches and aggregate results
+        return try await withThrowingTaskGroup(of: [(GridPoint, SignalStrength)].self) { group in
             var results: [GridPoint: SignalStrength] = [:]
             
-            // Process grid points in batches
             let batchSize = max(1, grid.count / configuration.maxProcessingThreads)
             let batches = grid.chunked(into: batchSize)
             
-            // Add tasks for each batch
             for batch in batches {
                 group.addTask {
                     return try await self.processBatch(
@@ -254,27 +253,13 @@ public class CoverageEngine {
                         room: room,
                         transmitters: transmitters,
                         frequencies: frequencies,
-                        environment: environment
+                        environment: environment,
+                        floors: floors
                     )
                 }
             }
             
-            // Collect results
             for try await batchResults in group {
-                // batchResults is a single (GridPoint, SignalStrength) tuple
-                // We need to modify this to handle batch processing correctly
-            }
-            
-            // Process batches sequentially for now (can be optimized)
-            for batch in batches {
-                let batchResults = try await processBatch(
-                    batch: batch,
-                    room: room,
-                    transmitters: transmitters,
-                    frequencies: frequencies,
-                    environment: environment,
-                    floors: floors
-                )
                 for (point, signal) in batchResults {
                     results[point] = signal
                 }

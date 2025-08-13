@@ -126,11 +126,15 @@ Cellular + WiFi + Location Data → Export System
 
 ### Plugin Architecture
 ```
-Core App
+Core App (Integrated)
 ├── WiFiSurveyManager (WiFi Performance)
 ├── NetworkDataCollector (Network Information) ← Single Source of Truth
 ├── PlumePlugin (Band Steering)
 └── Export System (Unified Data Export)
+
+WiFiMapFramework (Integrated into app)
+├── Core, RFPropagation, PlacementOptimization, RoomPlan
+└── No external Swift Package dependency
 ```
 
 ## 🔧 Technical Implementation
