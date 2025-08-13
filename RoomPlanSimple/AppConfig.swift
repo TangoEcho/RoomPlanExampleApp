@@ -16,6 +16,9 @@ enum AppConfig {
     
     /// Use deprecated CaptiveNetwork APIs for SSID/BSSID (will be ignored if not entitled)
     static let useCaptiveNetworkAPIs: Bool = false
+
+    /// Auto-launch demo floor plan on unsupported devices (for demos only)
+    static let autoLaunchDemoOnUnsupportedDevices: Bool = false
 }
 
 

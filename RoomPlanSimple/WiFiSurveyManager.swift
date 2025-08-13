@@ -204,6 +204,54 @@ typealias SignalPrediction = RFSignalPrediction
 typealias CoverageMap = RFCoverageMap
 typealias ValidationResults = RFValidationResults
 
+// MARK: - Lightweight abstractions (stubs to avoid hard compile-time deps)
+protocol RFPropagationProvider {
+    func initialize(environment: IndoorEnvironment)
+    func updateRoomModel(from analyzer: RoomAnalyzer)
+    func predictSignalStrength(at location: simd_float3, frequency: Float?) -> RFSignalPrediction?
+    func generateCoverageMap(gridResolution: Double, progressCallback: ((Double) -> Void)?) -> RFCoverageMap?
+    func validatePredictions(measurements: [WiFiMeasurement]) -> RFValidationResults?
+    func generateAnalysisReport() -> RFAnalysisReport?
+}
+
+struct SteeringResult {
+    let success: Bool
+    let band: WiFiFrequencyBand?
+    let signalStrength: Int
+    let stabilizationTime: TimeInterval
+    let timestamp: Date
+}
+
+struct CorrelatedMeasurement {
+    let timestamp: Date
+}
+
+protocol WiFiControlProvider: AnyObject {
+    var isEnabled: Bool { get }
+    func canSteerDevice() -> Bool
+    func steerToBand(_ band: WiFiFrequencyBand, at location: simd_float3) async throws -> SteeringResult
+    func correlate(measurements: [WiFiMeasurement]) -> [CorrelatedMeasurement]
+    func correlationStatusText() -> String
+}
+
+final class NoOpWiFiControlProvider: WiFiControlProvider {
+    var isEnabled: Bool { false }
+    func canSteerDevice() -> Bool { false }
+    func steerToBand(_ band: WiFiFrequencyBand, at location: simd_float3) async throws -> SteeringResult {
+        throw NSError(domain: "WiFiControl", code: -1)
+    }
+    func correlate(measurements: [WiFiMeasurement]) -> [CorrelatedMeasurement] { [] }
+    func correlationStatusText() -> String { "Disabled" }
+}
+
+public struct NetworkDataPoint {}
+public final class NetworkDataCollector {
+    var measurementInterval: TimeInterval?
+    func startCollection() {}
+    func stopCollection() {}
+    func getCollectedData() -> [NetworkDataPoint] { [] }
+}
+
 // Simplified RF propagation integration for compatibility
 class SimpleRFPropagationIntegration: RFPropagationProvider {
     private let environment: IndoorEnvironment
@@ -276,7 +324,7 @@ class SimpleRFPropagationIntegration: RFPropagationProvider {
         )
     }
     
-    func validatePredictions(measurements: [WiFiMeasurement]) -> RFValidationResults {
+    func validatePredictions(measurements: [WiFiMeasurement]) -> RFValidationResults? {
         // Simplified validation
         var totalError: Double = 0.0
         var validComparisons = 0
@@ -411,9 +459,7 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     @Published var currentSignalStrength: Int = 0
     @Published var currentNetworkName: String = ""
     
-    // Plume Plugin Integration
-    // Plume/External WiFi control — kept separate via provider
-    @Published var plumePlugin: PlumePlugin?
+    // Plume/External WiFi control — kept separate via provider (no hard dep on plugin module)
     @Published var isPlumeEnabled: Bool = false
     @Published var plumeSteeringActive: Bool = false
     private var wifiControlProvider: WiFiControlProvider = NoOpWiFiControlProvider()
@@ -465,30 +511,15 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     // MARK: - Plume Plugin Integration
     
     private func initializePlumePlugin() {
-        // Initialize Plume plugin in simulation mode for testing
-        plumePlugin = PlumePlugin(configuration: .simulation)
-        
-        Task {
-            do {
-                try await plumePlugin?.initialize()
-                await MainActor.run {
-                    self.isPlumeEnabled = true
-                    self.wifiControlProvider = self.plumePlugin!
-                }
-                print("✅ Plume plugin initialized successfully")
-            } catch {
-                print("⚠️ Plume plugin initialization failed: \(error)")
-                await MainActor.run {
-                    self.isPlumeEnabled = false
-                    self.wifiControlProvider = NoOpWiFiControlProvider()
-                }
-            }
-        }
+        // Defer to external team/module; default to NoOp. This avoids compile-time dependency.
+        self.isPlumeEnabled = false
+        self.wifiControlProvider = NoOpWiFiControlProvider()
+        print("ℹ️ Plume integration deferred: provider not linked in this target")
     }
     
     func enablePlumeIntegration(_ enabled: Bool) {
         isPlumeEnabled = enabled
-        if enabled && plumePlugin == nil {
+        if enabled {
             initializePlumePlugin()
         }
         print("🔌 Plume integration: \(enabled ? "enabled" : "disabled")")
@@ -1520,18 +1551,8 @@ class WiFiSurveyManager: NSObject, ObservableObject {
     }
     
     func getPlumeAnalytics() -> [String] {
-        guard let plugin = plumePlugin, isPlumeEnabled else {
-            return ["Plume integration not available"]
-        }
-        
-        let report = plugin.steeringOrchestrator.analyzeSteeringPatterns()
-        return [
-            "🎯 Plume Steering Analytics:",
-            "   Total sequences: \(report.totalSequences)",
-            "   Success rate: \(report.successRatePercentage)",
-            "   Average duration: \(report.averageDurationFormatted)",
-            "   Band performance:",
-        ] + report.bandPerformance.map { "     \($0.key.displayName): \($0.value)dBm avg" }
+        guard isPlumeEnabled else { return ["WiFi control disabled"] }
+        return ["WiFi control provider active"]
     }
     
     // MARK: - RF Propagation Model Testing

@@ -39,6 +39,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     private var progressIndicator: UIProgressView?
     private var speedTestProgressView: UIProgressView?
     private var speedTestLabel: UILabel?
+    private var speedTestSpinner: UIActivityIndicatorView?
     
     // Bottom navigation
     private var bottomNavBar: UIView?
@@ -169,10 +170,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         placeholderView.addSubview(demoButton)
         view.insertSubview(placeholderView, at: 0)
         
-        // Auto-show demo after 3 seconds for demonstration purposes
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            print("🎯 Auto-launching Floor Plan Demo")
-            self.showFloorPlanDemo()
+        // Auto-launch demo disabled by default; enable via feature flag if needed
+        if false {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                print("🎯 Auto-launching Floor Plan Demo")
+                self.showFloorPlanDemo()
+            }
         }
         
         NSLayoutConstraint.activate([
@@ -266,6 +269,11 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         
         // Create speed test label
         speedTestLabel = SpectrumBranding.createSpectrumLabel(text: "Running speed test...", style: .caption)
+        // Create speed test spinner
+        speedTestSpinner = UIActivityIndicatorView(style: .medium)
+        speedTestSpinner?.translatesAutoresizingMaskIntoConstraints = false
+        speedTestSpinner?.hidesWhenStopped = true
+
         speedTestLabel?.textAlignment = .center
         speedTestLabel?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.9)
         speedTestLabel?.textColor = .white
@@ -284,6 +292,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         view.addSubview(progressIndicator)
         view.addSubview(speedTestProgressView)
         view.addSubview(speedTestLabel)
+        if let speedTestSpinner = speedTestSpinner { view.addSubview(speedTestSpinner) }
         
         // Setup constraints
         NSLayoutConstraint.activate([
@@ -311,6 +320,13 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             speedTestProgressView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -40),
             speedTestProgressView.heightAnchor.constraint(equalToConstant: 6)
         ])
+
+        if let spinner = speedTestSpinner {
+            NSLayoutConstraint.activate([
+                spinner.trailingAnchor.constraint(equalTo: speedTestLabel.leadingAnchor, constant: -8),
+                spinner.centerYAnchor.constraint(equalTo: speedTestLabel.centerYAnchor)
+            ])
+        }
     }
     
     private func setupBottomNavigation() {
@@ -323,7 +339,15 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         modeLabel?.layer.masksToBounds = true
         modeLabel?.translatesAutoresizingMaskIntoConstraints = false
         
-        // Create scan/survey toggle button in bottom-left corner
+        // Bottom toolbar layout
+        let toolbar = UIStackView()
+        toolbar.axis = .horizontal
+        toolbar.alignment = .fill
+        toolbar.distribution = .fillEqually
+        toolbar.spacing = 12
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
+
+        // Create scan/survey toggle button
         scanSurveyToggleButton = UIButton(type: .system)
         scanSurveyToggleButton?.setTitle("📡 Switch to WiFi Survey", for: .normal)
         scanSurveyToggleButton?.setTitleColor(.white, for: .normal)
@@ -335,7 +359,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         scanSurveyToggleButton?.titleLabel?.adjustsFontSizeToFitWidth = true
         scanSurveyToggleButton?.titleLabel?.minimumScaleFactor = 0.8
         
-        // Create floor plan button in bottom-right corner
+        // Create floor plan button
         floorPlanNavButton = UIButton(type: .system)
         floorPlanNavButton?.setTitle("📊 View Plan", for: .normal)
         floorPlanNavButton?.setTitleColor(.white, for: .normal)
@@ -345,7 +369,7 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
         floorPlanNavButton?.translatesAutoresizingMaskIntoConstraints = false
         floorPlanNavButton?.layer.cornerRadius = 8
         
-        // Create router placement button in bottom-center
+        // Create router placement button
         routerPlacementButton = UIButton(type: .system)
         routerPlacementButton?.setTitle("📡 Place Router", for: .normal)
         routerPlacementButton?.setTitleColor(.white, for: .normal)
@@ -360,11 +384,12 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
               let scanSurveyToggleButton = scanSurveyToggleButton,
               let floorPlanNavButton = floorPlanNavButton,
               let routerPlacementButton = routerPlacementButton else { return }
-        
+
         view.addSubview(modeLabel)
-        view.addSubview(scanSurveyToggleButton)
-        view.addSubview(floorPlanNavButton)
-        view.addSubview(routerPlacementButton)
+        view.addSubview(toolbar)
+        toolbar.addArrangedSubview(scanSurveyToggleButton)
+        toolbar.addArrangedSubview(routerPlacementButton)
+        toolbar.addArrangedSubview(floorPlanNavButton)
         
         NSLayoutConstraint.activate([
             // Mode label in top-left corner
@@ -373,23 +398,11 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
             modeLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
             modeLabel.heightAnchor.constraint(equalToConstant: 32),
             
-            // Scan/survey toggle in bottom-left corner (moved further up to avoid RoomPlan model)
-            scanSurveyToggleButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -120),
-            scanSurveyToggleButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            scanSurveyToggleButton.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
-            scanSurveyToggleButton.heightAnchor.constraint(equalToConstant: 44),
-            
-            // Floor plan button in bottom-right corner (moved further up to avoid RoomPlan model)
-            floorPlanNavButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -120),
-            floorPlanNavButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            floorPlanNavButton.widthAnchor.constraint(equalToConstant: 120),
-            floorPlanNavButton.heightAnchor.constraint(equalToConstant: 44),
-            
-            // Router placement button in bottom-center
-            routerPlacementButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -120),
-            routerPlacementButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            routerPlacementButton.widthAnchor.constraint(equalToConstant: 140),
-            routerPlacementButton.heightAnchor.constraint(equalToConstant: 44)
+            // Bottom toolbar
+            toolbar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            toolbar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            toolbar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            toolbar.heightAnchor.constraint(equalToConstant: 48)
         ])
         
         updateBottomNavigation()
@@ -1096,10 +1109,9 @@ class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate, Room
     
     private func startWiFiMonitoring() {
         // Start basic WiFi network monitoring during room scan
-        let networkInfo = wifiSurveyManager.getCurrentNetworkInfo()
-        if let ssid = networkInfo.ssid, !ssid.isEmpty {
-            print("📶 Connected to WiFi: \(ssid)")
-        }
+        // Minimal logging using collector (if available)
+        let name = wifiSurveyManager.currentNetworkName
+        if !name.isEmpty { print("📶 Connected to WiFi: \(name)") }
     }
     
     private func stopWiFiMonitoring() {
