@@ -5,7 +5,7 @@ import simd
 import SystemConfiguration.CaptiveNetwork
 import NetworkExtension
 
-struct WiFiMeasurement: Codable {
+struct WiFiMeasurement {
     let location: simd_float3
     let timestamp: Date
     let signalStrength: Int
